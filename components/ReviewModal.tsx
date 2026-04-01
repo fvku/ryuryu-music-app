@@ -31,6 +31,11 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isRecommending, setIsRecommending] = useState(false);
+  const [recommendMessage, setRecommendMessage] = useState("");
+  const [recommendSubmitting, setRecommendSubmitting] = useState(false);
+  const [recommendSuccess, setRecommendSuccess] = useState(false);
+  const [recommendError, setRecommendError] = useState<string | null>(null);
 
   const fetchScores = useCallback(async () => {
     try {
@@ -112,6 +117,33 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     ? scores.find((s) => s.memberName === session.user!.name)
     : undefined;
   const alreadyReviewed = !!myScore;
+
+  async function handleRecommend() {
+    setRecommendSubmitting(true);
+    setRecommendError(null);
+    try {
+      const res = await fetch("/api/recommendations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          albumNo: album.no,
+          albumTitle: album.title,
+          artistName: album.artist,
+          coverUrl: coverUrl || "",
+          message: recommendMessage.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "レコメンドに失敗しました");
+      setRecommendSuccess(true);
+      setIsRecommending(false);
+      setRecommendMessage("");
+    } catch (err) {
+      setRecommendError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setRecommendSubmitting(false);
+    }
+  }
 
   function startEditing() {
     if (myScore) {
@@ -219,7 +251,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                       </span>
                     </div>
                     <ScoreBar score={s.score} showNumber={false} height="h-1.5" />
-                    {s.comment && <p className="mt-2 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>{s.comment}</p>}
+                    {s.comment && <p className="mt-4 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>{s.comment}</p>}
                   </div>
                 ))}
               </div>
@@ -244,6 +276,42 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Recommend */}
+          {status === "authenticated" && (
+            <div className="rounded-2xl p-4 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
+              <h3 className="text-sm font-bold mb-3" style={{ color: "var(--text-primary)" }}>レコメンド</h3>
+              {recommendSuccess ? (
+                <div className="rounded-xl p-3 border" style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}>
+                  <p className="text-green-400 text-sm font-medium">レコメンドしました！</p>
+                </div>
+              ) : isRecommending ? (
+                <div className="flex flex-col gap-3">
+                  <textarea
+                    value={recommendMessage}
+                    onChange={(e) => setRecommendMessage(e.target.value)}
+                    placeholder="おすすめコメント（任意）"
+                    rows={2}
+                    className="w-full px-3 py-2 rounded-xl border text-sm resize-none"
+                    style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                  />
+                  {recommendError && <p className="text-red-400 text-xs">{recommendError}</p>}
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => { setIsRecommending(false); setRecommendError(null); }} className="flex-1 py-2 rounded-xl text-sm border" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>
+                      キャンセル
+                    </button>
+                    <button type="button" onClick={handleRecommend} disabled={recommendSubmitting} className="flex-1 py-2 rounded-xl text-sm font-medium disabled:opacity-50" style={{ backgroundColor: "var(--accent)", color: "white" }}>
+                      {recommendSubmitting ? "送信中..." : "レコメンドする"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setIsRecommending(true)} className="w-full py-2.5 rounded-xl text-sm font-medium border" style={{ borderColor: "var(--accent)", color: "var(--accent)" }}>
+                  このアルバムをレコメンドする
+                </button>
+              )}
             </div>
           )}
 

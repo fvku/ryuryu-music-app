@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Providers from "@/components/Providers";
 import AuthButton from "@/components/AuthButton";
+import BottomNav from "@/components/BottomNav";
 
 export const metadata: Metadata = {
   title: "月次アルバムレビュー",
@@ -35,12 +36,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </header>
 
-          <main className="max-w-6xl mx-auto px-4 py-8">
+          <main className="max-w-6xl mx-auto px-4 py-8 pb-24">
             {children}
           </main>
 
           <footer
-            className="mt-16 border-t py-8 text-center text-sm"
+            className="mt-16 border-t py-8 pb-28 text-center text-sm"
             style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
           >
             <p>
@@ -50,6 +51,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </p>
             <p className="mt-2">© 月次アルバムレビュー</p>
           </footer>
+
+          <BottomNav />
         </Providers>
       </body>
     </html>

@@ -149,3 +149,75 @@ export async function updateScore(albumNo: string, memberName: string, score: nu
 
   return { reviewId: albumNo, memberName, score, comment, submittedAt, albumTitle: existingAlbumTitle, artistName: existingArtistName };
 }
+
+export interface Recommendation {
+  id: string;
+  recommenderId: string;
+  albumNo: string;
+  albumTitle: string;
+  artistName: string;
+  coverUrl: string;
+  message: string;
+  createdAt: string;
+}
+
+export async function initRecommendationsSheet(): Promise<void> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  try {
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "recommendations!A1:H1" });
+    if (!res.data.values || res.data.values.length === 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: "recommendations!A1:H1",
+        valueInputOption: "RAW",
+        requestBody: { values: [["id", "recommenderId", "albumNo", "albumTitle", "artistName", "coverUrl", "message", "createdAt"]] },
+      });
+    }
+  } catch {
+    // Sheet may not exist yet — create it via batchUpdate
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title: "recommendations" } } }] },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: "recommendations!A1:H1",
+      valueInputOption: "RAW",
+      requestBody: { values: [["id", "recommenderId", "albumNo", "albumTitle", "artistName", "coverUrl", "message", "createdAt"]] },
+    });
+  }
+}
+
+export async function getAllRecommendations(): Promise<Recommendation[]> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "recommendations!A2:H" });
+  const rows = res.data.values;
+  if (!rows || rows.length === 0) return [];
+  return rows.filter((row) => row[0]).map((row) => ({
+    id: row[0] || "",
+    recommenderId: row[1] || "",
+    albumNo: row[2] || "",
+    albumTitle: row[3] || "",
+    artistName: row[4] || "",
+    coverUrl: row[5] || "",
+    message: row[6] || "",
+    createdAt: row[7] || "",
+  }));
+}
+
+export async function addRecommendation(data: Omit<Recommendation, "id" | "createdAt">): Promise<Recommendation> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  const id = `rec_${Date.now()}`;
+  const createdAt = new Date().toISOString();
+  const rec: Recommendation = { id, createdAt, ...data };
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: "recommendations!A:H",
+    valueInputOption: "RAW",
+    requestBody: { values: [[rec.id, rec.recommenderId, rec.albumNo, rec.albumTitle, rec.artistName, rec.coverUrl, rec.message, rec.createdAt]] },
+  });
+  return rec;
+}

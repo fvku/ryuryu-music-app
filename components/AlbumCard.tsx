@@ -71,6 +71,8 @@ export default function AlbumCard({ album, coverUrl, averageScore, scoreCount = 
             <p className="font-bold text-base" style={{ color: getScoreColor(averageScore) }}>{averageScore.toFixed(1)}</p>
             <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{scoreCount}件</p>
           </>
+        ) : album.legacyScores.length > 0 ? (
+          <p className="text-xs" style={{ color: "var(--accent)" }}>レビューあり</p>
         ) : (
           <p className="text-xs" style={{ color: "var(--text-secondary)" }}>未評価</p>
         )}
