@@ -115,3 +115,31 @@ export async function hasScore(albumNo: string, memberName: string): Promise<boo
   const scores = await getScoresForAlbum(albumNo);
   return scores.some((s) => s.memberName.trim().toLowerCase() === memberName.trim().toLowerCase());
 }
+
+export async function updateScore(albumNo: string, memberName: string, score: number, comment: string): Promise<Score | null> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "scores!A2:E" });
+  const rows = response.data.values;
+  if (!rows) return null;
+
+  const rowIndex = rows.findIndex(
+    (row) => row[0] === albumNo && row[1]?.trim().toLowerCase() === memberName.trim().toLowerCase()
+  );
+  if (rowIndex === -1) return null;
+
+  const sheetRowNumber = rowIndex + 2; // +2 for header and 1-indexed
+  const submittedAt = new Date().toISOString();
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `scores!A${sheetRowNumber}:E${sheetRowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[albumNo, memberName, score, comment, submittedAt]],
+    },
+  });
+
+  return { reviewId: albumNo, memberName, score, comment, submittedAt };
+}

@@ -33,6 +33,7 @@ export default function ReviewPage({ params }: PageProps) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   async function fetchData() {
     try {
@@ -99,7 +100,7 @@ export default function ReviewPage({ params }: PageProps) {
       setSubmitSuccess(true);
       setScore(7.5);
       setComment("");
-      // Refresh scores
+      setIsEditing(false);
       const scoresRes = await fetch(`/api/scores/${params.id}`);
       if (scoresRes.ok) {
         const scoresData = await scoresRes.json();
@@ -113,9 +114,47 @@ export default function ReviewPage({ params }: PageProps) {
     }
   }
 
-  const alreadyReviewed = session?.user?.name
-    ? scores.some((s) => s.memberName === session.user!.name)
-    : false;
+  async function handleUpdateScore(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const response = await fetch(`/api/scores/${params.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ score, comment: comment.trim() }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "レビューの更新に失敗しました");
+      setSubmitSuccess(true);
+      setIsEditing(false);
+      const scoresRes = await fetch(`/api/scores/${params.id}`);
+      if (scoresRes.ok) {
+        const scoresData = await scoresRes.json();
+        setScores(scoresData.scores || []);
+        setAverageScore(scoresData.averageScore ?? null);
+      }
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const myScore = session?.user?.name
+    ? scores.find((s) => s.memberName === session.user!.name)
+    : undefined;
+  const alreadyReviewed = !!myScore;
+
+  function startEditing() {
+    if (myScore) {
+      setScore(myScore.score);
+      setComment(myScore.comment || "");
+    }
+    setSubmitSuccess(false);
+    setSubmitError(null);
+    setIsEditing(true);
+  }
 
   if (loading) {
     return (
@@ -344,16 +383,40 @@ export default function ReviewPage({ params }: PageProps) {
               </span>
             </div>
 
-            {alreadyReviewed ? (
-              <div
-                className="rounded-xl p-4 border"
-                style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}
-              >
-                <p className="text-green-400 font-medium text-sm">投稿済みです</p>
+            {alreadyReviewed && !isEditing ? (
+              <div>
+                {submitSuccess && (
+                  <div
+                    className="rounded-xl p-4 mb-4 border"
+                    style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}
+                  >
+                    <p className="text-green-400 font-medium text-sm">レビューを更新しました！</p>
+                  </div>
+                )}
+                <div
+                  className="rounded-xl p-4 border flex items-center justify-between"
+                  style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}
+                >
+                  <div>
+                    <p className="text-green-400 font-medium text-sm">投稿済みです</p>
+                    {myScore && (
+                      <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
+                        スコア: <span style={{ color: getScoreColor(myScore.score) }}>{myScore.score % 1 === 0 ? myScore.score.toFixed(1) : myScore.score}</span> / 10
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={startEditing}
+                    className="px-4 py-2 rounded-xl text-sm font-medium border"
+                    style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
+                  >
+                    編集する
+                  </button>
+                </div>
               </div>
             ) : (
               <>
-                {submitSuccess && (
+                {submitSuccess && !alreadyReviewed && (
                   <div
                     className="rounded-xl p-4 mb-5 border"
                     style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}
@@ -364,7 +427,7 @@ export default function ReviewPage({ params }: PageProps) {
                   </div>
                 )}
 
-                <form onSubmit={handleSubmitScore} className="flex flex-col gap-5">
+                <form onSubmit={isEditing ? handleUpdateScore : handleSubmitScore} className="flex flex-col gap-5">
                   <div>
                     <label className="block text-sm font-medium mb-2" style={{ color: "var(--text-primary)" }}>
                       スコア
@@ -413,14 +476,26 @@ export default function ReviewPage({ params }: PageProps) {
 
                   {submitError && <p className="text-red-400 text-sm">{submitError}</p>}
 
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="w-full py-3 rounded-xl font-medium text-sm disabled:opacity-50"
-                    style={{ backgroundColor: "var(--accent)", color: "white" }}
-                  >
-                    {submitting ? "投稿中..." : "レビューを投稿する"}
-                  </button>
+                  <div className="flex gap-3">
+                    {isEditing && (
+                      <button
+                        type="button"
+                        onClick={() => { setIsEditing(false); setSubmitError(null); }}
+                        className="flex-1 py-3 rounded-xl font-medium text-sm border"
+                        style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
+                      >
+                        キャンセル
+                      </button>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="flex-1 py-3 rounded-xl font-medium text-sm disabled:opacity-50"
+                      style={{ backgroundColor: "var(--accent)", color: "white" }}
+                    >
+                      {submitting ? (isEditing ? "更新中..." : "投稿中...") : (isEditing ? "レビューを更新する" : "レビューを投稿する")}
+                    </button>
+                  </div>
                 </form>
               </>
             )}
