@@ -11,9 +11,14 @@ function getAuth() {
   if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
   let credentials;
   try {
-    credentials = JSON.parse(keyJson);
+    const decoded = Buffer.from(keyJson, "base64").toString("utf-8");
+    credentials = JSON.parse(decoded);
   } catch {
-    credentials = JSON.parse(keyJson.replace(/\n/g, "\\n"));
+    try {
+      credentials = JSON.parse(keyJson);
+    } catch {
+      credentials = JSON.parse(keyJson.replace(/\n/g, "\\n"));
+    }
   }
   if (credentials.private_key) {
     credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
