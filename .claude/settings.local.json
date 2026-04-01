@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(ls -lt ~/Downloads/*.json)",
+      "Bash(curl:*)",
+      "Bash(node:*)",
+      "Bash(openssl rand:*)",
+      "Bash(ls /Users/koheifukuda/ryuryu-music/app/api/reviews/[id]/)",
+      "Bash(mkdir -p /Users/koheifukuda/ryuryu-music/app/api/release-master/\\\\[no\\\\])",
+      "Bash(mkdir -p /Users/koheifukuda/ryuryu-music/app/api/scores/\\\\[albumNo\\\\])",
+      "Bash(npx tsc:*)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(a['no'], a['spotifyUrl'][:50] if a['spotifyUrl'] else '\\(空\\)'\\) for a in d[:3]]\")"
+    ]
+  }
+}
