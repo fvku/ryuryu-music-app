@@ -30,6 +30,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   const fetchScores = useCallback(async () => {
     try {
@@ -76,6 +77,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       setSubmitSuccess(true);
       setScore(7.5);
       setComment("");
+      setIsEditing(false);
       await fetchScores();
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "エラーが発生しました");
@@ -84,9 +86,42 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     }
   }
 
-  const alreadyReviewed = session?.user?.name
-    ? scores.some((s) => s.memberName === session.user!.name)
-    : false;
+  async function handleUpdate(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch(`/api/scores/${album.no}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ score, comment: comment.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "更新に失敗しました");
+      setSubmitSuccess(true);
+      setIsEditing(false);
+      await fetchScores();
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const myScore = session?.user?.name
+    ? scores.find((s) => s.memberName === session.user!.name)
+    : undefined;
+  const alreadyReviewed = !!myScore;
+
+  function startEditing() {
+    if (myScore) {
+      setScore(myScore.score);
+      setComment(myScore.comment || "");
+    }
+    setSubmitSuccess(false);
+    setSubmitError(null);
+    setIsEditing(true);
+  }
 
   const scoreColor = averageScore !== null ? getScoreColor(averageScore) : "#6b7280";
 
@@ -238,18 +273,35 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                   <span className="text-xs font-medium" style={{ color: "var(--accent)" }}>{session.user?.name}</span>
                 </div>
 
-                {alreadyReviewed ? (
-                  <div className="rounded-xl p-3 border text-center" style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}>
-                    <p className="text-green-400 text-sm font-medium">投稿済みです</p>
+                {alreadyReviewed && !isEditing ? (
+                  <div>
+                    {submitSuccess && (
+                      <div className="rounded-xl p-3 mb-3 border" style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}>
+                        <p className="text-green-400 text-sm font-medium">更新しました！</p>
+                      </div>
+                    )}
+                    <div className="rounded-xl p-3 border flex items-center justify-between" style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}>
+                      <div>
+                        <p className="text-green-400 text-sm font-medium">投稿済みです</p>
+                        {myScore && (
+                          <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
+                            スコア: <span style={{ color: getScoreColor(myScore.score) }}>{myScore.score % 1 === 0 ? myScore.score.toFixed(1) : myScore.score}</span> / 10
+                          </p>
+                        )}
+                      </div>
+                      <button onClick={startEditing} className="px-3 py-1.5 rounded-xl text-xs font-medium border" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>
+                        編集する
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <>
-                    {submitSuccess && (
+                    {submitSuccess && !alreadyReviewed && (
                       <div className="rounded-xl p-3 mb-4 border" style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}>
                         <p className="text-green-400 text-sm font-medium">投稿しました！</p>
                       </div>
                     )}
-                    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                    <form onSubmit={isEditing ? handleUpdate : handleSubmit} className="flex flex-col gap-4">
                       <div>
                         <label className="block text-xs font-medium mb-2" style={{ color: "var(--text-primary)" }}>
                           スコア
@@ -270,9 +322,16 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                         <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="感想を書いてください..." rows={3} className="w-full px-3 py-2 rounded-xl border text-sm resize-none" style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }} />
                       </div>
                       {submitError && <p className="text-red-400 text-xs">{submitError}</p>}
-                      <button type="submit" disabled={submitting} className="w-full py-3 rounded-xl font-medium text-sm disabled:opacity-50" style={{ backgroundColor: "var(--accent)", color: "white" }}>
-                        {submitting ? "投稿中..." : "投稿する"}
-                      </button>
+                      <div className="flex gap-2">
+                        {isEditing && (
+                          <button type="button" onClick={() => { setIsEditing(false); setSubmitError(null); }} className="flex-1 py-2.5 rounded-xl text-sm font-medium border" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>
+                            キャンセル
+                          </button>
+                        )}
+                        <button type="submit" disabled={submitting} className="flex-1 py-3 rounded-xl font-medium text-sm disabled:opacity-50" style={{ backgroundColor: "var(--accent)", color: "white" }}>
+                          {submitting ? (isEditing ? "更新中..." : "投稿中...") : (isEditing ? "更新する" : "投稿する")}
+                        </button>
+                      </div>
                     </form>
                   </>
                 )}
