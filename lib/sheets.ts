@@ -4,7 +4,12 @@ import { Score } from "./types";
 function getAuth() {
   const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
-  const credentials = JSON.parse(keyJson);
+  let credentials;
+  try {
+    credentials = JSON.parse(keyJson);
+  } catch {
+    credentials = JSON.parse(keyJson.replace(/\n/g, "\\n"));
+  }
   if (credentials.private_key) {
     credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
   }
