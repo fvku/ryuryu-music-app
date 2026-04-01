@@ -36,7 +36,7 @@ export async function POST(
     const memberName = session.user.name.trim();
 
     const body = await request.json();
-    const { score, comment } = body as { score: number; comment: string };
+    const { score, comment, albumTitle, artistName } = body as { score: number; comment: string; albumTitle?: string; artistName?: string };
 
     if (score === undefined || score === null || typeof score !== "number") {
       return NextResponse.json({ error: "スコアを入力してください" }, { status: 400 });
@@ -60,6 +60,8 @@ export async function POST(
       memberName,
       score,
       comment: (comment || "").trim(),
+      albumTitle: albumTitle || "",
+      artistName: artistName || "",
     });
 
     return NextResponse.json(newScore, { status: 201 });

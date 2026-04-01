@@ -93,7 +93,7 @@ export default function ReviewPage({ params }: PageProps) {
       const response = await fetch(`/api/scores/${params.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ score, comment: comment.trim() }),
+        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album?.title, artistName: album?.artist }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "レビューの投稿に失敗しました");

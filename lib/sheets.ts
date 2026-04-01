@@ -40,15 +40,15 @@ export async function initScoresSheet(): Promise<void> {
 
   const scoresRes = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "scores!A1:E1",
+    range: "scores!A1:G1",
   });
   if (!scoresRes.data.values || scoresRes.data.values.length === 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: "scores!A1:E1",
+      range: "scores!A1:G1",
       valueInputOption: "RAW",
       requestBody: {
-        values: [["reviewId", "memberName", "score", "comment", "submittedAt"]],
+        values: [["reviewId", "memberName", "score", "comment", "submittedAt", "albumTitle", "artistName"]],
       },
     });
   }
@@ -57,7 +57,7 @@ export async function initScoresSheet(): Promise<void> {
 export async function getAllScores(): Promise<Score[]> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "scores!A2:E" });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "scores!A2:G" });
   const rows = response.data.values;
   if (!rows || rows.length === 0) return [];
   return rows.filter((row) => row[0]).map((row) => ({
@@ -66,6 +66,8 @@ export async function getAllScores(): Promise<Score[]> {
     score: parseFloat(row[2] || "0"),
     comment: row[3] || "",
     submittedAt: row[4] || "",
+    albumTitle: row[5] || "",
+    artistName: row[6] || "",
   }));
 }
 
@@ -75,7 +77,7 @@ export async function getScoresForAlbum(albumNo: string): Promise<Score[]> {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "scores!A2:E",
+    range: "scores!A2:G",
   });
 
   const rows = response.data.values;
@@ -89,6 +91,8 @@ export async function getScoresForAlbum(albumNo: string): Promise<Score[]> {
       score: parseFloat(row[2] || "0"),
       comment: row[3] || "",
       submittedAt: row[4] || "",
+      albumTitle: row[5] || "",
+      artistName: row[6] || "",
     }));
 }
 
@@ -101,10 +105,10 @@ export async function addScore(scoreData: Omit<Score, "submittedAt">): Promise<S
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: "scores!A:E",
+    range: "scores!A:G",
     valueInputOption: "RAW",
     requestBody: {
-      values: [[score.reviewId, score.memberName, score.score, score.comment, score.submittedAt]],
+      values: [[score.reviewId, score.memberName, score.score, score.comment, score.submittedAt, score.albumTitle || "", score.artistName || ""]],
     },
   });
 
@@ -131,15 +135,17 @@ export async function updateScore(albumNo: string, memberName: string, score: nu
 
   const sheetRowNumber = rowIndex + 2; // +2 for header and 1-indexed
   const submittedAt = new Date().toISOString();
+  const existingAlbumTitle = rows[rowIndex][5] || "";
+  const existingArtistName = rows[rowIndex][6] || "";
 
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `scores!A${sheetRowNumber}:E${sheetRowNumber}`,
+    range: `scores!A${sheetRowNumber}:G${sheetRowNumber}`,
     valueInputOption: "RAW",
     requestBody: {
-      values: [[albumNo, memberName, score, comment, submittedAt]],
+      values: [[albumNo, memberName, score, comment, submittedAt, existingAlbumTitle, existingArtistName]],
     },
   });
 
-  return { reviewId: albumNo, memberName, score, comment, submittedAt };
+  return { reviewId: albumNo, memberName, score, comment, submittedAt, albumTitle: existingAlbumTitle, artistName: existingArtistName };
 }

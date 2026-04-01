@@ -25,6 +25,8 @@ export interface Score {
   score: number;
   comment: string;
   submittedAt: string;
+  albumTitle?: string;
+  artistName?: string;
 }
 
 export interface AlbumWithScores extends ReleaseMasterAlbum {

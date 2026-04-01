@@ -70,7 +70,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       const res = await fetch(`/api/scores/${album.no}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ score, comment: comment.trim() }),
+        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "投稿に失敗しました");
