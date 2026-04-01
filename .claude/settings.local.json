@@ -11,7 +11,11 @@
       "Bash(mkdir -p /Users/koheifukuda/ryuryu-music/app/api/release-master/\\\\[no\\\\])",
       "Bash(mkdir -p /Users/koheifukuda/ryuryu-music/app/api/scores/\\\\[albumNo\\\\])",
       "Bash(npx tsc:*)",
-      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(a['no'], a['spotifyUrl'][:50] if a['spotifyUrl'] else '\\(空\\)'\\) for a in d[:3]]\")"
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(a['no'], a['spotifyUrl'][:50] if a['spotifyUrl'] else '\\(空\\)'\\) for a in d[:3]]\")",
+      "Bash(git remote:*)",
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
