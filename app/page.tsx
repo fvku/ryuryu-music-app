@@ -5,7 +5,7 @@ import AlbumCard from "@/components/AlbumCard";
 import ReviewModal from "@/components/ReviewModal";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 
-type GenreFilter = "すべて" | "邦楽" | "洋楽";
+const GENRE_VALUES = ["邦楽", "洋楽"] as const;
 
 function getMonthKey(date: string): string {
   return date.substring(0, 7);
@@ -24,7 +24,7 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [genreFilter, setGenreFilter] = useState<GenreFilter>("すべて");
+  const [genreFilters, setGenreFilters] = useState<string[]>([...GENRE_VALUES]);
   const [monthFilter, setMonthFilter] = useState<string>("すべて");
   const [mjFilters, setMjFilters] = useState<string[]>([]);
   const [mjInitialized, setMjInitialized] = useState(false);
@@ -102,6 +102,7 @@ export default function HomePage() {
     ...(albums.some((a) => !a.mjAdoption) ? ["空欄"] : []),
   ];
   const allMjSelected = mjInitialized && mjValues.length > 0 && mjValues.every((v) => mjFilters.includes(v));
+  const allGenreSelected = GENRE_VALUES.every((v) => genreFilters.includes(v));
 
   function toggleMjFilter(value: string) {
     setMjFilters((prev) =>
@@ -109,8 +110,18 @@ export default function HomePage() {
     );
   }
 
-  function selectAllMj() {
-    setMjFilters(mjValues);
+  function toggleAllMj() {
+    setMjFilters(allMjSelected ? [] : mjValues);
+  }
+
+  function toggleGenreFilter(value: string) {
+    setGenreFilters((prev) =>
+      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
+    );
+  }
+
+  function toggleAllGenre() {
+    setGenreFilters(allGenreSelected ? [] : [...GENRE_VALUES]);
   }
 
   const filtered = albums.filter((a) => {
@@ -118,7 +129,7 @@ export default function HomePage() {
       const q = searchQuery.trim().toLowerCase();
       if (!a.title.toLowerCase().includes(q) && !a.artist.toLowerCase().includes(q)) return false;
     }
-    if (genreFilter !== "すべて" && a.genre !== genreFilter) return false;
+    if (genreFilters.length > 0 && !genreFilters.includes(a.genre || "")) return false;
     if (monthFilter !== "すべて" && getMonthKey(a.date) !== monthFilter) return false;
     if (mjInitialized && mjFilters.length > 0) {
       const val = a.mjAdoption || "空欄";
@@ -176,21 +187,31 @@ export default function HomePage() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-medium flex-shrink-0" style={{ color: "var(--text-secondary)" }}>ジャンル：</span>
-          {(["すべて", "邦楽", "洋楽"] as GenreFilter[]).map((g) => (
-            <button key={g} onClick={() => setGenreFilter(g)}
-              className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
-              style={{ backgroundColor: genreFilter === g ? "var(--accent)" : "var(--bg-card)", color: genreFilter === g ? "white" : "var(--text-secondary)", border: `1px solid ${genreFilter === g ? "var(--accent)" : "var(--border-subtle)"}` }}>
-              {g}
-            </button>
-          ))}
+          <button
+            onClick={toggleAllGenre}
+            className="px-3 py-1 rounded-full text-xs font-medium transition-colors flex-shrink-0"
+            style={{ backgroundColor: allGenreSelected ? "var(--accent)" : "var(--bg-card)", color: allGenreSelected ? "white" : "var(--text-secondary)", border: `1px solid ${allGenreSelected ? "var(--accent)" : "var(--border-subtle)"}` }}>
+            すべて
+          </button>
+          {GENRE_VALUES.map((g) => {
+            const active = genreFilters.includes(g);
+            return (
+              <button key={g} onClick={() => toggleGenreFilter(g)}
+                className="px-3 py-1 rounded-full text-xs font-medium transition-colors flex-shrink-0"
+                style={{ backgroundColor: active ? "rgba(139,92,246,0.3)" : "var(--bg-card)", color: active ? "white" : "var(--text-secondary)", border: `1px solid ${active ? "var(--accent)" : "var(--border-subtle)"}` }}>
+                {g}
+              </button>
+            );
+          })}
+          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{genreFilters.length}件選択中</span>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-medium flex-shrink-0" style={{ color: "var(--text-secondary)" }}>M/J採用：</span>
           <button
-            onClick={selectAllMj}
+            onClick={toggleAllMj}
             className="px-3 py-1 rounded-full text-xs font-medium transition-colors flex-shrink-0"
             style={{ backgroundColor: allMjSelected ? "var(--accent)" : "var(--bg-card)", color: allMjSelected ? "white" : "var(--text-secondary)", border: `1px solid ${allMjSelected ? "var(--accent)" : "var(--border-subtle)"}` }}>
             すべて
