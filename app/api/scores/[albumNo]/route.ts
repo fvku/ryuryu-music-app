@@ -68,7 +68,7 @@ export async function POST(
       artistName: artistName || "",
     });
 
-    writeScoreToReleaseMaster(params.albumNo, memberName, score, trimmedComment).catch((e) =>
+    writeScoreToReleaseMaster(albumTitle || "", artistName || "", memberName, score, trimmedComment).catch((e) =>
       console.error("Failed to write score to Release Master:", e)
     );
 
@@ -93,7 +93,7 @@ export async function PUT(
     const memberName = shortName ?? session.user.name.trim();
 
     const body = await request.json();
-    const { score, comment } = body as { score: number; comment: string };
+    const { score, comment, albumTitle, artistName } = body as { score: number; comment: string; albumTitle?: string; artistName?: string };
 
     if (score === undefined || score === null || typeof score !== "number") {
       return NextResponse.json({ error: "スコアを入力してください" }, { status: 400 });
@@ -111,7 +111,7 @@ export async function PUT(
       return NextResponse.json({ error: "レビューが見つかりません" }, { status: 404 });
     }
 
-    writeScoreToReleaseMaster(params.albumNo, memberName, score, trimmedComment).catch((e) =>
+    writeScoreToReleaseMaster(albumTitle || "", artistName || "", memberName, score, trimmedComment).catch((e) =>
       console.error("Failed to write score to Release Master:", e)
     );
 

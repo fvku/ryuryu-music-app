@@ -70,28 +70,31 @@ function indexToColumn(index: number): string {
 }
 
 export async function writeScoreToReleaseMaster(
-  albumNo: string,
+  albumTitle: string,
+  artistName: string,
   memberName: string,
   score: number,
   comment: string
 ): Promise<void> {
   const colIndex = MEMBER_COLUMN_INDEX[memberName];
   if (colIndex === undefined) return;
+  if (!albumTitle || !artistName) return;
 
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
   if (!spreadsheetId) return;
 
   const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
 
+  // Fetch Title (C) and Artist (D) columns to find matching row
   const resp = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "'Release Master'!A2:A",
+    range: "'Release Master'!C2:D",
   });
 
-  const noColumn = resp.data.values || [];
+  const rows = resp.data.values || [];
   let rowNum: number | null = null;
-  for (let i = 0; i < noColumn.length; i++) {
-    if (noColumn[i][0] === albumNo) {
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i][0] === albumTitle && rows[i][1] === artistName) {
       rowNum = i + 2;
       break;
     }
