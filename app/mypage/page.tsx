@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import { Bookmark } from "@/lib/sheets";
+import { LEGACY_NAME_TO_EMAIL, parseLegacyScoreNum } from "@/lib/members";
 import ReviewModal from "@/components/ReviewModal";
 
 export default function MyPage() {
@@ -12,7 +13,7 @@ export default function MyPage() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [albums, setAlbums] = useState<ReleaseMasterAlbum[]>([]);
   const [spotifyData, setSpotifyData] = useState<Record<string, { coverUrl: string; spotifyUrl: string }>>({});
-  const [scoreSummary, setScoreSummary] = useState<Record<string, { avg: number; count: number }>>({});
+  const [scoreSummary, setScoreSummary] = useState<Record<string, { avg: number; count: number; total: number; members: Set<string> }>>({});
   const [loading, setLoading] = useState(true);
   const [selectedAlbum, setSelectedAlbum] = useState<ReleaseMasterAlbum | null>(null);
 
@@ -54,11 +55,12 @@ export default function MyPage() {
             : Promise.resolve(),
 
           fetch("/api/scores").then((r) => r.ok ? r.json() : []).then((scores: Score[]) => {
-            const summary: Record<string, { avg: number; count: number; total: number }> = {};
+            const summary: Record<string, { avg: number; count: number; total: number; members: Set<string> }> = {};
             scores.forEach((s) => {
-              if (!summary[s.reviewId]) summary[s.reviewId] = { avg: 0, count: 0, total: 0 };
+              if (!summary[s.reviewId]) summary[s.reviewId] = { avg: 0, count: 0, total: 0, members: new Set() };
               summary[s.reviewId].total += s.score;
               summary[s.reviewId].count += 1;
+              summary[s.reviewId].members.add(s.memberName.toLowerCase());
               summary[s.reviewId].avg = Math.round((summary[s.reviewId].total / summary[s.reviewId].count) * 10) / 10;
             });
             setScoreSummary(summary);
@@ -118,6 +120,23 @@ export default function MyPage() {
     return "#ef4444";
   }
 
+  function getCombinedScore(album: ReleaseMasterAlbum) {
+    const app = scoreSummary[album.no];
+    const appMembers = app?.members ?? new Set<string>();
+    let legacyTotal = 0, legacyCount = 0;
+    for (const ls of album.legacyScores) {
+      const email = LEGACY_NAME_TO_EMAIL[ls.name.toLowerCase()];
+      if (email && appMembers.has(email)) continue;
+      if (appMembers.has(ls.name.toLowerCase())) continue;
+      const n = parseLegacyScoreNum(ls.value);
+      if (n !== null && n >= 0 && n <= 10) { legacyTotal += n; legacyCount++; }
+    }
+    const total = (app?.total ?? 0) + legacyTotal;
+    const count = (app?.count ?? 0) + legacyCount;
+    if (count === 0) return null;
+    return { avg: Math.round((total / count) * 10) / 10, count };
+  }
+
   return (
     <div>
       {/* Profile */}
@@ -154,7 +173,7 @@ export default function MyPage() {
         <div className="flex flex-col gap-2">
           {bookmarkedAlbums.map((album) => {
             const spotify = spotifyData[album.no];
-            const score = scoreSummary[album.no];
+            const score = getCombinedScore(album);
             return (
               <div
                 key={album.no}

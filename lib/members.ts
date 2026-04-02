@@ -43,6 +43,15 @@ export function getShortNameForReleaseMaster(email: string): string | null {
   return EMAIL_TO_SHORT_NAME[email.toLowerCase()] ?? null;
 }
 
+/** レガシースコアのセル値から数値だけを取り出す ("7.5 コメント" → 7.5) */
+export function parseLegacyScoreNum(value: string): number | null {
+  const trimmed = value.trim();
+  const spaceIdx = trimmed.indexOf(" ");
+  const numStr = spaceIdx === -1 ? trimmed : trimmed.substring(0, spaceIdx);
+  const num = parseFloat(numStr);
+  return isNaN(num) ? null : num;
+}
+
 /** 旧名前エントリをemailに正規化する（後方互換） */
 export function normalizeToEmail(memberName: string): string | null {
   const lower = memberName.toLowerCase();

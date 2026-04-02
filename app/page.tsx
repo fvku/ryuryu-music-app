@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import AlbumCard from "@/components/AlbumCard";
 import ReviewModal from "@/components/ReviewModal";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
+import { LEGACY_NAME_TO_EMAIL, parseLegacyScoreNum } from "@/lib/members";
 
 const GENRE_VALUES = ["邦楽", "洋楽"] as const;
 
@@ -19,7 +20,7 @@ function formatMonth(key: string): string {
 export default function HomePage() {
   const [albums, setAlbums] = useState<ReleaseMasterAlbum[]>([]);
   const [spotifyData, setSpotifyData] = useState<Record<string, { coverUrl: string; spotifyUrl: string }>>({});
-  const [scoreSummary, setScoreSummary] = useState<Record<string, { avg: number; count: number }>>({});
+  const [scoreSummary, setScoreSummary] = useState<Record<string, { avg: number; count: number; total: number; members: Set<string> }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,11 +79,12 @@ export default function HomePage() {
             : Promise.resolve(),
 
           fetch("/api/scores").then((r) => r.ok ? r.json() : []).then((scores: Score[]) => {
-            const summary: Record<string, { avg: number; count: number; total: number }> = {};
+            const summary: Record<string, { avg: number; count: number; total: number; members: Set<string> }> = {};
             scores.forEach((s) => {
-              if (!summary[s.reviewId]) summary[s.reviewId] = { avg: 0, count: 0, total: 0 };
+              if (!summary[s.reviewId]) summary[s.reviewId] = { avg: 0, count: 0, total: 0, members: new Set() };
               summary[s.reviewId].total += s.score;
               summary[s.reviewId].count += 1;
+              summary[s.reviewId].members.add(s.memberName.toLowerCase());
               summary[s.reviewId].avg = Math.round((summary[s.reviewId].total / summary[s.reviewId].count) * 10) / 10;
             });
             setScoreSummary(summary);
@@ -95,6 +97,23 @@ export default function HomePage() {
     }
     init();
   }, []);
+
+  function getCombinedScore(album: ReleaseMasterAlbum) {
+    const app = scoreSummary[album.no];
+    const appMembers = app?.members ?? new Set<string>();
+    let legacyTotal = 0, legacyCount = 0;
+    for (const ls of album.legacyScores) {
+      const email = LEGACY_NAME_TO_EMAIL[ls.name.toLowerCase()];
+      if (email && appMembers.has(email)) continue;
+      if (appMembers.has(ls.name.toLowerCase())) continue;
+      const n = parseLegacyScoreNum(ls.value);
+      if (n !== null && n >= 0 && n <= 10) { legacyTotal += n; legacyCount++; }
+    }
+    const total = (app?.total ?? 0) + legacyTotal;
+    const count = (app?.count ?? 0) + legacyCount;
+    if (count === 0) return { avg: null, count: 0 };
+    return { avg: Math.round((total / count) * 10) / 10, count };
+  }
 
   const months = ["すべて", ...Array.from(new Set(albums.map((a) => getMonthKey(a.date)).filter(Boolean))).sort().reverse()];
   const mjValues = [
@@ -246,8 +265,8 @@ export default function HomePage() {
               key={album.no}
               album={album}
               coverUrl={spotifyData[album.no]?.coverUrl}
-              averageScore={scoreSummary[album.no]?.avg ?? null}
-              scoreCount={scoreSummary[album.no]?.count ?? 0}
+              averageScore={getCombinedScore(album).avg}
+              scoreCount={getCombinedScore(album).count}
               onClick={() => setSelectedAlbum(album)}
             />
           ))}

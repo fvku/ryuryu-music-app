@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useSession, signIn } from "next-auth/react";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import ScoreBar from "@/components/ScoreBar";
-import { EMAIL_TO_SHORT_NAME, getDisplayName } from "@/lib/members";
+import { EMAIL_TO_SHORT_NAME, LEGACY_NAME_TO_EMAIL, getDisplayName, parseLegacyScoreNum } from "@/lib/members";
 
 function parseLegacyScore(value: string): { score: number | null; comment: string } {
   const trimmed = value.trim();
@@ -212,7 +212,25 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     setIsEditing(true);
   }
 
-  const scoreColor = averageScore !== null ? getScoreColor(averageScore) : "#6b7280";
+  // 統合平均: アプリスコア + レガシースコア（重複除外）
+  const appScoredIds = new Set(scores.map((s) => s.memberName.toLowerCase()));
+  const legacyOnlyScores = album.legacyScores
+    .filter((ls) => {
+      const email = LEGACY_NAME_TO_EMAIL[ls.name.toLowerCase()];
+      if (email && appScoredIds.has(email)) return false;
+      if (appScoredIds.has(ls.name.toLowerCase())) return false;
+      return true;
+    })
+    .map((ls) => parseLegacyScoreNum(ls.value))
+    .filter((n): n is number => n !== null && n >= 0 && n <= 10);
+
+  const allScoreValues = [...scores.map((s) => s.score), ...legacyOnlyScores];
+  const combinedAverage = allScoreValues.length > 0
+    ? Math.round((allScoreValues.reduce((a, b) => a + b, 0) / allScoreValues.length) * 10) / 10
+    : null;
+  const combinedCount = allScoreValues.length;
+
+  const scoreColor = combinedAverage !== null ? getScoreColor(combinedAverage) : "#6b7280";
 
   return (
     <div
@@ -291,16 +309,16 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
           </div>
 
           {/* Average score */}
-          {averageScore !== null && (
+          {combinedAverage !== null && (
             <div className="rounded-2xl p-4 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm" style={{ color: "var(--text-secondary)" }}>平均スコア（{scores.length}件）</span>
+                <span className="text-sm" style={{ color: "var(--text-secondary)" }}>平均スコア（{combinedCount}件）</span>
                 <span className="text-3xl font-bold" style={{ color: scoreColor }}>
-                  {averageScore.toFixed(1)}
+                  {combinedAverage.toFixed(1)}
                   <span className="text-sm font-normal ml-1" style={{ color: "var(--text-secondary)" }}>/10</span>
                 </span>
               </div>
-              <ScoreBar score={averageScore} showNumber={false} height="h-2" />
+              <ScoreBar score={combinedAverage} showNumber={false} height="h-2" />
             </div>
           )}
 
