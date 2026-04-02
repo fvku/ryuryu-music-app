@@ -115,25 +115,33 @@ export async function addScore(scoreData: Omit<Score, "submittedAt">): Promise<S
   return score;
 }
 
-export async function hasScore(albumNo: string, memberName: string): Promise<boolean> {
+export async function hasScore(albumNo: string, memberName: string, altNames: string[] = []): Promise<boolean> {
   const scores = await getScoresForAlbum(albumNo);
-  return scores.some((s) => s.memberName.trim().toLowerCase() === memberName.trim().toLowerCase());
+  const allNames = [memberName, ...altNames].map((n) => n.trim().toLowerCase());
+  return scores.some((s) => allNames.includes(s.memberName.trim().toLowerCase()));
 }
 
-export async function updateScore(albumNo: string, memberName: string, score: number, comment: string): Promise<Score | null> {
+export async function updateScore(
+  albumNo: string,
+  memberName: string, // canonical value to STORE
+  score: number,
+  comment: string,
+  altNames: string[] = [] // additional names to SEARCH by (backward compat)
+): Promise<Score | null> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
 
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "scores!A2:E" });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: "scores!A2:G" });
   const rows = response.data.values;
   if (!rows) return null;
 
+  const allSearchNames = [memberName, ...altNames].map((n) => n.trim().toLowerCase());
   const rowIndex = rows.findIndex(
-    (row) => row[0] === albumNo && row[1]?.trim().toLowerCase() === memberName.trim().toLowerCase()
+    (row) => row[0] === albumNo && allSearchNames.includes(row[1]?.trim().toLowerCase() ?? "")
   );
   if (rowIndex === -1) return null;
 
-  const sheetRowNumber = rowIndex + 2; // +2 for header and 1-indexed
+  const sheetRowNumber = rowIndex + 2;
   const submittedAt = new Date().toISOString();
   const existingAlbumTitle = rows[rowIndex][5] || "";
   const existingArtistName = rows[rowIndex][6] || "";

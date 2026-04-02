@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Recommendation } from "@/lib/sheets";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import ReviewModal from "@/components/ReviewModal";
+import { getDisplayName } from "@/lib/members";
 
 type TimelineItem =
   | { type: "recommendation"; data: Recommendation; createdAt: string }
@@ -129,9 +130,9 @@ export default function RecommendPage() {
                   {/* Meta */}
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>
-                      {rec.recommenderId.charAt(0).toUpperCase()}
+                      {getDisplayName(rec.recommenderId).charAt(0).toUpperCase()}
                     </div>
-                    <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{rec.recommenderId}</span>
+                    <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{getDisplayName(rec.recommenderId)}</span>
                     <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>レコメンド</span>
                     <span className="text-xs ml-auto" style={{ color: "var(--text-secondary)" }}>{formatDate(rec.createdAt)}</span>
                   </div>
@@ -177,9 +178,9 @@ export default function RecommendPage() {
                 {/* Meta */}
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>
-                    {review.memberName.charAt(0).toUpperCase()}
+                    {getDisplayName(review.memberName).charAt(0).toUpperCase()}
                   </div>
-                  <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{review.memberName}</span>
+                  <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{getDisplayName(review.memberName)}</span>
                   <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e" }}>レビュー</span>
                   <span className="text-xs ml-auto" style={{ color: "var(--text-secondary)" }}>{formatDate(review.submittedAt)}</span>
                 </div>

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { getScoresForAlbum, addScore, hasScore, initScoresSheet, updateScore } from "@/lib/sheets";
 import { getMemberShortName } from "@/lib/members";
 import { writeScoreToReleaseMaster } from "@/lib/release-master";
+import { LEGACY_NAME_TO_EMAIL } from "@/lib/members";
 
 export const dynamic = "force-dynamic";
 
@@ -31,12 +32,16 @@ export async function POST(
 ) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.name) {
+    if (!session?.user?.email) {
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }
 
-    const shortName = getMemberShortName(session.user.email);
-    const memberName = shortName ?? session.user.name.trim();
+    // email を正規識別子として保存。旧名前エントリとの照合に altNames を使用
+    const memberName = session.user.email.toLowerCase();
+    const shortName = getMemberShortName(memberName);
+    const altNames = Object.entries(LEGACY_NAME_TO_EMAIL)
+      .filter(([, email]) => email === memberName)
+      .map(([name]) => name);
 
     const body = await request.json();
     const { score, comment, albumTitle, artistName } = body as { score: number; comment: string; albumTitle?: string; artistName?: string };
@@ -53,7 +58,7 @@ export async function POST(
 
     await initScoresSheet();
 
-    const alreadyScored = await hasScore(params.albumNo, memberName);
+    const alreadyScored = await hasScore(params.albumNo, memberName, altNames);
     if (alreadyScored) {
       return NextResponse.json({ error: "すでにレビューを投稿済みです" }, { status: 409 });
     }
@@ -68,9 +73,11 @@ export async function POST(
       artistName: artistName || "",
     });
 
-    writeScoreToReleaseMaster(albumTitle || "", artistName || "", memberName, score, trimmedComment).catch((e) =>
-      console.error("Failed to write score to Release Master:", e)
-    );
+    if (shortName) {
+      writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment).catch((e) =>
+        console.error("Failed to write score to Release Master:", e)
+      );
+    }
 
     return NextResponse.json(newScore, { status: 201 });
   } catch (error) {
@@ -85,12 +92,15 @@ export async function PUT(
 ) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.name) {
+    if (!session?.user?.email) {
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }
 
-    const shortName = getMemberShortName(session.user.email);
-    const memberName = shortName ?? session.user.name.trim();
+    const memberName = session.user.email.toLowerCase();
+    const shortName = getMemberShortName(memberName);
+    const altNames = Object.entries(LEGACY_NAME_TO_EMAIL)
+      .filter(([, email]) => email === memberName)
+      .map(([name]) => name);
 
     const body = await request.json();
     const { score, comment, albumTitle, artistName } = body as { score: number; comment: string; albumTitle?: string; artistName?: string };
@@ -106,14 +116,16 @@ export async function PUT(
     }
 
     const trimmedComment = (comment || "").trim();
-    const updated = await updateScore(params.albumNo, memberName, score, trimmedComment);
+    const updated = await updateScore(params.albumNo, memberName, score, trimmedComment, altNames);
     if (!updated) {
       return NextResponse.json({ error: "レビューが見つかりません" }, { status: 404 });
     }
 
-    writeScoreToReleaseMaster(albumTitle || "", artistName || "", memberName, score, trimmedComment).catch((e) =>
-      console.error("Failed to write score to Release Master:", e)
-    );
+    if (shortName) {
+      writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment).catch((e) =>
+        console.error("Failed to write score to Release Master:", e)
+      );
+    }
 
     return NextResponse.json(updated);
   } catch (error) {

@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useSession, signIn } from "next-auth/react";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import ScoreBar from "@/components/ScoreBar";
-import { EMAIL_TO_SHORT_NAME } from "@/lib/members";
+import { EMAIL_TO_SHORT_NAME, getDisplayName } from "@/lib/members";
 
 function parseLegacyScore(value: string): { score: number | null; comment: string } {
   const trimmed = value.trim();
@@ -150,10 +150,15 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     }
   }
 
-  const myShortName = session?.user?.email
-    ? (EMAIL_TO_SHORT_NAME[session.user.email.toLowerCase()] ?? session.user.name ?? null)
-    : null;
-  const myScore = myShortName ? scores.find((s) => s.memberName === myShortName) : undefined;
+  const myEmail = session?.user?.email?.toLowerCase() ?? null;
+  const myShortName = myEmail ? (EMAIL_TO_SHORT_NAME[myEmail] ?? session.user?.name ?? null) : null;
+  // emailが正規識別子。旧エントリ(短縮名)も照合
+  const myScore = myEmail
+    ? scores.find((s) => {
+        const n = s.memberName.toLowerCase();
+        return n === myEmail || (myShortName ? n === myShortName.toLowerCase() : false);
+      })
+    : undefined;
   const alreadyReviewed = !!myScore;
   const myLegacyScore = myShortName && !alreadyReviewed
     ? album.legacyScores.find((s) => s.name === myShortName)
@@ -309,9 +314,9 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>
-                          {s.memberName.charAt(0).toUpperCase()}
+                          {getDisplayName(s.memberName).charAt(0).toUpperCase()}
                         </div>
-                        <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{s.memberName}</span>
+                        <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{getDisplayName(s.memberName)}</span>
                       </div>
                       <span className="font-bold text-base px-2 py-0.5 rounded-lg" style={{ color: getScoreColor(s.score), backgroundColor: `${getScoreColor(s.score)}18` }}>
                         {s.score % 1 === 0 ? s.score.toFixed(1) : s.score}

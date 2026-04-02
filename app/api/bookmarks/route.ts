@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.name) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
-    const bookmarks = await getBookmarks(session.user.name.trim());
+    if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+    const bookmarks = await getBookmarks(session.user.email.toLowerCase());
     return NextResponse.json(bookmarks);
   } catch (error) {
     console.error("Failed to get bookmarks:", error);
@@ -20,10 +20,10 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.name) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+    if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     const { albumNo } = await request.json() as { albumNo: string };
     if (!albumNo) return NextResponse.json({ error: "albumNoが必要です" }, { status: 400 });
-    await addBookmark(session.user.name.trim(), albumNo);
+    await addBookmark(session.user.email.toLowerCase(), albumNo);
     return NextResponse.json({ ok: true }, { status: 201 });
   } catch (error) {
     console.error("Failed to add bookmark:", error);
@@ -34,10 +34,10 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.name) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+    if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     const { albumNo } = await request.json() as { albumNo: string };
     if (!albumNo) return NextResponse.json({ error: "albumNoが必要です" }, { status: 400 });
-    await removeBookmark(session.user.name.trim(), albumNo);
+    await removeBookmark(session.user.email.toLowerCase(), albumNo);
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Failed to remove bookmark:", error);

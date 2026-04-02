@@ -18,7 +18,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.name) {
+    if (!session?.user?.email) {
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }
 
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     await initRecommendationsSheet();
 
     const rec = await addRecommendation({
-      recommenderId: session.user.name.trim(),
+      recommenderId: session.user.email.toLowerCase(),
       albumNo,
       albumTitle,
       artistName,
