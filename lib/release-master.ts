@@ -1,6 +1,14 @@
 import { google } from "googleapis";
 import { MEMBER_COLUMN_INDEX } from "./members";
 
+const COLUMN_INDEX_TO_EMAIL: Record<number, string> = {
+  21: "kwisoo1102@gmail.com",
+  22: "akyme68@gmail.com",
+  23: "kohei.fuku0926@gmail.com",
+  24: "edwardcannell93@gmail.com",
+  25: "yoshinorihnw@gmail.com",
+};
+
 function getWriteAuth() {
   const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
@@ -67,6 +75,41 @@ export async function writeSpotifyDataToSheet(
 function indexToColumn(index: number): string {
   if (index < 26) return String.fromCharCode(index + 65);
   return String.fromCharCode(Math.floor(index / 26) + 64) + String.fromCharCode((index % 26) + 65);
+}
+
+export interface ReleaseMasterScoreRow {
+  albumNo: string;
+  albumTitle: string;
+  artistName: string;
+  memberScores: Record<string, string>; // email → raw cell value ("7.5 comment")
+}
+
+export async function getReleaseMasterScoreRows(): Promise<ReleaseMasterScoreRow[]> {
+  const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
+  if (!spreadsheetId) return [];
+
+  const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
+  const resp = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: "'Release Master'!A2:Z",
+  });
+
+  const rows = resp.data.values || [];
+  return rows
+    .filter((row) => row[0] && row[2] && row[3])
+    .map((row) => {
+      const memberScores: Record<string, string> = {};
+      for (const [colIdx, email] of Object.entries(COLUMN_INDEX_TO_EMAIL)) {
+        const val = row[Number(colIdx)] || "";
+        if (val.trim()) memberScores[email] = val.trim();
+      }
+      return {
+        albumNo: row[0] || "",
+        albumTitle: row[2] || "",
+        artistName: row[3] || "",
+        memberScores,
+      };
+    });
 }
 
 export async function writeScoreToReleaseMaster(

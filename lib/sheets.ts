@@ -283,6 +283,96 @@ export async function addBookmark(memberName: string, albumNo: string): Promise<
   });
 }
 
+// ── Sync Pending ──────────────────────────────────────────────
+
+export interface SyncPending {
+  albumNo: string;
+  memberEmail: string;
+  cellValue: string;
+  detectedAt: string;
+}
+
+async function initSyncPendingSheet(sheets: ReturnType<typeof getSheetsClient>, spreadsheetId: string): Promise<void> {
+  try {
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "sync_pending!A1:D1" });
+    if (!res.data.values || res.data.values.length === 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId, range: "sync_pending!A1:D1", valueInputOption: "RAW",
+        requestBody: { values: [["albumNo", "memberEmail", "cellValue", "detectedAt"]] },
+      });
+    }
+  } catch {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title: "sync_pending" } } }] },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId, range: "sync_pending!A1:D1", valueInputOption: "RAW",
+      requestBody: { values: [["albumNo", "memberEmail", "cellValue", "detectedAt"]] },
+    });
+  }
+}
+
+export async function getAllSyncPending(): Promise<SyncPending[]> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  await initSyncPendingSheet(sheets, spreadsheetId);
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "sync_pending!A2:D" });
+  const rows = res.data.values;
+  if (!rows || rows.length === 0) return [];
+  return rows
+    .filter((row) => row[0] && row[1])
+    .map((row) => ({
+      albumNo: row[0] || "",
+      memberEmail: row[1] || "",
+      cellValue: row[2] || "",
+      detectedAt: row[3] || "",
+    }));
+}
+
+export async function upsertSyncPending(albumNo: string, memberEmail: string, cellValue: string): Promise<void> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  await initSyncPendingSheet(sheets, spreadsheetId);
+
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "sync_pending!A2:D" });
+  const rows = res.data.values || [];
+  const rowIndex = rows.findIndex((r) => r[0] === albumNo && r[1] === memberEmail);
+
+  if (rowIndex !== -1) {
+    const existing = rows[rowIndex];
+    if (existing[2] === cellValue) return; // same value, don't reset timer
+    // value changed → reset timer
+    const sheetRow = rowIndex + 2;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId, range: `sync_pending!A${sheetRow}:D${sheetRow}`, valueInputOption: "RAW",
+      requestBody: { values: [[albumNo, memberEmail, cellValue, new Date().toISOString()]] },
+    });
+  } else {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId, range: "sync_pending!A:D", valueInputOption: "RAW",
+      requestBody: { values: [[albumNo, memberEmail, cellValue, new Date().toISOString()]] },
+    });
+  }
+}
+
+export async function removeSyncPending(albumNo: string, memberEmail: string): Promise<void> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  await initSyncPendingSheet(sheets, spreadsheetId);
+
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "sync_pending!A2:D" });
+  const rows = res.data.values || [];
+  const rowIndex = rows.findIndex((r) => r[0] === albumNo && r[1] === memberEmail);
+  if (rowIndex === -1) return;
+
+  const sheetRow = rowIndex + 2;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId, range: `sync_pending!A${sheetRow}:D${sheetRow}`, valueInputOption: "RAW",
+    requestBody: { values: [["", "", "", ""]] },
+  });
+}
+
 export async function removeBookmark(memberName: string, albumNo: string): Promise<void> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
