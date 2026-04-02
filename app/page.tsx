@@ -23,6 +23,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [searchQuery, setSearchQuery] = useState("");
   const [genreFilter, setGenreFilter] = useState<GenreFilter>("すべて");
   const [monthFilter, setMonthFilter] = useState<string>("すべて");
   const [mjFilters, setMjFilters] = useState<string[]>([]);
@@ -92,6 +93,10 @@ export default function HomePage() {
   }
 
   const filtered = albums.filter((a) => {
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      if (!a.title.toLowerCase().includes(q) && !a.artist.toLowerCase().includes(q)) return false;
+    }
     if (genreFilter !== "すべて" && a.genre !== genreFilter) return false;
     if (monthFilter !== "すべて" && getMonthKey(a.date) !== monthFilter) return false;
     if (mjFilters.length > 0) {
@@ -124,6 +129,18 @@ export default function HomePage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>月次アルバムレビュー</h1>
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{filtered.length}枚のアルバム</p>
+      </div>
+
+      {/* Search */}
+      <div className="mb-4">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="アーティスト名・アルバム名で検索..."
+          className="w-full px-4 py-3 rounded-xl border text-sm focus:outline-none focus:border-violet-500/50"
+          style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+        />
       </div>
 
       {/* Filters */}

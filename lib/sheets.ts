@@ -221,3 +221,74 @@ export async function addRecommendation(data: Omit<Recommendation, "id" | "creat
   });
   return rec;
 }
+
+// ── Bookmarks ──────────────────────────────────────────────
+
+export interface Bookmark {
+  memberName: string;
+  albumNo: string;
+  savedAt: string;
+}
+
+async function initBookmarksSheet(sheets: ReturnType<typeof getSheetsClient>, spreadsheetId: string): Promise<void> {
+  try {
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "bookmarks!A1:C1" });
+    if (!res.data.values || res.data.values.length === 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId, range: "bookmarks!A1:C1", valueInputOption: "RAW",
+        requestBody: { values: [["memberName", "albumNo", "savedAt"]] },
+      });
+    }
+  } catch {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title: "bookmarks" } } }] },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId, range: "bookmarks!A1:C1", valueInputOption: "RAW",
+      requestBody: { values: [["memberName", "albumNo", "savedAt"]] },
+    });
+  }
+}
+
+export async function getBookmarks(memberName: string): Promise<Bookmark[]> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  await initBookmarksSheet(sheets, spreadsheetId);
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "bookmarks!A2:C" });
+  const rows = res.data.values;
+  if (!rows || rows.length === 0) return [];
+  return rows.filter((row) => row[0]?.trim().toLowerCase() === memberName.trim().toLowerCase()).map((row) => ({
+    memberName: row[0] || "",
+    albumNo: row[1] || "",
+    savedAt: row[2] || "",
+  }));
+}
+
+export async function addBookmark(memberName: string, albumNo: string): Promise<void> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  await initBookmarksSheet(sheets, spreadsheetId);
+  await sheets.spreadsheets.values.append({
+    spreadsheetId, range: "bookmarks!A:C", valueInputOption: "RAW",
+    requestBody: { values: [[memberName, albumNo, new Date().toISOString()]] },
+  });
+}
+
+export async function removeBookmark(memberName: string, albumNo: string): Promise<void> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  await initBookmarksSheet(sheets, spreadsheetId);
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "bookmarks!A2:C" });
+  const rows = res.data.values;
+  if (!rows) return;
+  const rowIndex = rows.findIndex(
+    (row) => row[0]?.trim().toLowerCase() === memberName.trim().toLowerCase() && row[1] === albumNo
+  );
+  if (rowIndex === -1) return;
+  const sheetRow = rowIndex + 2;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId, range: `bookmarks!A${sheetRow}:C${sheetRow}`, valueInputOption: "RAW",
+    requestBody: { values: [["", "", ""]] },
+  });
+}

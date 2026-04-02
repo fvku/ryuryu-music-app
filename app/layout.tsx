@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import Image from "next/image";
 import Providers from "@/components/Providers";
-import AuthButton from "@/components/AuthButton";
 import BottomNav from "@/components/BottomNav";
 
 export const metadata: Metadata = {
@@ -27,12 +27,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               borderColor: "var(--border-subtle)",
             }}
           >
-            <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-              <a href="/" className="flex items-center gap-2 font-bold text-lg tracking-tight hover:opacity-80 transition-opacity">
-                <span className="text-2xl">🎵</span>
-                <span style={{ color: "var(--text-primary)" }}>月次アルバムレビュー</span>
+            <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-center">
+              <a href="/" className="hover:opacity-80 transition-opacity">
+                <Image src="/logo.png" alt="流流" width={120} height={40} className="h-8 w-auto object-contain" />
               </a>
-              <AuthButton />
             </div>
           </header>
 

@@ -36,6 +36,31 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   const [recommendSubmitting, setRecommendSubmitting] = useState(false);
   const [recommendSuccess, setRecommendSuccess] = useState(false);
   const [recommendError, setRecommendError] = useState<string | null>(null);
+  const [bookmarked, setBookmarked] = useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
+
+  useEffect(() => {
+    if (status === "authenticated") {
+      fetch("/api/bookmarks")
+        .then((r) => r.ok ? r.json() : [])
+        .then((bms: { albumNo: string }[]) => setBookmarked(bms.some((b) => b.albumNo === album.no)));
+    }
+  }, [status, album.no]);
+
+  async function toggleBookmark() {
+    setBookmarkLoading(true);
+    try {
+      if (bookmarked) {
+        await fetch("/api/bookmarks", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ albumNo: album.no }) });
+        setBookmarked(false);
+      } else {
+        await fetch("/api/bookmarks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ albumNo: album.no }) });
+        setBookmarked(true);
+      }
+    } finally {
+      setBookmarkLoading(false);
+    }
+  }
 
   const fetchScores = useCallback(async () => {
     try {
@@ -171,9 +196,24 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
         <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 border-b" style={{ backgroundColor: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
           <div className="w-8 h-1 rounded-full mx-auto sm:hidden" style={{ backgroundColor: "var(--border-subtle)" }} />
           <h2 className="font-bold hidden sm:block" style={{ color: "var(--text-primary)" }}>アルバムレビュー</h2>
-          <button onClick={onClose} className="ml-auto w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:bg-white/10" style={{ color: "var(--text-secondary)" }}>
-            ✕
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            {status === "authenticated" && (
+              <button
+                onClick={toggleBookmark}
+                disabled={bookmarkLoading}
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:bg-white/10 disabled:opacity-50"
+                style={{ color: bookmarked ? "#eab308" : "var(--text-secondary)" }}
+                title={bookmarked ? "保存済み" : "気になるリストに保存"}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                </svg>
+              </button>
+            )}
+            <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:bg-white/10" style={{ color: "var(--text-secondary)" }}>
+              ✕
+            </button>
+          </div>
         </div>
 
         <div className="p-5 flex flex-col gap-5">
