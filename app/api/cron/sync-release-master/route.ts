@@ -18,12 +18,7 @@ function parseCellScore(value: string): { score: number | null; comment: string 
   return { score: isNaN(num) ? null : num, comment: trimmed.substring(spaceIdx + 1).trim() };
 }
 
-export async function GET(request: Request) {
-  const authHeader = request.headers.get("authorization");
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export async function GET() {
   try {
     const [rmRows, allScores, pending] = await Promise.all([
       getReleaseMasterScoreRows(),

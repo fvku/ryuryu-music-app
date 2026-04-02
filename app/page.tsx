@@ -64,6 +64,9 @@ export default function HomePage() {
         });
         if (Object.keys(cachedData).length > 0) setSpotifyData(cachedData);
 
+        // Trigger Release Master sync in background (fire-and-forget)
+        fetch("/api/cron/sync-release-master").catch(() => {});
+
         // Only fetch Spotify for albums missing cache
         const missing = data.filter((a) => !a.spotifyUrl || !a.coverUrl);
 

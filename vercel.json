@@ -1,9 +1,3 @@
 {
-  "framework": "nextjs",
-  "crons": [
-    {
-      "path": "/api/cron/sync-release-master",
-      "schedule": "* * * * *"
-    }
-  ]
+  "framework": "nextjs"
 }
