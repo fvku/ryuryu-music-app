@@ -5,6 +5,18 @@ import Image from "next/image";
 import { useSession, signIn } from "next-auth/react";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import ScoreBar from "@/components/ScoreBar";
+import { EMAIL_TO_SHORT_NAME } from "@/lib/members";
+
+function parseLegacyScore(value: string): { score: number | null; comment: string } {
+  const trimmed = value.trim();
+  const spaceIdx = trimmed.indexOf(" ");
+  if (spaceIdx === -1) {
+    const num = parseFloat(trimmed);
+    return { score: isNaN(num) ? null : num, comment: "" };
+  }
+  const num = parseFloat(trimmed.substring(0, spaceIdx));
+  return { score: isNaN(num) ? null : num, comment: trimmed.substring(spaceIdx + 1).trim() };
+}
 
 interface ReviewModalProps {
   album: ReleaseMasterAlbum;
@@ -138,9 +150,10 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     }
   }
 
-  const myScore = session?.user?.name
-    ? scores.find((s) => s.memberName === session.user!.name)
-    : undefined;
+  const myShortName = session?.user?.email
+    ? (EMAIL_TO_SHORT_NAME[session.user.email.toLowerCase()] ?? session.user.name ?? null)
+    : null;
+  const myScore = myShortName ? scores.find((s) => s.memberName === myShortName) : undefined;
   const alreadyReviewed = !!myScore;
 
   async function handleRecommend() {
@@ -298,26 +311,45 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
             </div>
           )}
 
-          {/* Legacy scores from Release Master */}
-          {album.legacyScores.length > 0 && (
-            <div>
-              <h3 className="text-sm font-bold mb-1" style={{ color: "var(--text-primary)" }}>過去のレビュー</h3>
-              <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>Release Masterに記録されたデータです</p>
-              <div className="flex flex-col gap-2">
-                {album.legacyScores.map((s) => (
-                  <div key={s.name} className="flex items-center justify-between px-4 py-2.5 rounded-xl border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "var(--text-secondary)" }}>
-                        {s.name.charAt(0)}
+          {/* Legacy scores from Release Master (Plan A: hide if member already has app score) */}
+          {(() => {
+            const appScoredNames = new Set(scores.map((s) => s.memberName));
+            const visibleLegacy = album.legacyScores.filter((s) => !appScoredNames.has(s.name));
+            if (visibleLegacy.length === 0) return null;
+            return (
+              <div>
+                <h3 className="text-sm font-bold mb-1" style={{ color: "var(--text-primary)" }}>過去のレビュー</h3>
+                <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>Release Masterに記録されたデータです</p>
+                <div className="flex flex-col gap-2">
+                  {visibleLegacy.map((s) => {
+                    const parsed = parseLegacyScore(s.value);
+                    return (
+                      <div key={s.name} className="rounded-xl p-3 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "var(--text-secondary)" }}>
+                              {s.name.charAt(0)}
+                            </div>
+                            <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{s.name}</span>
+                          </div>
+                          {parsed.score !== null ? (
+                            <span className="font-bold text-sm px-2 py-0.5 rounded-lg" style={{ color: getScoreColor(parsed.score), backgroundColor: `${getScoreColor(parsed.score)}18` }}>
+                              {parsed.score % 1 === 0 ? parsed.score.toFixed(1) : parsed.score}
+                            </span>
+                          ) : (
+                            <span className="text-sm font-bold" style={{ color: "var(--text-secondary)" }}>{s.value}</span>
+                          )}
+                        </div>
+                        {parsed.comment && (
+                          <p className="mt-2 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>{parsed.comment}</p>
+                        )}
                       </div>
-                      <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{s.name}</span>
-                    </div>
-                    <span className="text-sm font-bold" style={{ color: "var(--text-secondary)" }}>{s.value}</span>
-                  </div>
-                ))}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Recommend */}
           {status === "authenticated" && (
@@ -378,7 +410,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
               <>
                 <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-xl" style={{ backgroundColor: "rgba(139,92,246,0.1)" }}>
                   <span className="text-xs" style={{ color: "var(--text-secondary)" }}>ログイン中：</span>
-                  <span className="text-xs font-medium" style={{ color: "var(--accent)" }}>{session.user?.name}</span>
+                  <span className="text-xs font-medium" style={{ color: "var(--accent)" }}>{myShortName ?? session.user?.name}</span>
                 </div>
 
                 {alreadyReviewed && !isEditing ? (

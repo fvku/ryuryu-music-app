@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { MEMBER_COLUMN_INDEX } from "./members";
 
 function getWriteAuth() {
   const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -60,5 +61,50 @@ export async function writeSpotifyDataToSheet(
       valueInputOption: "RAW",
       data,
     },
+  });
+}
+
+function indexToColumn(index: number): string {
+  if (index < 26) return String.fromCharCode(index + 65);
+  return String.fromCharCode(Math.floor(index / 26) + 64) + String.fromCharCode((index % 26) + 65);
+}
+
+export async function writeScoreToReleaseMaster(
+  albumNo: string,
+  memberName: string,
+  score: number,
+  comment: string
+): Promise<void> {
+  const colIndex = MEMBER_COLUMN_INDEX[memberName];
+  if (colIndex === undefined) return;
+
+  const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
+  if (!spreadsheetId) return;
+
+  const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
+
+  const resp = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: "'Release Master'!A2:A",
+  });
+
+  const noColumn = resp.data.values || [];
+  let rowNum: number | null = null;
+  for (let i = 0; i < noColumn.length; i++) {
+    if (noColumn[i][0] === albumNo) {
+      rowNum = i + 2;
+      break;
+    }
+  }
+  if (!rowNum) return;
+
+  const colLetter = indexToColumn(colIndex);
+  const cellValue = comment ? `${score} ${comment}` : `${score}`;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'Release Master'!${colLetter}${rowNum}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[cellValue]] },
   });
 }

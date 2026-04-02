@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getScoresForAlbum, addScore, hasScore, initScoresSheet, updateScore } from "@/lib/sheets";
+import { getMemberShortName } from "@/lib/members";
+import { writeScoreToReleaseMaster } from "@/lib/release-master";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +35,8 @@ export async function POST(
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }
 
-    const memberName = session.user.name.trim();
+    const shortName = getMemberShortName(session.user.email);
+    const memberName = shortName ?? session.user.name.trim();
 
     const body = await request.json();
     const { score, comment, albumTitle, artistName } = body as { score: number; comment: string; albumTitle?: string; artistName?: string };
@@ -55,14 +58,19 @@ export async function POST(
       return NextResponse.json({ error: "すでにレビューを投稿済みです" }, { status: 409 });
     }
 
+    const trimmedComment = (comment || "").trim();
     const newScore = await addScore({
       reviewId: params.albumNo,
       memberName,
       score,
-      comment: (comment || "").trim(),
+      comment: trimmedComment,
       albumTitle: albumTitle || "",
       artistName: artistName || "",
     });
+
+    writeScoreToReleaseMaster(params.albumNo, memberName, score, trimmedComment).catch((e) =>
+      console.error("Failed to write score to Release Master:", e)
+    );
 
     return NextResponse.json(newScore, { status: 201 });
   } catch (error) {
@@ -81,7 +89,8 @@ export async function PUT(
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }
 
-    const memberName = session.user.name.trim();
+    const shortName = getMemberShortName(session.user.email);
+    const memberName = shortName ?? session.user.name.trim();
 
     const body = await request.json();
     const { score, comment } = body as { score: number; comment: string };
@@ -96,10 +105,15 @@ export async function PUT(
       return NextResponse.json({ error: "スコアは0.5刻みで入力してください" }, { status: 400 });
     }
 
-    const updated = await updateScore(params.albumNo, memberName, score, (comment || "").trim());
+    const trimmedComment = (comment || "").trim();
+    const updated = await updateScore(params.albumNo, memberName, score, trimmedComment);
     if (!updated) {
       return NextResponse.json({ error: "レビューが見つかりません" }, { status: 404 });
     }
+
+    writeScoreToReleaseMaster(params.albumNo, memberName, score, trimmedComment).catch((e) =>
+      console.error("Failed to write score to Release Master:", e)
+    );
 
     return NextResponse.json(updated);
   } catch (error) {
