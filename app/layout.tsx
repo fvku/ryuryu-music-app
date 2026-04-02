@@ -27,9 +27,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               borderColor: "var(--border-subtle)",
             }}
           >
-            <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-center">
+            <div className="max-w-6xl mx-auto px-4 py-2 flex items-center justify-center">
               <a href="/" className="hover:opacity-80 transition-opacity">
-                <Image src="/logo.png" alt="流流" width={120} height={40} className="h-8 w-auto object-contain" />
+                <Image src="/logo.png" alt="流流" width={180} height={48} className="h-11 w-auto object-contain my-0" />
               </a>
             </div>
           </header>

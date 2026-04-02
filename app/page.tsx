@@ -27,6 +27,7 @@ export default function HomePage() {
   const [genreFilter, setGenreFilter] = useState<GenreFilter>("すべて");
   const [monthFilter, setMonthFilter] = useState<string>("すべて");
   const [mjFilters, setMjFilters] = useState<string[]>([]);
+  const [mjInitialized, setMjInitialized] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<ReleaseMasterAlbum | null>(null);
 
   useEffect(() => {
@@ -37,6 +38,21 @@ export default function HomePage() {
         const data: ReleaseMasterAlbum[] = await res.json();
         setAlbums(data);
         setLoading(false);
+
+        // 月の初期値：現在月にアルバムがなければ最新月
+        const availableMonths = Array.from(new Set(data.map((a) => getMonthKey(a.date)).filter(Boolean))).sort().reverse();
+        const now = new Date();
+        const currentMonthKey = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}`;
+        const defaultMonth = availableMonths.includes(currentMonthKey) ? currentMonthKey : (availableMonths[0] ?? "すべて");
+        setMonthFilter(defaultMonth);
+
+        // M/J採用：全値を初期選択
+        const allMjValues = [
+          ...Array.from(new Set(data.map((a) => a.mjAdoption).filter(Boolean))).sort(),
+          ...(data.some((a) => !a.mjAdoption) ? ["空欄"] : []),
+        ];
+        setMjFilters(allMjValues);
+        setMjInitialized(true);
 
         // Pre-populate spotifyData from sheet cache
         const cachedData: Record<string, { coverUrl: string; spotifyUrl: string }> = {};
@@ -85,11 +101,16 @@ export default function HomePage() {
     ...Array.from(new Set(albums.map((a) => a.mjAdoption).filter(Boolean))).sort(),
     ...(albums.some((a) => !a.mjAdoption) ? ["空欄"] : []),
   ];
+  const allMjSelected = mjInitialized && mjValues.length > 0 && mjValues.every((v) => mjFilters.includes(v));
 
   function toggleMjFilter(value: string) {
     setMjFilters((prev) =>
       prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
     );
+  }
+
+  function selectAllMj() {
+    setMjFilters(mjValues);
   }
 
   const filtered = albums.filter((a) => {
@@ -99,7 +120,7 @@ export default function HomePage() {
     }
     if (genreFilter !== "すべて" && a.genre !== genreFilter) return false;
     if (monthFilter !== "すべて" && getMonthKey(a.date) !== monthFilter) return false;
-    if (mjFilters.length > 0) {
+    if (mjInitialized && mjFilters.length > 0) {
       const val = a.mjAdoption || "空欄";
       if (!mjFilters.includes(val)) return false;
     }
@@ -169,9 +190,9 @@ export default function HomePage() {
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-medium flex-shrink-0" style={{ color: "var(--text-secondary)" }}>M/J採用：</span>
           <button
-            onClick={() => setMjFilters([])}
+            onClick={selectAllMj}
             className="px-3 py-1 rounded-full text-xs font-medium transition-colors flex-shrink-0"
-            style={{ backgroundColor: mjFilters.length === 0 ? "var(--accent)" : "var(--bg-card)", color: mjFilters.length === 0 ? "white" : "var(--text-secondary)", border: `1px solid ${mjFilters.length === 0 ? "var(--accent)" : "var(--border-subtle)"}` }}>
+            style={{ backgroundColor: allMjSelected ? "var(--accent)" : "var(--bg-card)", color: allMjSelected ? "white" : "var(--text-secondary)", border: `1px solid ${allMjSelected ? "var(--accent)" : "var(--border-subtle)"}` }}>
             すべて
           </button>
           {mjValues.map((v) => {
@@ -184,7 +205,7 @@ export default function HomePage() {
               </button>
             );
           })}
-          {mjFilters.length > 0 && (
+          {mjInitialized && (
             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
               {mjFilters.length}件選択中
             </span>
