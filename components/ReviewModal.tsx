@@ -155,6 +155,20 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     : null;
   const myScore = myShortName ? scores.find((s) => s.memberName === myShortName) : undefined;
   const alreadyReviewed = !!myScore;
+  const myLegacyScore = myShortName && !alreadyReviewed
+    ? album.legacyScores.find((s) => s.name === myShortName)
+    : undefined;
+
+  function startEditingFromLegacy() {
+    if (myLegacyScore) {
+      const parsed = parseLegacyScore(myLegacyScore.value);
+      setScore(parsed.score ?? 7.5);
+      setComment(parsed.comment);
+    }
+    setSubmitSuccess(false);
+    setSubmitError(null);
+    document.getElementById("review-form-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
   async function handleRecommend() {
     setRecommendSubmitting(true);
@@ -323,22 +337,30 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                 <div className="flex flex-col gap-2">
                   {visibleLegacy.map((s) => {
                     const parsed = parseLegacyScore(s.value);
+                    const isOwn = s.name === myShortName;
                     return (
-                      <div key={s.name} className="rounded-xl p-3 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
+                      <div key={s.name} className="rounded-xl p-3 border" style={{ backgroundColor: "var(--bg-card)", borderColor: isOwn ? "var(--accent)" : "var(--border-subtle)", boxShadow: isOwn ? "0 0 0 1px var(--accent)" : undefined }}>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "var(--text-secondary)" }}>
+                            <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: isOwn ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.08)", color: isOwn ? "var(--accent)" : "var(--text-secondary)" }}>
                               {s.name.charAt(0)}
                             </div>
                             <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{s.name}</span>
                           </div>
-                          {parsed.score !== null ? (
-                            <span className="font-bold text-sm px-2 py-0.5 rounded-lg" style={{ color: getScoreColor(parsed.score), backgroundColor: `${getScoreColor(parsed.score)}18` }}>
-                              {parsed.score % 1 === 0 ? parsed.score.toFixed(1) : parsed.score}
-                            </span>
-                          ) : (
-                            <span className="text-sm font-bold" style={{ color: "var(--text-secondary)" }}>{s.value}</span>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {parsed.score !== null ? (
+                              <span className="font-bold text-sm px-2 py-0.5 rounded-lg" style={{ color: getScoreColor(parsed.score), backgroundColor: `${getScoreColor(parsed.score)}18` }}>
+                                {parsed.score % 1 === 0 ? parsed.score.toFixed(1) : parsed.score}
+                              </span>
+                            ) : (
+                              <span className="text-sm font-bold" style={{ color: "var(--text-secondary)" }}>{s.value}</span>
+                            )}
+                            {isOwn && (
+                              <button onClick={startEditingFromLegacy} className="px-2.5 py-1 rounded-lg text-xs font-medium border" style={{ borderColor: "var(--accent)", color: "var(--accent)" }}>
+                                編集する
+                              </button>
+                            )}
+                          </div>
                         </div>
                         {parsed.comment && (
                           <p className="mt-2 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>{parsed.comment}</p>
@@ -388,7 +410,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
           )}
 
           {/* Score submission */}
-          <div className="rounded-2xl p-4 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
+          <div id="review-form-section" className="rounded-2xl p-4 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
             <h3 className="text-sm font-bold mb-3" style={{ color: "var(--text-primary)" }}>レビューを投稿</h3>
 
             {status === "unauthenticated" && (
