@@ -151,7 +151,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   }
 
   const myEmail = session?.user?.email?.toLowerCase() ?? null;
-  const myShortName = myEmail ? (EMAIL_TO_SHORT_NAME[myEmail] ?? session.user?.name ?? null) : null;
+  const myShortName = myEmail ? (EMAIL_TO_SHORT_NAME[myEmail] ?? session?.user?.name ?? null) : null;
   // emailが正規識別子。旧エントリ(短縮名)も照合
   const myScore = myEmail
     ? scores.find((s) => {
