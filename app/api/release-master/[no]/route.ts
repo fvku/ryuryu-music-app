@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { ReleaseMasterAlbum } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const LEGACY_MEMBERS = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa"];
 
-function getAuth() {
+function getAuth(write = false) {
   const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
   let credentials;
@@ -25,7 +27,9 @@ function getAuth() {
   }
   return new google.auth.GoogleAuth({
     credentials,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    scopes: write
+      ? ["https://www.googleapis.com/auth/spreadsheets"]
+      : ["https://www.googleapis.com/auth/spreadsheets.readonly"],
   });
 }
 
@@ -73,5 +77,54 @@ export async function GET(
   } catch (error) {
     console.error("Failed to get album from Release Master:", error);
     return NextResponse.json({ error: "アルバムの取得に失敗しました" }, { status: 500 });
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { no: string } }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+    }
+
+    const { mjAdoption } = await request.json();
+    if (mjAdoption === undefined) {
+      return NextResponse.json({ error: "mjAdoptionが必要です" }, { status: 400 });
+    }
+
+    const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
+    if (!spreadsheetId) {
+      return NextResponse.json({ error: "RELEASE_MASTER_SPREADSHEET_ID is not set" }, { status: 500 });
+    }
+
+    const sheets = google.sheets({ version: "v4", auth: getAuth(true) });
+
+    // 対象行を探す（A2からなので行番号 = index + 2）
+    const readRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Release Master'!A2:A",
+    });
+    const rows = readRes.data.values ?? [];
+    const rowIndex = rows.findIndex((r) => r[0] === params.no);
+    if (rowIndex === -1) {
+      return NextResponse.json({ error: "アルバムが見つかりません" }, { status: 404 });
+    }
+    const sheetRow = rowIndex + 2; // 1-indexed, header is row 1
+
+    // 列Q（17列目）を更新
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'Release Master'!Q${sheetRow}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[mjAdoption]] },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("Failed to update mjAdoption:", error);
+    return NextResponse.json({ error: "更新に失敗しました" }, { status: 500 });
   }
 }

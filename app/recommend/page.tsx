@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import Image from "next/image";
+import { useSession } from "next-auth/react";
 import { Recommendation } from "@/lib/sheets";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import ReviewModal from "@/components/ReviewModal";
@@ -24,12 +25,28 @@ function formatDate(iso: string) {
 }
 
 export default function RecommendPage() {
+  const { data: session } = useSession();
+  const myEmail = session?.user?.email?.toLowerCase() ?? null;
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [albums, setAlbums] = useState<ReleaseMasterAlbum[]>([]);
   const [spotifyData, setSpotifyData] = useState<Record<string, { coverUrl: string; spotifyUrl: string }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<ReleaseMasterAlbum | null>(null);
+  const [displayCount, setDisplayCount] = useState(20);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  const loadMore = useCallback(() => setDisplayCount((prev) => prev + 20), []);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) loadMore(); },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMore, timeline.length]);
 
   useEffect(() => {
     async function init() {
@@ -115,7 +132,7 @@ export default function RecommendPage() {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {timeline.map((item, i) => {
+          {timeline.slice(0, displayCount).map((item, i) => {
             if (item.type === "recommendation") {
               const rec = item.data;
               const album = albumMap.get(rec.albumNo);
@@ -128,12 +145,28 @@ export default function RecommendPage() {
                   onClick={() => album && setSelectedAlbum(album)}
                 >
                   {/* Meta */}
-                  <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center gap-2 mb-3 flex-wrap">
                     <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>
                       {getDisplayName(rec.recommenderId).charAt(0).toUpperCase()}
                     </div>
                     <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{getDisplayName(rec.recommenderId)}</span>
                     <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>レコメンド</span>
+                    {rec.mentionedEmails.length > 0 && (
+                      <span className="text-xs flex items-center gap-1 flex-wrap">
+                        {rec.mentionedEmails.map((e) => (
+                          <span
+                            key={e}
+                            className="px-1.5 py-0.5 rounded-full font-medium"
+                            style={{
+                              backgroundColor: e === myEmail ? "rgba(234,179,8,0.2)" : "rgba(255,255,255,0.08)",
+                              color: e === myEmail ? "#eab308" : "var(--text-secondary)",
+                            }}
+                          >
+                            @{getDisplayName(e)}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                     <span className="text-xs ml-auto" style={{ color: "var(--text-secondary)" }}>{formatDate(rec.createdAt)}</span>
                   </div>
                   {/* Album */}
@@ -203,9 +236,11 @@ export default function RecommendPage() {
                     {album?.date && <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>{album.date}</p>}
                   </div>
                   <div className="flex-shrink-0 text-right">
-                    <span className="font-bold text-lg px-2 py-0.5 rounded-lg" style={{ color: getScoreColor(review.score), backgroundColor: `${getScoreColor(review.score)}18` }}>
-                      {review.score % 1 === 0 ? review.score.toFixed(1) : review.score}
-                    </span>
+                    {review.score !== null && (
+                      <span className="font-bold text-lg px-2 py-0.5 rounded-lg" style={{ color: getScoreColor(review.score), backgroundColor: `${getScoreColor(review.score)}18` }}>
+                        {review.score % 1 === 0 ? review.score.toFixed(1) : review.score}
+                      </span>
+                    )}
                   </div>
                 </div>
                 {review.comment && (
@@ -216,6 +251,11 @@ export default function RecommendPage() {
               </div>
             );
           })}
+        </div>
+      )}
+      {!loading && displayCount < timeline.length && (
+        <div ref={sentinelRef} className="flex justify-center py-6">
+          <div className="w-6 h-6 rounded-full border-2 animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
         </div>
       )}
 

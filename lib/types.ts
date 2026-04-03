@@ -22,7 +22,7 @@ export interface ReleaseMasterAlbum {
 export interface Score {
   reviewId: string; // = albumNo
   memberName: string;
-  score: number;
+  score: number | null;
   comment: string;
   submittedAt: string;
   albumTitle?: string;

@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import AlbumCard from "@/components/AlbumCard";
 import ReviewModal from "@/components/ReviewModal";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
-import { LEGACY_NAME_TO_EMAIL, parseLegacyScoreNum } from "@/lib/members";
+import { LEGACY_NAME_TO_EMAIL, parseLegacyScoreNum, EMAIL_TO_SHORT_NAME } from "@/lib/members";
 
 const GENRE_VALUES = ["邦楽", "洋楽"] as const;
+const UP_NEXT_MJ_EXCLUDE = ["J採用", "採用", "不採用"];
 
 function getMonthKey(date: string): string {
   return date.substring(0, 7);
@@ -18,9 +20,10 @@ function formatMonth(key: string): string {
 }
 
 export default function HomePage() {
+  const { data: session } = useSession();
   const [albums, setAlbums] = useState<ReleaseMasterAlbum[]>([]);
   const [spotifyData, setSpotifyData] = useState<Record<string, { coverUrl: string; spotifyUrl: string }>>({});
-  const [scoreSummary, setScoreSummary] = useState<Record<string, { avg: number; count: number; total: number; members: Set<string> }>>({});
+  const [scoreSummary, setScoreSummary] = useState<Record<string, { avg: number; count: number; total: number; members: Set<string>; memberScores: Record<string, number> }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,6 +32,9 @@ export default function HomePage() {
   const [monthFilter, setMonthFilter] = useState<string>("すべて");
   const [mjFilters, setMjFilters] = useState<string[]>([]);
   const [mjInitialized, setMjInitialized] = useState(false);
+  const [upNext, setUpNext] = useState(false);
+  const [savedMjFilters, setSavedMjFilters] = useState<string[] | null>(null);
+  const [myReviewedAlbumNos, setMyReviewedAlbumNos] = useState<Set<string>>(new Set());
   const [selectedAlbum, setSelectedAlbum] = useState<ReleaseMasterAlbum | null>(null);
 
   useEffect(() => {
@@ -82,15 +88,19 @@ export default function HomePage() {
             : Promise.resolve(),
 
           fetch("/api/scores").then((r) => r.ok ? r.json() : []).then((scores: Score[]) => {
-            const summary: Record<string, { avg: number; count: number; total: number; members: Set<string> }> = {};
+            const summary: Record<string, { avg: number; count: number; total: number; members: Set<string>; memberScores: Record<string, number> }> = {};
             scores.forEach((s) => {
-              if (!summary[s.reviewId]) summary[s.reviewId] = { avg: 0, count: 0, total: 0, members: new Set() };
-              summary[s.reviewId].total += s.score;
-              summary[s.reviewId].count += 1;
+              if (!summary[s.reviewId]) summary[s.reviewId] = { avg: 0, count: 0, total: 0, members: new Set(), memberScores: {} };
               summary[s.reviewId].members.add(s.memberName.toLowerCase());
-              summary[s.reviewId].avg = Math.round((summary[s.reviewId].total / summary[s.reviewId].count) * 10) / 10;
+              if (s.score !== null) {
+                summary[s.reviewId].total += s.score;
+                summary[s.reviewId].count += 1;
+                summary[s.reviewId].memberScores[s.memberName.toLowerCase()] = s.score;
+                summary[s.reviewId].avg = Math.round((summary[s.reviewId].total / summary[s.reviewId].count) * 10) / 10;
+              }
             });
             setScoreSummary(summary);
+
           }),
         ]);
       } catch (err) {
@@ -101,19 +111,50 @@ export default function HomePage() {
     init();
   }, []);
 
+  // Up Next用：セッション・スコアが揃ったら自分のレビュー済みNoを計算
+  useEffect(() => {
+    const userEmail = session?.user?.email?.toLowerCase();
+    if (!userEmail || Object.keys(scoreSummary).length === 0) return;
+    const shortName = EMAIL_TO_SHORT_NAME[userEmail] ?? null;
+    const reviewed = new Set<string>();
+    Object.entries(scoreSummary).forEach(([albumNo, s]) => {
+      if (s.memberScores[userEmail] !== undefined || (shortName && s.memberScores[shortName.toLowerCase()] !== undefined)) {
+        reviewed.add(albumNo);
+      }
+    });
+    // legacyScores からも追加
+    albums.forEach((a) => {
+      if (a.legacyScores.some((ls) =>
+        ls.name.toLowerCase() === userEmail ||
+        (shortName && ls.name.toLowerCase() === shortName.toLowerCase())
+      )) {
+        reviewed.add(a.no);
+      }
+    });
+    setMyReviewedAlbumNos(reviewed);
+  }, [session, scoreSummary, albums]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function getCombinedScore(album: ReleaseMasterAlbum) {
     const app = scoreSummary[album.no];
-    const appMembers = app?.members ?? new Set<string>();
+    // Release Master scores take priority: collect all valid legacy scores
+    const legacyCoveredIds = new Set<string>();
     let legacyTotal = 0, legacyCount = 0;
     for (const ls of album.legacyScores) {
-      const email = LEGACY_NAME_TO_EMAIL[ls.name.toLowerCase()];
-      if (email && appMembers.has(email)) continue;
-      if (appMembers.has(ls.name.toLowerCase())) continue;
       const n = parseLegacyScoreNum(ls.value);
-      if (n !== null && n >= 0 && n <= 10) { legacyTotal += n; legacyCount++; }
+      if (n !== null && n >= 0 && n <= 10) {
+        legacyTotal += n; legacyCount++;
+        const email = LEGACY_NAME_TO_EMAIL[ls.name.toLowerCase()];
+        if (email) legacyCoveredIds.add(email);
+        legacyCoveredIds.add(ls.name.toLowerCase());
+      }
     }
-    const total = (app?.total ?? 0) + legacyTotal;
-    const count = (app?.count ?? 0) + legacyCount;
+    // Only add app scores for members not covered by Release Master
+    let appOnlyTotal = 0, appOnlyCount = 0;
+    for (const [member, score] of Object.entries(app?.memberScores ?? {})) {
+      if (!legacyCoveredIds.has(member)) { appOnlyTotal += score; appOnlyCount++; }
+    }
+    const total = legacyTotal + appOnlyTotal;
+    const count = legacyCount + appOnlyCount;
     if (count === 0) return { avg: null, count: 0 };
     return { avg: Math.round((total / count) * 10) / 10, count };
   }
@@ -146,6 +187,21 @@ export default function HomePage() {
     setGenreFilters(allGenreSelected ? [] : [...GENRE_VALUES]);
   }
 
+  function toggleUpNext(currentMjValues: string[]) {
+    if (!upNext) {
+      // ON: 現在のM/Jフィルタを保存し、Up Next条件の値だけ選択
+      setSavedMjFilters(mjFilters);
+      const upNextMjValues = currentMjValues.filter((v) => !UP_NEXT_MJ_EXCLUDE.includes(v));
+      setMjFilters(upNextMjValues);
+      setUpNext(true);
+    } else {
+      // OFF: 保存していたM/Jフィルタを復元
+      setMjFilters(savedMjFilters ?? currentMjValues);
+      setSavedMjFilters(null);
+      setUpNext(false);
+    }
+  }
+
   const filtered = albums.filter((a) => {
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
@@ -157,6 +213,7 @@ export default function HomePage() {
       const val = a.mjAdoption || "空欄";
       if (!mjFilters.includes(val)) return false;
     }
+    if (upNext && myReviewedAlbumNos.has(a.no)) return false;
     return true;
   });
 
@@ -180,80 +237,105 @@ export default function HomePage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>月次アルバムレビュー</h1>
-        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{filtered.length}枚のアルバム</p>
-      </div>
-
       {/* Search */}
-      <div className="mb-4">
+      <div className="mb-4 relative">
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="アーティスト名・アルバム名で検索..."
-          className="w-full px-4 py-3 rounded-xl border text-sm focus:outline-none focus:border-violet-500/50"
+          className="w-full px-4 py-3 rounded-xl border text-sm focus:outline-none focus:border-violet-500/50 pr-10"
           style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
         />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full text-xs transition-colors"
+            style={{ backgroundColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {/* Filters */}
       <div className="mb-5 flex flex-col gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-medium flex-shrink-0" style={{ color: "var(--text-secondary)" }}>月：</span>
-          {months.map((m) => (
-            <button key={m} onClick={() => setMonthFilter(m)}
-              className="px-3 py-1 rounded-full text-xs font-medium transition-colors flex-shrink-0"
-              style={{ backgroundColor: monthFilter === m ? "var(--accent)" : "var(--bg-card)", color: monthFilter === m ? "white" : "var(--text-secondary)", border: `1px solid ${monthFilter === m ? "var(--accent)" : "var(--border-subtle)"}` }}>
-              {m === "すべて" ? "すべて" : formatMonth(m)}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-medium flex-shrink-0" style={{ color: "var(--text-secondary)" }}>ジャンル：</span>
-          <button
-            onClick={toggleAllGenre}
-            className="px-3 py-1 rounded-full text-xs font-medium transition-colors flex-shrink-0"
-            style={{ backgroundColor: allGenreSelected ? "var(--accent)" : "var(--bg-card)", color: allGenreSelected ? "white" : "var(--text-secondary)", border: `1px solid ${allGenreSelected ? "var(--accent)" : "var(--border-subtle)"}` }}>
-            すべて
-          </button>
-          {GENRE_VALUES.map((g) => {
-            const active = genreFilters.includes(g);
-            return (
-              <button key={g} onClick={() => toggleGenreFilter(g)}
-                className="px-3 py-1 rounded-full text-xs font-medium transition-colors flex-shrink-0"
-                style={{ backgroundColor: active ? "rgba(139,92,246,0.3)" : "var(--bg-card)", color: active ? "white" : "var(--text-secondary)", border: `1px solid ${active ? "var(--accent)" : "var(--border-subtle)"}` }}>
-                {g}
+        {/* 月：プルダウン + Up Next */}
+        <div className="grid grid-cols-[4rem_1fr] items-center gap-x-2">
+          <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>月：</span>
+          <div className="flex flex-wrap gap-2 items-center">
+            <select
+              value={monthFilter}
+              onChange={(e) => setMonthFilter(e.target.value)}
+              className="px-3 py-1.5 rounded-xl border text-xs font-medium focus:outline-none"
+              style={{ backgroundColor: "var(--bg-card)", borderColor: monthFilter !== "すべて" ? "var(--accent)" : "var(--border-subtle)", color: monthFilter !== "すべて" ? "white" : "var(--text-secondary)" }}
+            >
+              {months.map((m) => (
+                <option key={m} value={m}>{m === "すべて" ? "すべて" : formatMonth(m)}</option>
+              ))}
+            </select>
+            {session && (
+              <button
+                onClick={() => toggleUpNext(mjValues)}
+                className="px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors"
+                style={{
+                  backgroundColor: upNext ? "rgba(139,92,246,0.25)" : "var(--bg-card)",
+                  borderColor: upNext ? "var(--accent)" : "var(--border-subtle)",
+                  color: upNext ? "white" : "var(--text-secondary)",
+                }}
+              >
+                🎯 Up Next (for Review)
               </button>
-            );
-          })}
-          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{genreFilters.length}件選択中</span>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-medium flex-shrink-0" style={{ color: "var(--text-secondary)" }}>M/J採用：</span>
-          <button
-            onClick={toggleAllMj}
-            className="px-3 py-1 rounded-full text-xs font-medium transition-colors flex-shrink-0"
-            style={{ backgroundColor: allMjSelected ? "var(--accent)" : "var(--bg-card)", color: allMjSelected ? "white" : "var(--text-secondary)", border: `1px solid ${allMjSelected ? "var(--accent)" : "var(--border-subtle)"}` }}>
-            すべて
-          </button>
-          {mjValues.map((v) => {
-            const active = mjFilters.includes(v);
-            return (
-              <button key={v} onClick={() => toggleMjFilter(v)}
-                className="px-3 py-1 rounded-full text-xs font-medium transition-colors flex-shrink-0"
-                style={{ backgroundColor: active ? "rgba(139,92,246,0.3)" : "var(--bg-card)", color: active ? "white" : "var(--text-secondary)", border: `1px solid ${active ? "var(--accent)" : "var(--border-subtle)"}` }}>
-                {v}
-              </button>
-            );
-          })}
-          {mjInitialized && (
-            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-              {mjFilters.length}件選択中
-            </span>
-          )}
+        <div className="grid grid-cols-[4rem_1fr] items-start gap-x-2">
+          <span className="text-xs font-medium pt-1" style={{ color: "var(--text-secondary)" }}>ジャンル：</span>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={toggleAllGenre}
+              className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
+              style={{ backgroundColor: allGenreSelected ? "var(--accent)" : "var(--bg-card)", color: allGenreSelected ? "white" : "var(--text-secondary)", border: `1px solid ${allGenreSelected ? "var(--accent)" : "var(--border-subtle)"}` }}>
+              すべて
+            </button>
+            {GENRE_VALUES.map((g) => {
+              const active = genreFilters.includes(g);
+              return (
+                <button key={g} onClick={() => toggleGenreFilter(g)}
+                  className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
+                  style={{ backgroundColor: active ? "rgba(139,92,246,0.3)" : "var(--bg-card)", color: active ? "white" : "var(--text-secondary)", border: `1px solid ${active ? "var(--accent)" : "var(--border-subtle)"}` }}>
+                  {g}
+                </button>
+              );
+            })}
+          </div>
         </div>
+
+        <div className="grid grid-cols-[4rem_1fr] items-start gap-x-2">
+          <span className="text-xs font-medium pt-1" style={{ color: "var(--text-secondary)" }}>M/J採用：</span>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={toggleAllMj}
+              className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
+              style={{ backgroundColor: allMjSelected ? "var(--accent)" : "var(--bg-card)", color: allMjSelected ? "white" : "var(--text-secondary)", border: `1px solid ${allMjSelected ? "var(--accent)" : "var(--border-subtle)"}` }}>
+              すべて
+            </button>
+            {mjValues.map((v) => {
+              const active = mjFilters.includes(v);
+              return (
+                <button key={v} onClick={() => toggleMjFilter(v)}
+                  className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
+                  style={{ backgroundColor: active ? "rgba(139,92,246,0.3)" : "var(--bg-card)", color: active ? "white" : "var(--text-secondary)", border: `1px solid ${active ? "var(--accent)" : "var(--border-subtle)"}` }}>
+                  {v}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 件数 */}
+        <p className="text-xs text-right" style={{ color: "var(--text-secondary)" }}>{filtered.length}枚のアルバム</p>
       </div>
 
       {/* Album list */}

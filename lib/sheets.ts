@@ -63,7 +63,7 @@ export async function getAllScores(): Promise<Score[]> {
   return rows.filter((row) => row[0]).map((row) => ({
     reviewId: row[0] || "",
     memberName: row[1] || "",
-    score: parseFloat(row[2] || "0"),
+    score: row[2] !== "" && row[2] !== undefined ? parseFloat(row[2]) : null,
     comment: row[3] || "",
     submittedAt: row[4] || "",
     albumTitle: row[5] || "",
@@ -88,7 +88,7 @@ export async function getScoresForAlbum(albumNo: string): Promise<Score[]> {
     .map((row) => ({
       reviewId: row[0] || "",
       memberName: row[1] || "",
-      score: parseFloat(row[2] || "0"),
+      score: row[2] !== "" && row[2] !== undefined ? parseFloat(row[2]) : null,
       comment: row[3] || "",
       submittedAt: row[4] || "",
       albumTitle: row[5] || "",
@@ -108,7 +108,7 @@ export async function addScore(scoreData: Omit<Score, "submittedAt">): Promise<S
     range: "scores!A:G",
     valueInputOption: "RAW",
     requestBody: {
-      values: [[score.reviewId, score.memberName, score.score, score.comment, score.submittedAt, score.albumTitle || "", score.artistName || ""]],
+      values: [[score.reviewId, score.memberName, score.score ?? "", score.comment, score.submittedAt, score.albumTitle || "", score.artistName || ""]],
     },
   });
 
@@ -124,7 +124,7 @@ export async function hasScore(albumNo: string, memberName: string, altNames: st
 export async function updateScore(
   albumNo: string,
   memberName: string, // canonical value to STORE
-  score: number,
+  score: number | null,
   comment: string,
   altNames: string[] = [] // additional names to SEARCH by (backward compat)
 ): Promise<Score | null> {
@@ -151,7 +151,7 @@ export async function updateScore(
     range: `scores!A${sheetRowNumber}:G${sheetRowNumber}`,
     valueInputOption: "RAW",
     requestBody: {
-      values: [[albumNo, memberName, score, comment, submittedAt, existingAlbumTitle, existingArtistName]],
+      values: [[albumNo, memberName, score ?? "", comment, submittedAt, existingAlbumTitle, existingArtistName]],
     },
   });
 
@@ -167,40 +167,28 @@ export interface Recommendation {
   coverUrl: string;
   message: string;
   createdAt: string;
+  mentionedEmails: string[];
 }
 
 export async function initRecommendationsSheet(): Promise<void> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
+  const header = [["id", "recommenderId", "albumNo", "albumTitle", "artistName", "coverUrl", "message", "createdAt", "mentionedEmails"]];
   try {
-    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "recommendations!A1:H1" });
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "recommendations!A1:I1" });
     if (!res.data.values || res.data.values.length === 0) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: "recommendations!A1:H1",
-        valueInputOption: "RAW",
-        requestBody: { values: [["id", "recommenderId", "albumNo", "albumTitle", "artistName", "coverUrl", "message", "createdAt"]] },
-      });
+      await sheets.spreadsheets.values.update({ spreadsheetId, range: "recommendations!A1:I1", valueInputOption: "RAW", requestBody: { values: header } });
     }
   } catch {
-    // Sheet may not exist yet — create it via batchUpdate
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: { requests: [{ addSheet: { properties: { title: "recommendations" } } }] },
-    });
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: "recommendations!A1:H1",
-      valueInputOption: "RAW",
-      requestBody: { values: [["id", "recommenderId", "albumNo", "albumTitle", "artistName", "coverUrl", "message", "createdAt"]] },
-    });
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [{ addSheet: { properties: { title: "recommendations" } } }] } });
+    await sheets.spreadsheets.values.update({ spreadsheetId, range: "recommendations!A1:I1", valueInputOption: "RAW", requestBody: { values: header } });
   }
 }
 
 export async function getAllRecommendations(): Promise<Recommendation[]> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "recommendations!A2:H" });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "recommendations!A2:I" });
   const rows = res.data.values;
   if (!rows || rows.length === 0) return [];
   return rows.filter((row) => row[0]).map((row) => ({
@@ -212,7 +200,14 @@ export async function getAllRecommendations(): Promise<Recommendation[]> {
     coverUrl: row[5] || "",
     message: row[6] || "",
     createdAt: row[7] || "",
+    mentionedEmails: row[8] ? row[8].split(",").map((e: string) => e.trim()).filter(Boolean) : [],
   }));
+}
+
+export async function getRecommendationsForUser(userEmail: string): Promise<Recommendation[]> {
+  const all = await getAllRecommendations();
+  const email = userEmail.toLowerCase();
+  return all.filter((r) => r.mentionedEmails.includes(email));
 }
 
 export async function addRecommendation(data: Omit<Recommendation, "id" | "createdAt">): Promise<Recommendation> {
@@ -223,9 +218,9 @@ export async function addRecommendation(data: Omit<Recommendation, "id" | "creat
   const rec: Recommendation = { id, createdAt, ...data };
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: "recommendations!A:H",
+    range: "recommendations!A:I",
     valueInputOption: "RAW",
-    requestBody: { values: [[rec.id, rec.recommenderId, rec.albumNo, rec.albumTitle, rec.artistName, rec.coverUrl, rec.message, rec.createdAt]] },
+    requestBody: { values: [[rec.id, rec.recommenderId, rec.albumNo, rec.albumTitle, rec.artistName, rec.coverUrl, rec.message, rec.createdAt, rec.mentionedEmails.join(",")]] },
   });
   return rec;
 }
@@ -234,17 +229,21 @@ export async function addRecommendation(data: Omit<Recommendation, "id" | "creat
 
 export interface Bookmark {
   memberName: string;
-  albumNo: string;
+  albumTitle: string;
+  artistName: string;
   savedAt: string;
 }
 
 async function initBookmarksSheet(sheets: ReturnType<typeof getSheetsClient>, spreadsheetId: string): Promise<void> {
+  const newHeader = [["memberName", "albumTitle", "artistName", "savedAt"]];
   try {
-    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "bookmarks!A1:C1" });
-    if (!res.data.values || res.data.values.length === 0) {
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "bookmarks!A1:D1" });
+    const colB = res.data.values?.[0]?.[1] || "";
+    if (colB !== "albumTitle") {
+      // ヘッダーが旧フォーマット（albumNo）または空 → 新フォーマットに更新
       await sheets.spreadsheets.values.update({
-        spreadsheetId, range: "bookmarks!A1:C1", valueInputOption: "RAW",
-        requestBody: { values: [["memberName", "albumNo", "savedAt"]] },
+        spreadsheetId, range: "bookmarks!A1:D1", valueInputOption: "RAW",
+        requestBody: { values: newHeader },
       });
     }
   } catch {
@@ -253,8 +252,8 @@ async function initBookmarksSheet(sheets: ReturnType<typeof getSheetsClient>, sp
       requestBody: { requests: [{ addSheet: { properties: { title: "bookmarks" } } }] },
     });
     await sheets.spreadsheets.values.update({
-      spreadsheetId, range: "bookmarks!A1:C1", valueInputOption: "RAW",
-      requestBody: { values: [["memberName", "albumNo", "savedAt"]] },
+      spreadsheetId, range: "bookmarks!A1:D1", valueInputOption: "RAW",
+      requestBody: { values: newHeader },
     });
   }
 }
@@ -263,23 +262,24 @@ export async function getBookmarks(memberName: string): Promise<Bookmark[]> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
   await initBookmarksSheet(sheets, spreadsheetId);
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "bookmarks!A2:C" });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "bookmarks!A2:D" });
   const rows = res.data.values;
   if (!rows || rows.length === 0) return [];
   return rows.filter((row) => row[0]?.trim().toLowerCase() === memberName.trim().toLowerCase()).map((row) => ({
     memberName: row[0] || "",
-    albumNo: row[1] || "",
-    savedAt: row[2] || "",
+    albumTitle: row[1] || "",
+    artistName: row[2] || "",
+    savedAt: row[3] || "",
   }));
 }
 
-export async function addBookmark(memberName: string, albumNo: string): Promise<void> {
+export async function addBookmark(memberName: string, albumTitle: string, artistName: string): Promise<void> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
   await initBookmarksSheet(sheets, spreadsheetId);
   await sheets.spreadsheets.values.append({
-    spreadsheetId, range: "bookmarks!A:C", valueInputOption: "RAW",
-    requestBody: { values: [[memberName, albumNo, new Date().toISOString()]] },
+    spreadsheetId, range: "bookmarks!A:D", valueInputOption: "RAW",
+    requestBody: { values: [[memberName, albumTitle, artistName, new Date().toISOString()]] },
   });
 }
 
@@ -373,20 +373,23 @@ export async function removeSyncPending(albumNo: string, memberEmail: string): P
   });
 }
 
-export async function removeBookmark(memberName: string, albumNo: string): Promise<void> {
+export async function removeBookmark(memberName: string, albumTitle: string, artistName: string): Promise<void> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
   await initBookmarksSheet(sheets, spreadsheetId);
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "bookmarks!A2:C" });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "bookmarks!A2:D" });
   const rows = res.data.values;
   if (!rows) return;
   const rowIndex = rows.findIndex(
-    (row) => row[0]?.trim().toLowerCase() === memberName.trim().toLowerCase() && row[1] === albumNo
+    (row) =>
+      row[0]?.trim().toLowerCase() === memberName.trim().toLowerCase() &&
+      row[1] === albumTitle &&
+      row[2] === artistName
   );
   if (rowIndex === -1) return;
   const sheetRow = rowIndex + 2;
   await sheets.spreadsheets.values.update({
-    spreadsheetId, range: `bookmarks!A${sheetRow}:C${sheetRow}`, valueInputOption: "RAW",
-    requestBody: { values: [["", "", ""]] },
+    spreadsheetId, range: `bookmarks!A${sheetRow}:D${sheetRow}`, valueInputOption: "RAW",
+    requestBody: { values: [["", "", "", ""]] },
   });
 }

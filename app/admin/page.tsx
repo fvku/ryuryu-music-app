@@ -51,6 +51,11 @@ export default function AdminPage() {
   const [createSuccess, setCreateSuccess] = useState(false);
   const [createdId, setCreatedId] = useState<string | null>(null);
 
+  // Bulk import
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; pendingCleared: number } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
   useEffect(() => {
     if (step === "main" && searchMode === "release-master" && rmAlbums.length === 0) {
       fetchReleaseMaster();
@@ -113,6 +118,26 @@ export default function AdminPage() {
     setGenre(album.genre as "邦楽" | "洋楽" | "");
     setSearchMode("spotify");
     searchSpotify(query);
+  }
+
+  async function handleBulkImport() {
+    setImportLoading(true);
+    setImportError(null);
+    setImportResult(null);
+    try {
+      const res = await fetch("/api/admin/bulk-import-release-master", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminPassword: password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "取り込みに失敗しました");
+      setImportResult(data);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setImportLoading(false);
+    }
   }
 
   async function handleCreateReview() {
@@ -215,6 +240,29 @@ export default function AdminPage() {
           </a>
         </div>
       )}
+
+      {/* Bulk import */}
+      <div className="rounded-2xl p-6 border mb-6" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
+        <h2 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>Release Master 一括取り込み</h2>
+        <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>Release Masterの全スコアをアプリのscoresシートに取り込みます。すでに取り込み済みのものはスキップされます。</p>
+        {importResult && (
+          <div className="rounded-xl p-3 mb-3 border" style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}>
+            <p className="text-green-400 text-sm font-medium">取り込み完了</p>
+            <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+              新規取り込み: {importResult.imported}件 / スキップ: {importResult.skipped}件 / pending削除: {importResult.pendingCleared}件
+            </p>
+          </div>
+        )}
+        {importError && <p className="text-red-400 text-sm mb-3">{importError}</p>}
+        <button
+          onClick={handleBulkImport}
+          disabled={importLoading}
+          className="px-5 py-2.5 rounded-xl font-medium text-sm border disabled:opacity-50"
+          style={{ borderColor: "var(--accent)", color: "var(--accent)" }}
+        >
+          {importLoading ? "取り込み中..." : "一括取り込みを実行"}
+        </button>
+      </div>
 
       {/* Year/Month selector */}
       <div className="rounded-2xl p-6 border mb-6" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>

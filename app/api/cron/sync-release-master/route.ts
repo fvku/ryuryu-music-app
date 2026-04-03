@@ -38,7 +38,9 @@ export async function GET() {
     for (const row of rmRows) {
       for (const [email, cellValue] of Object.entries(row.memberScores)) {
         const { score, comment } = parseCellScore(cellValue);
-        if (score === null || score < 0 || score > 10) continue;
+        // スコアが範囲外（無効値）はスキップ。スコアなし+コメントのみはOK
+        if (score !== null && (score < 0 || score > 10)) continue;
+        if (score === null && !comment) continue;
 
         const key = `${row.albumNo}::${email}`;
         const existingAppScore = appScoreMap.get(key);

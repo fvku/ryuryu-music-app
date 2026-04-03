@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Image from "next/image";
 import { useSession, signIn } from "next-auth/react";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
+import { Recommendation } from "@/lib/sheets";
 import ScoreBar from "@/components/ScoreBar";
 import { EMAIL_TO_SHORT_NAME, LEGACY_NAME_TO_EMAIL, getDisplayName, parseLegacyScoreNum } from "@/lib/members";
+
+const ALL_MEMBERS: { email: string; name: string }[] = Object.entries(EMAIL_TO_SHORT_NAME).map(([email, name]) => ({ email, name }));
 
 function parseLegacyScore(value: string): { score: number | null; comment: string } {
   const trimmed = value.trim();
@@ -45,28 +48,46 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   const [isEditing, setIsEditing] = useState(false);
   const [isRecommending, setIsRecommending] = useState(false);
   const [recommendMessage, setRecommendMessage] = useState("");
+  const [mentionedEmails, setMentionedEmails] = useState<string[]>([]);
   const [recommendSubmitting, setRecommendSubmitting] = useState(false);
   const [recommendSuccess, setRecommendSuccess] = useState(false);
   const [recommendError, setRecommendError] = useState<string | null>(null);
+  const [noScore, setNoScore] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
+  const [mjAdoption, setMjAdoption] = useState(album.mjAdoption ?? "");
+  const [mjPicker, setMjPicker] = useState(false);
+  const [mjPending, setMjPending] = useState<string | null>(null);
+  const [mjUpdating, setMjUpdating] = useState(false);
+  const [albumRecs, setAlbumRecs] = useState<Recommendation[]>([]);
+
+  useEffect(() => {
+    fetch(`/api/recommendations?albumNo=${encodeURIComponent(album.no)}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((recs: Recommendation[]) =>
+        setAlbumRecs(recs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
+      );
+  }, [album.no]);
 
   useEffect(() => {
     if (status === "authenticated") {
       fetch("/api/bookmarks")
         .then((r) => r.ok ? r.json() : [])
-        .then((bms: { albumNo: string }[]) => setBookmarked(bms.some((b) => b.albumNo === album.no)));
+        .then((bms: { albumTitle: string; artistName: string }[]) =>
+          setBookmarked(bms.some((b) => b.albumTitle === album.title && b.artistName === album.artist))
+        );
     }
-  }, [status, album.no]);
+  }, [status, album.title, album.artist]);
 
   async function toggleBookmark() {
     setBookmarkLoading(true);
     try {
+      const body = JSON.stringify({ albumTitle: album.title, artistName: album.artist });
       if (bookmarked) {
-        await fetch("/api/bookmarks", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ albumNo: album.no }) });
+        await fetch("/api/bookmarks", { method: "DELETE", headers: { "Content-Type": "application/json" }, body });
         setBookmarked(false);
       } else {
-        await fetch("/api/bookmarks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ albumNo: album.no }) });
+        await fetch("/api/bookmarks", { method: "POST", headers: { "Content-Type": "application/json" }, body });
         setBookmarked(true);
       }
     } finally {
@@ -98,10 +119,14 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // Prevent body scroll
+  // Prevent body scroll (iOS Safari compatible)
   useEffect(() => {
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = ""; };
+    const scrollY = window.scrollY;
+    document.body.style.cssText = `position: fixed; top: -${scrollY}px; width: 100%; overflow-y: scroll;`;
+    return () => {
+      document.body.style.cssText = "";
+      window.scrollTo(0, scrollY);
+    };
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -112,12 +137,13 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       const res = await fetch(`/api/scores/${album.no}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist }),
+        body: JSON.stringify({ score: noScore ? null : score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "投稿に失敗しました");
       setSubmitSuccess(true);
       setScore(7.5);
+      setNoScore(false);
       setComment("");
       setIsEditing(false);
       await fetchScores();
@@ -136,7 +162,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       const res = await fetch(`/api/scores/${album.no}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist }),
+        body: JSON.stringify({ score: noScore ? null : score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "更新に失敗しました");
@@ -188,6 +214,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
           artistName: album.artist,
           coverUrl: coverUrl || "",
           message: recommendMessage.trim(),
+          mentionedEmails,
         }),
       });
       const data = await res.json();
@@ -195,6 +222,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       setRecommendSuccess(true);
       setIsRecommending(false);
       setRecommendMessage("");
+      setMentionedEmails([]);
     } catch (err) {
       setRecommendError(err instanceof Error ? err.message : "エラーが発生しました");
     } finally {
@@ -202,9 +230,31 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     }
   }
 
+  const MJ_VALUES = ["J採用", "J掲載", "採用", "掲載", "検討", "不採用", ""];
+
+  async function confirmMjUpdate() {
+    if (mjPending === null) return;
+    setMjUpdating(true);
+    try {
+      const res = await fetch(`/api/release-master/${album.no}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mjAdoption: mjPending }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "更新失敗");
+      setMjAdoption(mjPending);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "更新に失敗しました");
+    } finally {
+      setMjUpdating(false);
+      setMjPending(null);
+      setMjPicker(false);
+    }
+  }
+
   function startEditing() {
     if (myScore) {
-      setScore(myScore.score);
+      setScore(myScore.score ?? 7.5);
       setComment(myScore.comment || "");
     }
     setSubmitSuccess(false);
@@ -212,25 +262,56 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     setIsEditing(true);
   }
 
-  // 統合平均: アプリスコア + レガシースコア（重複除外）
-  const appScoredIds = new Set(scores.map((s) => s.memberName.toLowerCase()));
-  const legacyOnlyScores = album.legacyScores
-    .filter((ls) => {
+  // 統合平均: Release Masterスコア優先。同一メンバーは Release Master を使う。
+  const legacyCoveredIds = new Set<string>();
+  const legacyScoreValues: number[] = [];
+  for (const ls of album.legacyScores) {
+    const n = parseLegacyScoreNum(ls.value);
+    if (n !== null && n >= 0 && n <= 10) {
+      legacyScoreValues.push(n);
       const email = LEGACY_NAME_TO_EMAIL[ls.name.toLowerCase()];
-      if (email && appScoredIds.has(email)) return false;
-      if (appScoredIds.has(ls.name.toLowerCase())) return false;
-      return true;
-    })
-    .map((ls) => parseLegacyScoreNum(ls.value))
-    .filter((n): n is number => n !== null && n >= 0 && n <= 10);
+      if (email) legacyCoveredIds.add(email);
+      legacyCoveredIds.add(ls.name.toLowerCase());
+    }
+  }
+  const appOnlyScoreValues = scores
+    .filter((s) => !legacyCoveredIds.has(s.memberName.toLowerCase()) && s.score !== null)
+    .map((s) => s.score as number);
 
-  const allScoreValues = [...scores.map((s) => s.score), ...legacyOnlyScores];
+  const allScoreValues = [...legacyScoreValues, ...appOnlyScoreValues];
   const combinedAverage = allScoreValues.length > 0
     ? Math.round((allScoreValues.reduce((a, b) => a + b, 0) / allScoreValues.length) * 10) / 10
     : null;
   const combinedCount = allScoreValues.length;
 
   const scoreColor = combinedAverage !== null ? getScoreColor(combinedAverage) : "#6b7280";
+
+  const touchStartY = useRef<number | null>(null);
+  const [dragY, setDragY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const CLOSE_THRESHOLD = 120;
+
+  function handleHeaderTouchStart(e: React.TouchEvent) {
+    touchStartY.current = e.touches[0].clientY;
+    setIsDragging(true);
+  }
+
+  function handleHeaderTouchMove(e: React.TouchEvent) {
+    if (touchStartY.current === null) return;
+    const delta = e.touches[0].clientY - touchStartY.current;
+    if (delta > 0) setDragY(delta);
+  }
+
+  function handleHeaderTouchEnd() {
+    if (dragY >= CLOSE_THRESHOLD) {
+      onClose();
+    } else {
+      setDragY(0);
+    }
+    setIsDragging(false);
+    touchStartY.current = null;
+  }
 
   return (
     <div
@@ -240,30 +321,47 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     >
       <div
         className="w-full sm:max-w-lg max-h-[92vh] sm:max-h-[88vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl"
-        style={{ backgroundColor: "var(--bg-primary)", border: "1px solid var(--border-subtle)" }}
+        style={{
+          backgroundColor: "var(--bg-primary)",
+          border: "1px solid var(--border-subtle)",
+          transform: `translateY(${dragY}px)`,
+          transition: isDragging ? "none" : "transform 0.3s ease",
+        }}
       >
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 border-b" style={{ backgroundColor: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
-          <div className="w-8 h-1 rounded-full mx-auto sm:hidden" style={{ backgroundColor: "var(--border-subtle)" }} />
-          <h2 className="font-bold hidden sm:block" style={{ color: "var(--text-primary)" }}>アルバムレビュー</h2>
-          <div className="ml-auto flex items-center gap-2">
-            {status === "authenticated" && (
-              <button
-                onClick={toggleBookmark}
-                disabled={bookmarkLoading}
-                className="w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:bg-white/10 disabled:opacity-50"
-                style={{ color: bookmarked ? "#eab308" : "var(--text-secondary)" }}
-                title={bookmarked ? "保存済み" : "気になるリストに保存"}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-                </svg>
-              </button>
-            )}
-            <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:bg-white/10" style={{ color: "var(--text-secondary)" }}>
-              ✕
+        <div
+          className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b relative"
+          style={{ backgroundColor: "var(--bg-primary)", borderColor: "var(--border-subtle)", touchAction: "none" }}
+          onTouchStart={handleHeaderTouchStart}
+          onTouchMove={handleHeaderTouchMove}
+          onTouchEnd={handleHeaderTouchEnd}
+        >
+          {/* Drag indicator */}
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 w-10 h-1 rounded-full sm:hidden" style={{ backgroundColor: "var(--border-subtle)" }} />
+          {/* Left: bookmark */}
+          {status === "authenticated" ? (
+            <button
+              onClick={toggleBookmark}
+              disabled={bookmarkLoading}
+              className="w-10 h-10 rounded-full flex items-center justify-center transition-colors hover:bg-white/10 disabled:opacity-50"
+              style={{ color: bookmarked ? "#eab308" : "var(--text-secondary)" }}
+              title={bookmarked ? "保存済み" : "気になるリストに保存"}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+              </svg>
             </button>
-          </div>
+          ) : (
+            <div className="w-10 h-10" />
+          )}
+          {/* Right: close */}
+          <button
+            onClick={onClose}
+            className="w-10 h-10 rounded-full flex items-center justify-center transition-colors hover:bg-white/10 text-lg font-medium"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            ✕
+          </button>
         </div>
 
         <div className="p-5 flex flex-col gap-5">
@@ -288,14 +386,18 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                 {album.genre && (
                   <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "var(--text-secondary)" }}>{album.genre}</span>
                 )}
-                {album.mjAdoption && (
-                  <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{
-                    backgroundColor: album.mjAdoption.includes("採用") && !album.mjAdoption.includes("不採用") ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.06)",
-                    color: album.mjAdoption.includes("採用") && !album.mjAdoption.includes("不採用") ? "var(--accent)" : "var(--text-secondary)",
-                  }}>
-                    {album.mjAdoption}
-                  </span>
-                )}
+                <button
+                  onClick={() => status === "authenticated" && setMjPicker((v) => !v)}
+                  className="text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1 transition-opacity"
+                  style={{
+                    backgroundColor: mjAdoption && !mjAdoption.includes("不採用") ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.06)",
+                    color: mjAdoption && !mjAdoption.includes("不採用") ? "var(--accent)" : "var(--text-secondary)",
+                    cursor: status === "authenticated" ? "pointer" : "default",
+                  }}
+                >
+                  {mjAdoption || "空欄"}
+                  {status === "authenticated" && <span style={{ fontSize: "10px", opacity: 0.6 }}>✎</span>}
+                </button>
               </div>
               {spotifyUrl && (
                 <a href={spotifyUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-full text-xs font-medium hover:opacity-80 transition-opacity" style={{ backgroundColor: "#1db954", color: "white" }}>
@@ -336,11 +438,13 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                         </div>
                         <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{getDisplayName(s.memberName)}</span>
                       </div>
-                      <span className="font-bold text-base px-2 py-0.5 rounded-lg" style={{ color: getScoreColor(s.score), backgroundColor: `${getScoreColor(s.score)}18` }}>
-                        {s.score % 1 === 0 ? s.score.toFixed(1) : s.score}
-                      </span>
+                      {s.score !== null && (
+                        <span className="font-bold text-base px-2 py-0.5 rounded-lg" style={{ color: getScoreColor(s.score), backgroundColor: `${getScoreColor(s.score)}18` }}>
+                          {s.score % 1 === 0 ? s.score.toFixed(1) : s.score}
+                        </span>
+                      )}
                     </div>
-                    <ScoreBar score={s.score} showNumber={false} height="h-1.5" />
+                    {s.score !== null && <ScoreBar score={s.score} showNumber={false} height="h-1.5" />}
                     {s.comment && <p className="mt-4 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>{s.comment}</p>}
                   </div>
                 ))}
@@ -348,45 +452,32 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
             </div>
           )}
 
-          {/* Legacy scores from Release Master (Plan A: hide if member already has app score) */}
+          {/* Release Master 速報：scoresに取り込まれていない分のみ表示 */}
           {(() => {
-            const appScoredNames = new Set(scores.map((s) => s.memberName));
-            const visibleLegacy = album.legacyScores.filter((s) => !appScoredNames.has(s.name));
-            if (visibleLegacy.length === 0) return null;
+            const appScoredIds = new Set(scores.map((s) => s.memberName.toLowerCase()));
+            const pending = album.legacyScores.filter((ls) => {
+              const email = LEGACY_NAME_TO_EMAIL[ls.name.toLowerCase()];
+              if (email && appScoredIds.has(email)) return false;
+              if (appScoredIds.has(ls.name.toLowerCase())) return false;
+              return ls.value.trim() !== "";
+            });
+            if (pending.length === 0) return null;
             return (
-              <div>
-                <h3 className="text-sm font-bold mb-1" style={{ color: "var(--text-primary)" }}>過去のレビュー</h3>
-                <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>Release Masterに記録されたデータです</p>
-                <div className="flex flex-col gap-2">
-                  {visibleLegacy.map((s) => {
-                    const parsed = parseLegacyScore(s.value);
-                    const isOwn = s.name === myShortName;
+              <div className="rounded-xl px-3 py-2 border" style={{ borderColor: "var(--border-subtle)", backgroundColor: "rgba(255,255,255,0.03)" }}>
+                <p className="text-xs mb-2" style={{ color: "var(--text-secondary)" }}>Release Master 速報 · まもなく反映されます</p>
+                <div className="flex flex-col gap-1.5">
+                  {pending.map((ls) => {
+                    const parsed = parseLegacyScore(ls.value);
                     return (
-                      <div key={s.name} className="rounded-xl p-3 border" style={{ backgroundColor: "var(--bg-card)", borderColor: isOwn ? "var(--accent)" : "var(--border-subtle)", boxShadow: isOwn ? "0 0 0 1px var(--accent)" : undefined }}>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: isOwn ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.08)", color: isOwn ? "var(--accent)" : "var(--text-secondary)" }}>
-                              {s.name.charAt(0)}
-                            </div>
-                            <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{s.name}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {parsed.score !== null ? (
-                              <span className="font-bold text-sm px-2 py-0.5 rounded-lg" style={{ color: getScoreColor(parsed.score), backgroundColor: `${getScoreColor(parsed.score)}18` }}>
-                                {parsed.score % 1 === 0 ? parsed.score.toFixed(1) : parsed.score}
-                              </span>
-                            ) : (
-                              <span className="text-sm font-bold" style={{ color: "var(--text-secondary)" }}>{s.value}</span>
-                            )}
-                            {isOwn && (
-                              <button onClick={startEditingFromLegacy} className="px-2.5 py-1 rounded-lg text-xs font-medium border" style={{ borderColor: "var(--accent)", color: "var(--accent)" }}>
-                                編集する
-                              </button>
-                            )}
-                          </div>
-                        </div>
+                      <div key={ls.name} className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-xs flex-shrink-0" style={{ color: "var(--text-secondary)" }}>{ls.name}</span>
+                        {parsed.score !== null && (
+                          <span className="text-xs font-medium flex-shrink-0" style={{ color: "var(--text-primary)" }}>
+                            {parsed.score % 1 === 0 ? parsed.score.toFixed(1) : parsed.score}
+                          </span>
+                        )}
                         {parsed.comment && (
-                          <p className="mt-2 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>{parsed.comment}</p>
+                          <span className="text-xs" style={{ color: "var(--text-secondary)", opacity: 0.8 }}>{parsed.comment}</span>
                         )}
                       </div>
                     );
@@ -406,17 +497,45 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                 </div>
               ) : isRecommending ? (
                 <div className="flex flex-col gap-3">
+                  {/* メンション選択 */}
+                  <div>
+                    <p className="text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>メンション（複数選択可）</p>
+                    <div className="flex flex-wrap gap-2">
+                      {ALL_MEMBERS
+                        .filter((m) => m.email !== myEmail)
+                        .map((m) => {
+                          const active = mentionedEmails.includes(m.email);
+                          return (
+                            <button
+                              key={m.email}
+                              type="button"
+                              onClick={() => setMentionedEmails((prev) =>
+                                active ? prev.filter((e) => e !== m.email) : [...prev, m.email]
+                              )}
+                              className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
+                              style={{
+                                backgroundColor: active ? "rgba(139,92,246,0.3)" : "rgba(255,255,255,0.06)",
+                                color: active ? "white" : "var(--text-secondary)",
+                                border: `1px solid ${active ? "var(--accent)" : "var(--border-subtle)"}`,
+                              }}
+                            >
+                              {active ? "✓ " : ""}{m.name}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
                   <textarea
                     value={recommendMessage}
                     onChange={(e) => setRecommendMessage(e.target.value)}
-                    placeholder="おすすめコメント（任意）"
+                    placeholder="コメント（任意）"
                     rows={2}
                     className="w-full px-3 py-2 rounded-xl border text-sm resize-none"
                     style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
                   />
                   {recommendError && <p className="text-red-400 text-xs">{recommendError}</p>}
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => { setIsRecommending(false); setRecommendError(null); }} className="flex-1 py-2 rounded-xl text-sm border" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>
+                    <button type="button" onClick={() => { setIsRecommending(false); setRecommendError(null); setMentionedEmails([]); }} className="flex-1 py-2 rounded-xl text-sm border" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>
                       キャンセル
                     </button>
                     <button type="button" onClick={handleRecommend} disabled={recommendSubmitting} className="flex-1 py-2 rounded-xl text-sm font-medium disabled:opacity-50" style={{ backgroundColor: "var(--accent)", color: "white" }}>
@@ -429,6 +548,40 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                   このアルバムをレコメンドする
                 </button>
               )}
+            </div>
+          )}
+
+          {/* Recommendations */}
+          {albumRecs.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <h3 className="text-xs font-bold" style={{ color: "var(--text-secondary)" }}>レコメンド ({albumRecs.length})</h3>
+              {albumRecs.map((rec) => (
+                <div key={rec.id} className="rounded-xl px-3 py-2.5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>
+                      {getDisplayName(rec.recommenderId).charAt(0).toUpperCase()}
+                    </div>
+                    <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{getDisplayName(rec.recommenderId)}</span>
+                    {rec.mentionedEmails.length > 0 && (
+                      <span className="text-xs flex items-center gap-1 flex-wrap">
+                        {rec.mentionedEmails.map((e) => (
+                          <span key={e} className="px-1.5 py-0.5 rounded-full text-xs" style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "var(--text-secondary)" }}>
+                            @{getDisplayName(e)}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                    <span className="text-xs ml-auto" style={{ color: "var(--text-secondary)" }}>
+                      {new Date(rec.createdAt).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" })}
+                    </span>
+                  </div>
+                  {rec.message && (
+                    <p className="text-xs mt-1.5 leading-relaxed pl-7" style={{ color: "var(--text-secondary)" }}>
+                      &ldquo;{rec.message}&rdquo;
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
@@ -470,7 +623,12 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                         <p className="text-green-400 text-sm font-medium">投稿済みです</p>
                         {myScore && (
                           <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
-                            スコア: <span style={{ color: getScoreColor(myScore.score) }}>{myScore.score % 1 === 0 ? myScore.score.toFixed(1) : myScore.score}</span> / 10
+                            スコア:{" "}
+                            {myScore.score !== null
+                              ? <span style={{ color: getScoreColor(myScore.score) }}>{myScore.score % 1 === 0 ? myScore.score.toFixed(1) : myScore.score}</span>
+                              : <span>—</span>
+                            }
+                            {myScore.score !== null && " / 10"}
                           </p>
                         )}
                       </div>
@@ -488,17 +646,40 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                     )}
                     <form onSubmit={isEditing ? handleUpdate : handleSubmit} className="flex flex-col gap-4">
                       <div>
-                        <label className="block text-xs font-medium mb-2" style={{ color: "var(--text-primary)" }}>
-                          スコア
-                          <span className="ml-2 text-xl font-bold" style={{ color: getScoreColor(score) }}>
-                            {score % 1 === 0 ? score.toFixed(1) : score}
-                          </span>
-                          <span className="text-xs font-normal ml-1" style={{ color: "var(--text-secondary)" }}>/10</span>
-                        </label>
-                        <input type="range" min={0} max={10} step={0.5} value={score} onChange={(e) => setScore(parseFloat(e.target.value))} className="w-full" style={{ accentColor: getScoreColor(score) }} />
-                        <div className="flex justify-between text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
-                          <span>0</span><span>5</span><span>10</span>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
+                            スコア
+                            {!noScore && (
+                              <>
+                                <span className="ml-2 text-xl font-bold" style={{ color: getScoreColor(score) }}>
+                                  {score % 1 === 0 ? score.toFixed(1) : score}
+                                </span>
+                                <span className="text-xs font-normal ml-1" style={{ color: "var(--text-secondary)" }}>/10</span>
+                              </>
+                            )}
+                            {noScore && <span className="ml-2 text-sm" style={{ color: "var(--text-secondary)" }}>—</span>}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setNoScore((v) => !v)}
+                            className="text-xs px-2 py-0.5 rounded-full transition-colors"
+                            style={{
+                              backgroundColor: noScore ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.06)",
+                              color: noScore ? "var(--accent)" : "var(--text-secondary)",
+                              border: `1px solid ${noScore ? "var(--accent)" : "var(--border-subtle)"}`,
+                            }}
+                          >
+                            スコアなし
+                          </button>
                         </div>
+                        {!noScore && (
+                          <>
+                            <input type="range" min={0} max={10} step={0.5} value={score} onChange={(e) => setScore(parseFloat(e.target.value))} className="w-full" style={{ accentColor: getScoreColor(score) }} />
+                            <div className="flex justify-between text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                              <span>0</span><span>5</span><span>10</span>
+                            </div>
+                          </>
+                        )}
                       </div>
                       <div>
                         <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>
@@ -525,6 +706,73 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
           </div>
         </div>
       </div>
+
+      {/* M/J採用 ピッカー */}
+      {mjPicker && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={() => setMjPicker(false)}
+        >
+          <div
+            className="rounded-2xl border p-4 w-full max-w-xs"
+            style={{ backgroundColor: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-xs font-bold mb-3" style={{ color: "var(--text-secondary)" }}>M/J採用を選択</p>
+            <div className="flex flex-wrap gap-2">
+              {MJ_VALUES.map((v) => (
+                <button
+                  key={v}
+                  onClick={() => { setMjPending(v); setMjPicker(false); }}
+                  className="text-xs px-3 py-1.5 rounded-full font-medium transition-colors"
+                  style={{
+                    backgroundColor: v === mjAdoption ? "rgba(139,92,246,0.3)" : "rgba(255,255,255,0.08)",
+                    color: v === mjAdoption ? "white" : "var(--text-secondary)",
+                    border: `1px solid ${v === mjAdoption ? "var(--accent)" : "var(--border-subtle)"}`,
+                  }}
+                >
+                  {v === "" ? "空欄（なし）" : v}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* M/J採用 確認ダイアログ */}
+      {mjPending !== null && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+          style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+        >
+          <div className="rounded-2xl p-6 w-full max-w-xs border" style={{ backgroundColor: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
+            <p className="font-bold text-sm mb-1" style={{ color: "var(--text-primary)" }}>M/J採用を変更しますか？</p>
+            <p className="text-xs mb-5" style={{ color: "var(--text-secondary)" }}>
+              <span style={{ color: "var(--text-primary)" }}>{mjAdoption || "空欄"}</span>
+              {" → "}
+              <span style={{ color: "var(--accent)", fontWeight: "600" }}>{mjPending === "" ? "空欄" : mjPending}</span>
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setMjPending(null)}
+                className="flex-1 py-2.5 rounded-xl text-sm border"
+                style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={confirmMjUpdate}
+                disabled={mjUpdating}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
+                style={{ backgroundColor: "var(--accent)", color: "white" }}
+              >
+                {mjUpdating ? "更新中..." : "変更する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

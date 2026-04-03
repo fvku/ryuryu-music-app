@@ -148,7 +148,7 @@ export default function ReviewPage({ params }: PageProps) {
 
   function startEditing() {
     if (myScore) {
-      setScore(myScore.score);
+      setScore(myScore.score ?? 7.5);
       setComment(myScore.comment || "");
     }
     setSubmitSuccess(false);
@@ -315,17 +315,19 @@ export default function ReviewPage({ params }: PageProps) {
                       {s.memberName}
                     </span>
                   </div>
-                  <div
-                    className="text-xl font-bold px-3 py-1 rounded-xl"
-                    style={{
-                      color: getScoreColor(s.score),
-                      backgroundColor: `${getScoreColor(s.score)}18`,
-                    }}
-                  >
-                    {s.score % 1 === 0 ? s.score.toFixed(1) : s.score}
-                  </div>
+                  {s.score !== null && (
+                    <div
+                      className="text-xl font-bold px-3 py-1 rounded-xl"
+                      style={{
+                        color: getScoreColor(s.score),
+                        backgroundColor: `${getScoreColor(s.score)}18`,
+                      }}
+                    >
+                      {s.score % 1 === 0 ? s.score.toFixed(1) : s.score}
+                    </div>
+                  )}
                 </div>
-                <ScoreBar score={s.score} showNumber={false} height="h-2" />
+                {s.score !== null && <ScoreBar score={s.score} showNumber={false} height="h-2" />}
                 {s.comment && (
                   <p className="mt-3 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
                     {s.comment}
@@ -401,7 +403,9 @@ export default function ReviewPage({ params }: PageProps) {
                     <p className="text-green-400 font-medium text-sm">投稿済みです</p>
                     {myScore && (
                       <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
-                        スコア: <span style={{ color: getScoreColor(myScore.score) }}>{myScore.score % 1 === 0 ? myScore.score.toFixed(1) : myScore.score}</span> / 10
+                        {myScore.score !== null && (
+                          <>スコア: <span style={{ color: getScoreColor(myScore.score) }}>{myScore.score % 1 === 0 ? myScore.score.toFixed(1) : myScore.score}</span> / 10</>
+                        )}
                       </p>
                     )}
                   </div>

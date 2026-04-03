@@ -1,13 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSession, signIn } from "next-auth/react";
+import { useNotifications } from "@/contexts/NotificationsContext";
 
 export default function BottomNav() {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const { hasNewForYou } = useNotifications();
 
   const tabs = [
     {
@@ -53,7 +54,7 @@ export default function BottomNav() {
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 z-40 border-t"
-      style={{ backgroundColor: "rgba(15,15,19,0.95)", backdropFilter: "blur(12px)", borderColor: "var(--border-subtle)" }}
+      style={{ backgroundColor: "rgba(15,15,19,0.95)", backdropFilter: "blur(12px)", borderColor: "var(--border-subtle)", paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       <div className="max-w-6xl mx-auto flex">
         {tabs.map((tab) => {
@@ -69,10 +70,15 @@ export default function BottomNav() {
                   window.location.href = tab.href;
                 }
               }}
-              className="flex-1 flex flex-col items-center gap-1 py-3 transition-colors"
+              className="flex-1 flex flex-col items-center gap-1 py-4 transition-colors"
               style={{ color: active ? "var(--accent)" : "var(--text-secondary)" }}
             >
-              {tab.icon(active)}
+              <div className="relative">
+                {tab.icon(active)}
+                {isMyPage && hasNewForYou && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500" />
+                )}
+              </div>
               <span className="text-xs font-medium max-w-[80px] truncate">{isMyPage && session?.user?.name ? session.user.name.split(" ")[0] : tab.label}</span>
             </button>
           );

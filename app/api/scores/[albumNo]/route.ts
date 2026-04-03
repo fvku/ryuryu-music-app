@@ -14,9 +14,10 @@ export async function GET(
 ) {
   try {
     const scores = await getScoresForAlbum(params.albumNo);
+    const scoredScores = scores.filter((s) => s.score !== null);
     const averageScore =
-      scores.length > 0
-        ? Math.round((scores.reduce((sum, s) => sum + s.score, 0) / scores.length) * 10) / 10
+      scoredScores.length > 0
+        ? Math.round((scoredScores.reduce((sum, s) => sum + s.score!, 0) / scoredScores.length) * 10) / 10
         : null;
 
     return NextResponse.json({ scores, averageScore });
@@ -44,16 +45,15 @@ export async function POST(
       .map(([name]) => name);
 
     const body = await request.json();
-    const { score, comment, albumTitle, artistName } = body as { score: number; comment: string; albumTitle?: string; artistName?: string };
+    const { score, comment, albumTitle, artistName } = body as { score: number | null; comment: string; albumTitle?: string; artistName?: string };
 
-    if (score === undefined || score === null || typeof score !== "number") {
-      return NextResponse.json({ error: "スコアを入力してください" }, { status: 400 });
-    }
-    if (score < 0 || score > 10) {
-      return NextResponse.json({ error: "スコアは0〜10の範囲で入力してください" }, { status: 400 });
-    }
-    if ((score * 2) % 1 !== 0) {
-      return NextResponse.json({ error: "スコアは0.5刻みで入力してください" }, { status: 400 });
+    if (score !== null && score !== undefined) {
+      if (typeof score !== "number" || score < 0 || score > 10) {
+        return NextResponse.json({ error: "スコアは0〜10の範囲で入力してください" }, { status: 400 });
+      }
+      if ((score * 2) % 1 !== 0) {
+        return NextResponse.json({ error: "スコアは0.5刻みで入力してください" }, { status: 400 });
+      }
     }
 
     await initScoresSheet();
@@ -67,13 +67,13 @@ export async function POST(
     const newScore = await addScore({
       reviewId: params.albumNo,
       memberName,
-      score,
+      score: score ?? null,
       comment: trimmedComment,
       albumTitle: albumTitle || "",
       artistName: artistName || "",
     });
 
-    if (shortName) {
+    if (shortName && score !== null && score !== undefined) {
       writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment).catch((e) =>
         console.error("Failed to write score to Release Master:", e)
       );
@@ -103,25 +103,24 @@ export async function PUT(
       .map(([name]) => name);
 
     const body = await request.json();
-    const { score, comment, albumTitle, artistName } = body as { score: number; comment: string; albumTitle?: string; artistName?: string };
+    const { score, comment, albumTitle, artistName } = body as { score: number | null; comment: string; albumTitle?: string; artistName?: string };
 
-    if (score === undefined || score === null || typeof score !== "number") {
-      return NextResponse.json({ error: "スコアを入力してください" }, { status: 400 });
-    }
-    if (score < 0 || score > 10) {
-      return NextResponse.json({ error: "スコアは0〜10の範囲で入力してください" }, { status: 400 });
-    }
-    if ((score * 2) % 1 !== 0) {
-      return NextResponse.json({ error: "スコアは0.5刻みで入力してください" }, { status: 400 });
+    if (score !== null && score !== undefined) {
+      if (typeof score !== "number" || score < 0 || score > 10) {
+        return NextResponse.json({ error: "スコアは0〜10の範囲で入力してください" }, { status: 400 });
+      }
+      if ((score * 2) % 1 !== 0) {
+        return NextResponse.json({ error: "スコアは0.5刻みで入力してください" }, { status: 400 });
+      }
     }
 
     const trimmedComment = (comment || "").trim();
-    const updated = await updateScore(params.albumNo, memberName, score, trimmedComment, altNames);
+    const updated = await updateScore(params.albumNo, memberName, score ?? null, trimmedComment, altNames);
     if (!updated) {
       return NextResponse.json({ error: "レビューが見つかりません" }, { status: 404 });
     }
 
-    if (shortName) {
+    if (shortName && score !== null && score !== undefined) {
       writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment).catch((e) =>
         console.error("Failed to write score to Release Master:", e)
       );
