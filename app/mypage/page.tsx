@@ -28,9 +28,9 @@ export default function MyPage() {
   const { data: session, status } = useSession();
   const { hasNewForYou, markForYouSeen } = useNotifications();
   const [tab, setTab] = useState<Tab>("saved");
-  const [savedFilter, setSavedFilter] = useState<ReviewFilter>("all");
+  const [savedFilter, setSavedFilter] = useState<ReviewFilter>("unreviewed");
   const [savedMonthFilter, setSavedMonthFilter] = useState<string>("すべて");
-  const [forYouFilter, setForYouFilter] = useState<ReviewFilter>("all");
+  const [forYouFilter, setForYouFilter] = useState<ReviewFilter>("unreviewed");
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [forYou, setForYou] = useState<Recommendation[]>([]);
   const [myReviewedAlbumNos, setMyReviewedAlbumNos] = useState<Set<string>>(new Set());
@@ -246,7 +246,7 @@ export default function MyPage() {
   function ReviewFilterButtons({ value, onChange }: { value: ReviewFilter; onChange: (v: ReviewFilter) => void }) {
     return (
       <div className="flex gap-2 mb-4">
-        {(["all", "reviewed", "unreviewed"] as ReviewFilter[]).map((f) => (
+        {(["all", "unreviewed", "reviewed"] as ReviewFilter[]).map((f) => (
           <button
             key={f}
             onClick={() => onChange(f)}
@@ -386,7 +386,7 @@ export default function MyPage() {
                 <option key={m} value={m}>{m === "すべて" ? "すべて" : `${m.split("/")[0]}年${parseInt(m.split("/")[1])}月`}</option>
               ))}
             </select>
-            {(["all", "reviewed", "unreviewed"] as ReviewFilter[]).map((f) => (
+            {(["all", "unreviewed", "reviewed"] as ReviewFilter[]).map((f) => (
               <button
                 key={f}
                 onClick={() => setSavedFilter(f)}
