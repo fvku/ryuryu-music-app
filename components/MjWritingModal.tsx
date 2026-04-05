@@ -28,7 +28,11 @@ export default function MjWritingModal({ album, coverUrl, onClose, onSaved }: Pr
   const [tracks, setTracks] = useState<SpotifyTrack[]>([]);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [selectedTrack, setSelectedTrack] = useState<SpotifyTrack | null>(null);
-  const [text, setText] = useState("");
+  // 既存テキスト（長文）があれば初期値にセット（ASSIGNED名前は50字未満なので除外）
+  const [text, setText] = useState<string>(() => {
+    const t = album.mjText?.trim() ?? "";
+    return t.length >= 50 ? t : "";
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,13 +55,6 @@ export default function MjWritingModal({ album, coverUrl, onClose, onSaved }: Pr
     };
   }, []);
 
-  // Load existing values
-  useEffect(() => {
-    // T列に既存テキスト（長文）があれば復元
-    if (album.mjText && album.mjText.length >= 50) {
-      setText(album.mjText);
-    }
-  }, [album.mjText]);
 
   // Fetch Spotify tracks
   useEffect(() => {
@@ -129,7 +126,9 @@ export default function MjWritingModal({ album, coverUrl, onClose, onSaved }: Pr
         >
           <div className="w-10 h-10" />
           <div className="absolute left-1/2 -translate-x-1/2 top-2 w-10 h-1 rounded-full sm:hidden" style={{ backgroundColor: "var(--border-subtle)" }} />
-          <h2 className="font-bold text-sm" style={{ color: "var(--text-primary)" }}>M/J 文章を書く</h2>
+          <h2 className="font-bold text-sm" style={{ color: "var(--text-primary)" }}>
+            {text.length >= 50 ? "M/J 文章を編集" : "M/J 文章を書く"}
+          </h2>
           <button
             onClick={onClose}
             className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 text-lg font-medium"
