@@ -40,9 +40,18 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   const [averageScore, setAverageScore] = useState<number | null>(null);
   const [loadingScores, setLoadingScores] = useState(true);
 
-  const [sliderValue, setSliderValue] = useState(0); // 0-2=スコアなし, 3-23=0.0-10.0
-  const isNoScore = sliderValue <= 2;
-  const score = isNoScore ? null : (sliderValue - 3) * 0.5;
+  const NOSCORE_MIN = -3; // no-score zone: [-3, 0), score zone: [0, 10]
+  const [rawSlider, setRawSlider] = useState<number>(NOSCORE_MIN);
+  const isNoScore = rawSlider < 0;
+  const score: number | null = isNoScore ? null : Math.round(Math.max(0, rawSlider) * 2) / 2;
+  function snapSlider(val: number) {
+    if (val < 0) {
+      const ratio = (val - NOSCORE_MIN) / (0 - NOSCORE_MIN);
+      setRawSlider(ratio >= 0.3 ? 0 : NOSCORE_MIN);
+    } else {
+      setRawSlider(Math.round(val * 2) / 2);
+    }
+  }
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -143,7 +152,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "投稿に失敗しました");
       setSubmitSuccess(true);
-      setSliderValue(0);
+      setRawSlider(NOSCORE_MIN);
       setComment("");
       setIsEditing(false);
       await fetchScores();
@@ -193,7 +202,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   function startEditingFromLegacy() {
     if (myLegacyScore) {
       const parsed = parseLegacyScore(myLegacyScore.value);
-      setSliderValue(parsed.score !== null ? Math.round(parsed.score * 2) + 3 : 0);
+      setRawSlider(parsed.score !== null ? parsed.score : NOSCORE_MIN);
       setComment(parsed.comment);
     }
     setSubmitSuccess(false);
@@ -254,7 +263,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
 
   function startEditing() {
     if (myScore) {
-      setSliderValue(myScore.score !== null ? Math.round(myScore.score * 2) + 3 : 0);
+      setRawSlider(myScore.score !== null ? myScore.score : NOSCORE_MIN);
       setComment(myScore.comment || "");
     }
     setSubmitSuccess(false);
@@ -659,45 +668,49 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                             </span>
                           )}
                         </div>
-                        <div className="relative">
-                          <input
-                            type="range"
-                            min={0}
-                            max={23}
-                            step={1}
-                            value={sliderValue}
-                            onChange={(e) => setSliderValue(parseInt(e.target.value))}
-                            onMouseUp={(e) => {
-                              const val = parseInt((e.target as HTMLInputElement).value);
-                              if (val >= 1 && val <= 2) setSliderValue(val <= 1 ? 0 : 3);
-                            }}
-                            onTouchEnd={() => {
-                              if (sliderValue >= 1 && sliderValue <= 2) setSliderValue(sliderValue <= 1 ? 0 : 3);
-                            }}
-                            className="w-full score-slider"
-                            style={(() => {
-                              const divPct = (3 / 23) * 100;
-                              const curPct = (sliderValue / 23) * 100;
-                              const trackBg = isNoScore
-                                ? `linear-gradient(to right, #6b7280 0% ${divPct}%, #2d2d3f ${divPct}% 100%)`
-                                : `linear-gradient(to right, #3b3b50 0% ${divPct}%, ${getScoreColor(score!)} ${divPct}% ${curPct}%, #2d2d3f ${curPct}% 100%)`;
-                              return {
-                                "--slider-thumb-color": isNoScore ? "#6b7280" : getScoreColor(score!),
-                                "--slider-track-bg": trackBg,
-                              } as React.CSSProperties;
-                            })()}
-                          />
-                          <div
-                            className="absolute top-1/2 -translate-y-1/2 w-px h-4 pointer-events-none"
-                            style={{ left: `${(3 / 23) * 100}%`, backgroundColor: "rgba(255,255,255,0.2)" }}
-                          />
-                        </div>
-                        <div className="relative flex text-xs mt-1.5" style={{ color: "var(--text-secondary)" }}>
-                          <span>なし</span>
-                          <span className="absolute" style={{ left: `${(3 / 23) * 100}%` }}>0</span>
-                          <span className="absolute" style={{ left: `${(13 / 23) * 100}%`, transform: "translateX(-50%)" }}>5</span>
-                          <span className="ml-auto">10</span>
-                        </div>
+                        {(() => {
+                          const SMAX = 10;
+                          const totalRange = SMAX - NOSCORE_MIN; // 13
+                          const divRatio = (0 - NOSCORE_MIN) / totalRange; // 3/13
+                          const curRatio = (rawSlider - NOSCORE_MIN) / totalRange;
+                          const fiveRatio = (5 - NOSCORE_MIN) / totalRange; // 8/13
+                          const thumbPx = 20;
+                          // CSS calc that accounts for thumb radius so "|" aligns with thumb center
+                          const divCalc = `calc(${thumbPx / 2}px + (100% - ${thumbPx}px) * ${divRatio.toFixed(6)})`;
+                          const fiveCalc = `calc(${thumbPx / 2}px + (100% - ${thumbPx}px) * ${fiveRatio.toFixed(6)})`;
+                          const scoreColor = score !== null ? getScoreColor(score) : "#6b7280";
+                          const trackBg = isNoScore
+                            ? `linear-gradient(to right, #6b7280 0% ${divRatio * 100}%, #2d2d3f ${divRatio * 100}% 100%)`
+                            : `linear-gradient(to right, #3b3b50 0% ${divRatio * 100}%, ${scoreColor} ${divRatio * 100}% ${curRatio * 100}%, #2d2d3f ${curRatio * 100}% 100%)`;
+                          return (
+                            <>
+                              <div className="relative">
+                                <input
+                                  type="range"
+                                  min={NOSCORE_MIN}
+                                  max={SMAX}
+                                  step={0.01}
+                                  value={rawSlider}
+                                  onChange={(e) => setRawSlider(parseFloat(e.target.value))}
+                                  onMouseUp={(e) => snapSlider(parseFloat((e.target as HTMLInputElement).value))}
+                                  onTouchEnd={() => snapSlider(rawSlider)}
+                                  className="w-full score-slider"
+                                  style={{ "--slider-thumb-color": scoreColor, "--slider-track-bg": trackBg } as React.CSSProperties}
+                                />
+                                <div
+                                  className="absolute top-1/2 -translate-y-1/2 w-px h-4 pointer-events-none"
+                                  style={{ left: divCalc, backgroundColor: "rgba(255,255,255,0.25)" }}
+                                />
+                              </div>
+                              <div className="relative flex text-xs mt-1.5" style={{ color: "var(--text-secondary)" }}>
+                                <span>なし</span>
+                                <span className="absolute -translate-x-1/2" style={{ left: divCalc }}>0</span>
+                                <span className="absolute -translate-x-1/2" style={{ left: fiveCalc }}>5</span>
+                                <span className="ml-auto">10</span>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
                       <div>
                         <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>
