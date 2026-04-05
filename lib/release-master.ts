@@ -1,14 +1,6 @@
 import { google } from "googleapis";
 import { MEMBER_COLUMN_INDEX } from "./members";
-
-// W=22〜AA=26 (ASSIGN列がR=17に挿入されたため +1)
-const COLUMN_INDEX_TO_EMAIL: Record<number, string> = {
-  22: "kwisoo1102@gmail.com",
-  23: "akyme68@gmail.com",
-  24: "kohei.fuku0926@gmail.com",
-  25: "edwardcannell93@gmail.com",
-  26: "yoshinorihnw@gmail.com",
-};
+import { buildHeaderMap, findMissingColumns, indexToColumnLetter, SHEET_COL } from "./sheet-headers";
 
 function getWriteAuth() {
   const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -41,24 +33,41 @@ export async function writeSpotifyDataToSheet(
 
   const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
 
-  // Fetch No. column to find row numbers
-  const resp = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: "'Release Master'!A2:A",
-  });
+  // ヘッダー行と No. 列を同時取得
+  const [headerRes, noColRes] = await Promise.all([
+    sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Release Master'!1:1",
+    }),
+    sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Release Master'!A2:A",
+    }),
+  ]);
 
-  const noColumn = resp.data.values || [];
+  const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
+
+  // ★ 書き込み列の存在チェック
+  const missing = findMissingColumns(col, [SHEET_COL.SPOTIFY_URL, SHEET_COL.COVER_URL]);
+  if (missing.length > 0) {
+    throw new Error(`COLUMN_NOT_FOUND: ${missing.join(", ")}`);
+  }
+
+  const cSpotify = indexToColumnLetter(col[SHEET_COL.SPOTIFY_URL]);
+  const cCover   = indexToColumnLetter(col[SHEET_COL.COVER_URL]);
+
+  const noColumn = noColRes.data.values || [];
   const noToRow: Record<string, number> = {};
   noColumn.forEach((row, i) => {
-    if (row[0]) noToRow[row[0]] = i + 2; // row 2 = index 0
+    if (row[0]) noToRow[row[0]] = i + 2;
   });
 
   const data = updates.flatMap(({ no, spotifyUrl, coverUrl }) => {
     const rowNum = noToRow[no];
     if (!rowNum) return [];
     return [
-      { range: `'Release Master'!AB${rowNum}`, values: [[spotifyUrl]] },
-      { range: `'Release Master'!AC${rowNum}`, values: [[coverUrl]] },
+      { range: `'Release Master'!${cSpotify}${rowNum}`, values: [[spotifyUrl]] },
+      { range: `'Release Master'!${cCover}${rowNum}`,   values: [[coverUrl]] },
     ];
   });
 
@@ -66,16 +75,8 @@ export async function writeSpotifyDataToSheet(
 
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
-    requestBody: {
-      valueInputOption: "RAW",
-      data,
-    },
+    requestBody: { valueInputOption: "RAW", data },
   });
-}
-
-function indexToColumn(index: number): string {
-  if (index < 26) return String.fromCharCode(index + 65);
-  return String.fromCharCode(Math.floor(index / 26) + 64) + String.fromCharCode((index % 26) + 65);
 }
 
 export interface ReleaseMasterScoreRow {
@@ -92,22 +93,38 @@ export async function getReleaseMasterScoreRows(): Promise<ReleaseMasterScoreRow
   const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
   const resp = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "'Release Master'!A2:AB",
+    range: "'Release Master'!A1:AB",  // ヘッダー込みで取得
   });
 
-  const rows = resp.data.values || [];
-  return rows
-    .filter((row) => row[0] && row[2] && row[3])
+  const allRows = resp.data.values || [];
+  if (allRows.length < 2) return [];
+
+  const [headerRow, ...dataRows] = allRows;
+  const col = buildHeaderMap(headerRow);
+
+  // メンバー名 → email のマッピング（EMAIL_TO_SHORT_NAMEの逆引き）
+  const MEMBER_EMAIL: Record<string, string> = {
+    "Kwisoo": "kwisoo1102@gmail.com",
+    "Meri":   "akyme68@gmail.com",
+    "Kohei":  "kohei.fuku0926@gmail.com",
+    "Eddie":  "edwardcannell93@gmail.com",
+    "Hanawa": "yoshinorihnw@gmail.com",
+  };
+
+  return dataRows
+    .filter((row) => row[col["No."] ?? 0] && row[col["アルバム名"] ?? 2] && row[col["アーティスト"] ?? 3])
     .map((row) => {
       const memberScores: Record<string, string> = {};
-      for (const [colIdx, email] of Object.entries(COLUMN_INDEX_TO_EMAIL)) {
-        const val = row[Number(colIdx)] || "";
+      for (const [memberName, email] of Object.entries(MEMBER_EMAIL)) {
+        // ヘッダーで列名検索 → 見つからなければ MEMBER_COLUMN_INDEX をフォールバック
+        const idx = col[memberName] ?? MEMBER_COLUMN_INDEX[memberName] ?? -1;
+        const val = idx >= 0 ? (row[idx] || "") : "";
         if (val.trim()) memberScores[email] = val.trim();
       }
       return {
-        albumNo: row[0] || "",
-        albumTitle: row[2] || "",
-        artistName: row[3] || "",
+        albumNo:    row[col["No."] ?? 0]          || "",
+        albumTitle: row[col["アルバム名"] ?? 2]   || "",
+        artistName: row[col["アーティスト"] ?? 3] || "",
         memberScores,
       };
     });
@@ -120,8 +137,6 @@ export async function writeScoreToReleaseMaster(
   score: number,
   comment: string
 ): Promise<void> {
-  const colIndex = MEMBER_COLUMN_INDEX[memberName];
-  if (colIndex === undefined) return;
   if (!albumTitle || !artistName) return;
 
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
@@ -129,13 +144,28 @@ export async function writeScoreToReleaseMaster(
 
   const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
 
-  // Fetch Title (C) and Artist (D) columns to find matching row
-  const resp = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: "'Release Master'!C2:D",
-  });
+  // ヘッダー行とタイトル・アーティスト列を同時取得
+  const [headerRes, titleColRes] = await Promise.all([
+    sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Release Master'!1:1",
+    }),
+    sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Release Master'!C2:D",
+    }),
+  ]);
 
-  const rows = resp.data.values || [];
+  const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
+
+  // ★ 書き込み列の存在チェック（メンバー名がヘッダーに存在するか）
+  const missing = findMissingColumns(col, [memberName]);
+  if (missing.length > 0) {
+    throw new Error(`COLUMN_NOT_FOUND: ${missing.join(", ")}`);
+  }
+
+  // 対象行を探す
+  const rows = titleColRes.data.values || [];
   let rowNum: number | null = null;
   for (let i = 0; i < rows.length; i++) {
     if (rows[i][0] === albumTitle && rows[i][1] === artistName) {
@@ -145,7 +175,7 @@ export async function writeScoreToReleaseMaster(
   }
   if (!rowNum) return;
 
-  const colLetter = indexToColumn(colIndex);
+  const colLetter = indexToColumnLetter(col[memberName]);
   const cellValue = comment ? `${score} ${comment}` : `${score}`;
 
   await sheets.spreadsheets.values.update({

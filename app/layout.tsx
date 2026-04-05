@@ -4,6 +4,7 @@ import Image from "next/image";
 import Providers from "@/components/Providers";
 import BottomNav from "@/components/BottomNav";
 import HowToUseModal from "@/components/HowToUseModal";
+import ColumnErrorIndicator from "@/components/ColumnErrorIndicator";
 
 export const metadata: Metadata = {
   title: "月次アルバムレビュー",
@@ -45,7 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             }}
           >
             <div className="max-w-6xl mx-auto px-4 py-2 flex items-center justify-between">
-              <div className="w-16" />
+              <ColumnErrorIndicator />
               <a href="/" className="hover:opacity-80 transition-opacity">
                 <Image src="/logo.png" alt="流流" width={180} height={48} className="h-11 w-auto object-contain my-0" />
               </a>

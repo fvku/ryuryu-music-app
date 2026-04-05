@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { ReleaseMasterAlbum } from "@/lib/types";
+import { buildHeaderMap, findMissingColumns, getCol, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 
 export const dynamic = "force-dynamic";
 
@@ -46,35 +47,42 @@ export async function GET(
     const sheets = google.sheets({ version: "v4", auth: getAuth() });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Release Master'!A2:AD",
+      range: "'Release Master'!A1:AD",
     });
 
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) {
+    const allRows = response.data.values;
+    if (!allRows || allRows.length < 2) {
       return NextResponse.json({ error: "アルバムが見つかりません" }, { status: 404 });
     }
 
-    const row = rows.find((r) => r[0] === params.no && r[2] && r[3]);
+    const [headerRow, ...dataRows] = allRows;
+    const col = buildHeaderMap(headerRow);
+
+    const row = dataRows.find(
+      (r) => r[getCol(col, "NO")] === params.no &&
+             r[getCol(col, "TITLE")] &&
+             r[getCol(col, "ARTIST")]
+    );
     if (!row) {
       return NextResponse.json({ error: "アルバムが見つかりません" }, { status: 404 });
     }
 
     const album: ReleaseMasterAlbum = {
-      no: row[0] || "",
-      date: row[1] || "",
-      title: row[2] || "",
-      artist: row[3] || "",
-      genre: (row[5] || "") as ReleaseMasterAlbum["genre"],
-      mjAdoption: row[16] || "",
-      mjAssign: row[17] || "",
-      mjTrackNo: row[18] || "",
-      mjTrack: row[19] || "",
-      mjText: row[20] || "",
+      no:         row[getCol(col, "NO")]          || "",
+      date:       row[getCol(col, "DATE")]         || "",
+      title:      row[getCol(col, "TITLE")]        || "",
+      artist:     row[getCol(col, "ARTIST")]       || "",
+      genre:      (row[getCol(col, "GENRE")]       || "") as ReleaseMasterAlbum["genre"],
+      mjAdoption: row[col[SHEET_COL.MJ_ADOPTION]] || "",
+      mjAssign:   row[col[SHEET_COL.MJ_ASSIGN]]   || "",
+      mjTrackNo:  row[col[SHEET_COL.MJ_TRACK_NO]] || "",
+      mjTrack:    row[col[SHEET_COL.MJ_TRACK]]     || "",
+      mjText:     row[col[SHEET_COL.MJ_TEXT]]      || "",
       legacyScores: LEGACY_MEMBERS
-        .map((name, i) => ({ name, value: row[22 + i] || "" }))
+        .map((name) => ({ name, value: row[col[name] ?? -1] || "" }))
         .filter((s) => s.value !== ""),
-      spotifyUrl: row[28] || "",
-      coverUrl: row[29] || "",
+      spotifyUrl: row[col[SHEET_COL.SPOTIFY_URL]] || "",
+      coverUrl:   row[col[SHEET_COL.COVER_URL]]   || "",
     };
 
     return NextResponse.json(album);
@@ -107,39 +115,69 @@ export async function PATCH(
 
     const sheets = google.sheets({ version: "v4", auth: getAuth(true) });
 
-    // 対象行を探す（A2からなので行番号 = index + 2）
-    const readRes = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "'Release Master'!A2:A",
-    });
-    const rows = readRes.data.values ?? [];
-    const rowIndex = rows.findIndex((r) => r[0] === params.no);
+    // ヘッダー行と No. 列を同時取得
+    const [headerRes, noColRes] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: "'Release Master'!1:1",
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: "'Release Master'!A2:A",
+      }),
+    ]);
+
+    const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
+
+    // 対象行番号を特定
+    const noRows = noColRes.data.values ?? [];
+    const rowIndex = noRows.findIndex((r) => r[0] === params.no);
     if (rowIndex === -1) {
       return NextResponse.json({ error: "アルバムが見つかりません" }, { status: 404 });
     }
     const sheetRow = rowIndex + 2;
 
+    // ★ 書き込み前に必要列の存在チェック
+    const requiredForMjAdoption = mjAdoption !== undefined ? [SHEET_COL.MJ_ADOPTION] : [];
+    const requiredForMjData = mjData !== undefined
+      ? [SHEET_COL.MJ_TRACK_NO, SHEET_COL.MJ_TRACK, SHEET_COL.MJ_TEXT]
+      : [];
+    const missing = findMissingColumns(col, [...requiredForMjAdoption, ...requiredForMjData]);
+
+    if (missing.length > 0) {
+      return NextResponse.json(
+        { error: "列が見つかりません", errorCode: "COLUMN_NOT_FOUND", missing },
+        { status: 422 }
+      );
+    }
+
     if (mjAdoption !== undefined) {
-      // 列Q（M/J採用）を更新
+      const colLetter = indexToColumnLetter(col[SHEET_COL.MJ_ADOPTION]);
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `'Release Master'!Q${sheetRow}`,
+        range: `'Release Master'!${colLetter}${sheetRow}`,
         valueInputOption: "RAW",
         requestBody: { values: [[mjAdoption]] },
       });
     }
 
     if (mjData !== undefined) {
-      // R列(M Number), S列(Track), T列(M/J採用文章) を一括更新
-      const { trackNo, trackName, mjText } = mjData as { trackNo: string; trackName: string; mjText: string };
+      const { trackNo, trackName, mjText } = mjData as {
+        trackNo: string;
+        trackName: string;
+        mjText: string;
+      };
+      const cTrackNo  = indexToColumnLetter(col[SHEET_COL.MJ_TRACK_NO]);
+      const cTrack    = indexToColumnLetter(col[SHEET_COL.MJ_TRACK]);
+      const cMjText   = indexToColumnLetter(col[SHEET_COL.MJ_TEXT]);
       await sheets.spreadsheets.values.batchUpdate({
         spreadsheetId,
         requestBody: {
           valueInputOption: "RAW",
           data: [
-            { range: `'Release Master'!S${sheetRow}`, values: [[trackNo ?? ""]] },
-            { range: `'Release Master'!T${sheetRow}`, values: [[trackName ?? ""]] },
-            { range: `'Release Master'!U${sheetRow}`, values: [[mjText ?? ""]] },
+            { range: `'Release Master'!${cTrackNo}${sheetRow}`,  values: [[trackNo   ?? ""]] },
+            { range: `'Release Master'!${cTrack}${sheetRow}`,    values: [[trackName ?? ""]] },
+            { range: `'Release Master'!${cMjText}${sheetRow}`,   values: [[mjText    ?? ""]] },
           ],
         },
       });
@@ -147,7 +185,7 @@ export async function PATCH(
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Failed to update mjAdoption:", error);
+    console.error("Failed to update Release Master:", error);
     return NextResponse.json({ error: "更新に失敗しました" }, { status: 500 });
   }
 }

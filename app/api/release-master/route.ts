@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import { ReleaseMasterAlbum } from "@/lib/types";
+import { buildHeaderMap, getCol, SHEET_COL } from "@/lib/sheet-headers";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,6 @@ function getAuth() {
   if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
   let credentials;
   try {
-    // Try base64 decode first (Vercel-safe storage)
     const decoded = Buffer.from(keyJson, "base64").toString("utf-8");
     credentials = JSON.parse(decoded);
   } catch {
@@ -40,30 +40,40 @@ export async function GET() {
     const sheets = google.sheets({ version: "v4", auth: getAuth() });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Release Master'!A2:AD",
+      range: "'Release Master'!A1:AD",  // 1行目からヘッダー込みで取得
     });
 
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) return NextResponse.json([]);
+    const allRows = response.data.values;
+    if (!allRows || allRows.length < 2) return NextResponse.json([]);
 
-    const albums: ReleaseMasterAlbum[] = rows
-      .filter((row) => row[0] && row[2] && row[3])
+    const [headerRow, ...dataRows] = allRows;
+    const col = buildHeaderMap(headerRow);
+
+    const albums: ReleaseMasterAlbum[] = dataRows
+      .filter((row) =>
+        row[getCol(col, "NO")] &&
+        row[getCol(col, "TITLE")] &&
+        row[getCol(col, "ARTIST")]
+      )
       .map((row) => ({
-        no: row[0] || "",
-        date: row[1] || "",
-        title: row[2] || "",
-        artist: row[3] || "",
-        genre: (row[5] || "") as ReleaseMasterAlbum["genre"],
-        mjAdoption: row[16] || "",
-        mjAssign: row[17] || "",
-        mjTrackNo: row[18] || "",
-        mjTrack: row[19] || "",
-        mjText: row[20] || "",
+        no:         row[getCol(col, "NO")]          || "",
+        date:       row[getCol(col, "DATE")]         || "",
+        title:      row[getCol(col, "TITLE")]        || "",
+        artist:     row[getCol(col, "ARTIST")]       || "",
+        genre:      (row[getCol(col, "GENRE")]       || "") as ReleaseMasterAlbum["genre"],
+        mjAdoption: row[col[SHEET_COL.MJ_ADOPTION]] || "",
+        mjAssign:   row[col[SHEET_COL.MJ_ASSIGN]]   || "",
+        mjTrackNo:  row[col[SHEET_COL.MJ_TRACK_NO]] || "",
+        mjTrack:    row[col[SHEET_COL.MJ_TRACK]]     || "",
+        mjText:     row[col[SHEET_COL.MJ_TEXT]]      || "",
         legacyScores: LEGACY_MEMBERS
-          .map((name, i) => ({ name, value: row[22 + i] || "" }))
+          .map((name) => ({
+            name,
+            value: row[col[name] ?? -1] || "",
+          }))
           .filter((s) => s.value !== ""),
-        spotifyUrl: row[28] || "",
-        coverUrl: row[29] || "",
+        spotifyUrl: row[col[SHEET_COL.SPOTIFY_URL]] || "",
+        coverUrl:   row[col[SHEET_COL.COVER_URL]]   || "",
       }));
 
     return NextResponse.json(albums);

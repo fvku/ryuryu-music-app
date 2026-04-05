@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { ReleaseMasterAlbum } from "@/lib/types";
+import { reportColumnError } from "@/components/ColumnErrorIndicator";
 
 interface SpotifyTrack {
   trackNumber: number;
@@ -86,7 +87,13 @@ export default function MjWritingModal({ album, coverUrl, onClose, onSaved }: Pr
           },
         }),
       });
-      if (!res.ok) throw new Error((await res.json()).error || "保存に失敗しました");
+      if (!res.ok) {
+        const errData = await res.json();
+        if (errData.errorCode === "COLUMN_NOT_FOUND") {
+          reportColumnError(errData.missing ?? []);
+        }
+        throw new Error(errData.error || "保存に失敗しました");
+      }
       onSaved({
         mjTrackNo: selectedTrack ? String(selectedTrack.trackNumber) : "",
         mjTrack: selectedTrack ? selectedTrack.name : "",
