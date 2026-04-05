@@ -40,9 +40,9 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   const [averageScore, setAverageScore] = useState<number | null>(null);
   const [loadingScores, setLoadingScores] = useState(true);
 
-  const [sliderValue, setSliderValue] = useState(0); // 0=スコアなし, 1-21=0.0-10.0
-  const isNoScore = sliderValue === 0;
-  const score = isNoScore ? null : (sliderValue - 1) * 0.5;
+  const [sliderValue, setSliderValue] = useState(0); // 0-2=スコアなし, 3-23=0.0-10.0
+  const isNoScore = sliderValue <= 2;
+  const score = isNoScore ? null : (sliderValue - 3) * 0.5;
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -193,7 +193,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   function startEditingFromLegacy() {
     if (myLegacyScore) {
       const parsed = parseLegacyScore(myLegacyScore.value);
-      setSliderValue(parsed.score !== null ? Math.round(parsed.score * 2) + 1 : 0);
+      setSliderValue(parsed.score !== null ? Math.round(parsed.score * 2) + 3 : 0);
       setComment(parsed.comment);
     }
     setSubmitSuccess(false);
@@ -254,7 +254,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
 
   function startEditing() {
     if (myScore) {
-      setSliderValue(myScore.score !== null ? Math.round(myScore.score * 2) + 1 : 0);
+      setSliderValue(myScore.score !== null ? Math.round(myScore.score * 2) + 3 : 0);
       setComment(myScore.comment || "");
     }
     setSubmitSuccess(false);
@@ -663,14 +663,14 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                           <input
                             type="range"
                             min={0}
-                            max={21}
+                            max={23}
                             step={1}
                             value={sliderValue}
                             onChange={(e) => setSliderValue(parseInt(e.target.value))}
                             className="w-full score-slider"
                             style={(() => {
-                              const divPct = (1 / 21) * 100;
-                              const curPct = (sliderValue / 21) * 100;
+                              const divPct = (3 / 23) * 100;
+                              const curPct = (sliderValue / 23) * 100;
                               const trackBg = isNoScore
                                 ? `linear-gradient(to right, #6b7280 0% ${divPct}%, #2d2d3f ${divPct}% 100%)`
                                 : `linear-gradient(to right, #3b3b50 0% ${divPct}%, ${getScoreColor(score!)} ${divPct}% ${curPct}%, #2d2d3f ${curPct}% 100%)`;
@@ -682,13 +682,13 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                           />
                           <div
                             className="absolute top-1/2 -translate-y-1/2 w-px h-4 pointer-events-none"
-                            style={{ left: `${(1 / 21) * 100}%`, backgroundColor: "rgba(255,255,255,0.2)" }}
+                            style={{ left: `${(3 / 23) * 100}%`, backgroundColor: "rgba(255,255,255,0.2)" }}
                           />
                         </div>
                         <div className="relative flex text-xs mt-1.5" style={{ color: "var(--text-secondary)" }}>
                           <span>なし</span>
-                          <span className="absolute" style={{ left: `${(1 / 21) * 100}%` }}>0</span>
-                          <span className="absolute left-1/2 -translate-x-1/2">5</span>
+                          <span className="absolute" style={{ left: `${(3 / 23) * 100}%` }}>0</span>
+                          <span className="absolute" style={{ left: `${(13 / 23) * 100}%`, transform: "translateX(-50%)" }}>5</span>
                           <span className="ml-auto">10</span>
                         </div>
                       </div>
