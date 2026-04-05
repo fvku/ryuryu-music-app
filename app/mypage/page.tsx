@@ -72,6 +72,11 @@ export default function MyPage() {
         setBookmarks(bmData);
         setAlbums(albumData);
 
+        // M/J 文章の月フィルター初期値：最新月
+        const mjAlbumsLocal = albumData.filter((a) => a.mjAdoption === "採用" || a.mjAdoption === "J採用");
+        const mjMonthsLocal = Array.from(new Set(mjAlbumsLocal.map((a) => a.date?.substring(0, 7)).filter(Boolean))).sort().reverse();
+        if (mjMonthsLocal.length > 0) setMjMonthFilter(mjMonthsLocal[0] as string);
+
         setForYou(forYouData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
 
         // 自分がレビュー済みのアルバムNoセット（アプリスコア）
@@ -253,10 +258,15 @@ export default function MyPage() {
       return true;
     });
 
-  // T列に名前（短文）が入っている = ASSIGNED
+  // T列の短文（80字未満）に自分のアカウント名が含まれている = ASSIGNED（大小文字無視）
   function isAssigned(album: ReleaseMasterAlbum) {
     const t = album.mjText?.trim();
-    return t && t.length > 0 && t.length < 80;
+    if (!t || t.length === 0 || t.length >= 80) return false;
+    const userEmail = session?.user?.email?.toLowerCase() ?? "";
+    const userShortName = (EMAIL_TO_SHORT_NAME[userEmail] ?? "").toLowerCase();
+    const tLow = t.toLowerCase();
+    return (userShortName && tLow.includes(userShortName)) ||
+           (userEmail && tLow.includes(userEmail.split("@")[0]));
   }
 
   function handleMjSaved(updated: Partial<ReleaseMasterAlbum>) {
@@ -446,17 +456,16 @@ export default function MyPage() {
       {/* FOR YOU */}
       {tab === "foryou" && (
         <>
-          {/* トップレベル: レコメンド / M/J 文章 */}
-          <div className="flex gap-2 mb-4">
+          {/* トップレベル: レコメンド / M/J 文章 — 全幅タブ */}
+          <div className="flex rounded-xl overflow-hidden mb-5 border" style={{ borderColor: "var(--border-subtle)" }}>
             {(["recommend", "mj"] as const).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setForYouMode(mode)}
-                className="px-4 py-1.5 text-xs font-bold rounded-lg border transition-colors"
+                className="flex-1 py-2.5 text-xs font-bold transition-colors"
                 style={{
-                  backgroundColor: forYouMode === mode ? "rgba(139,92,246,0.2)" : "transparent",
+                  backgroundColor: forYouMode === mode ? "var(--accent)" : "var(--bg-card)",
                   color: forYouMode === mode ? "white" : "var(--text-secondary)",
-                  borderColor: forYouMode === mode ? "var(--accent)" : "var(--border-subtle)",
                 }}
               >
                 {mode === "recommend" ? "レコメンド" : "M/J 文章"}

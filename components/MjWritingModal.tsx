@@ -28,10 +28,10 @@ export default function MjWritingModal({ album, coverUrl, onClose, onSaved }: Pr
   const [tracks, setTracks] = useState<SpotifyTrack[]>([]);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [selectedTrack, setSelectedTrack] = useState<SpotifyTrack | null>(null);
-  // 既存テキスト（長文）があれば初期値にセット（ASSIGNED名前は50字未満なので除外）
+  // ASSIGNED名前（80字未満）を除いた既存テキストを初期値にセット
   const [text, setText] = useState<string>(() => {
     const t = album.mjText?.trim() ?? "";
-    return t.length >= 50 ? t : "";
+    return t.length >= 80 ? t : "";
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,10 +64,11 @@ export default function MjWritingModal({ album, coverUrl, onClose, onSaved }: Pr
       .then((r) => (r.ok ? r.json() : []))
       .then((data: SpotifyTrack[]) => {
         setTracks(data);
-        // 既存のトラック番号があれば pre-select
-        if (album.mjTrackNo) {
-          const no = parseInt(album.mjTrackNo);
-          const found = data.find((t) => t.trackNumber === no);
+        // 曲名完全一致 → なければトラック番号で pre-select
+        if (album.mjTrack || album.mjTrackNo) {
+          const byName = album.mjTrack ? data.find((t) => t.name === album.mjTrack) : null;
+          const byNo = album.mjTrackNo ? data.find((t) => t.trackNumber === parseInt(album.mjTrackNo)) : null;
+          const found = byName ?? byNo ?? null;
           if (found) setSelectedTrack(found);
         }
       })
@@ -127,7 +128,7 @@ export default function MjWritingModal({ album, coverUrl, onClose, onSaved }: Pr
           <div className="w-10 h-10" />
           <div className="absolute left-1/2 -translate-x-1/2 top-2 w-10 h-1 rounded-full sm:hidden" style={{ backgroundColor: "var(--border-subtle)" }} />
           <h2 className="font-bold text-sm" style={{ color: "var(--text-primary)" }}>
-            {text.length >= 50 ? "M/J 文章を編集" : "M/J 文章を書く"}
+            {text.length >= 80 ? "M/J 文章を編集" : "M/J 文章を書く"}
           </h2>
           <button
             onClick={onClose}
