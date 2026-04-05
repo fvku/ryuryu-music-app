@@ -672,21 +672,26 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                         </div>
                         {(() => {
                           const SMAX = 10;
-                          const totalRange = SMAX - NOSCORE_MIN; // 13
-                          const divRatio = (0 - NOSCORE_MIN) / totalRange; // 3/13
+                          const totalRange = SMAX - NOSCORE_MIN;
+                          const divRatio = (0 - NOSCORE_MIN) / totalRange;
                           const curRatio = (rawSlider - NOSCORE_MIN) / totalRange;
-                          const fiveRatio = (5 - NOSCORE_MIN) / totalRange; // 8/13
-                          const thumbPx = 20;
-                          // CSS calc that accounts for thumb radius so "|" aligns with thumb center
-                          const divCalc = `calc(${thumbPx / 2}px + (100% - ${thumbPx}px) * ${divRatio.toFixed(6)})`;
-                          const fiveCalc = `calc(${thumbPx / 2}px + (100% - ${thumbPx}px) * ${fiveRatio.toFixed(6)})`;
+                          const fiveRatio = (5 - NOSCORE_MIN) / totalRange;
+                          const T = 20; // thumb diameter px
+                          // calc() accounting for thumb radius — same formula used for both gradient stops and overlay positions
+                          const c = (r: number) => `calc(${T / 2}px + (100% - ${T}px) * ${r.toFixed(6)})`;
                           const scoreColor = score !== null ? getScoreColor(score) : "#6b7280";
+                          // Use calc() in gradient stops so fill aligns exactly with thumb position
                           const trackBg = isNoScore
-                            ? `linear-gradient(to right, #6b7280 0% ${divRatio * 100}%, #2d2d3f ${divRatio * 100}% 100%)`
-                            : `linear-gradient(to right, #3b3b50 0% ${divRatio * 100}%, ${scoreColor} ${divRatio * 100}% ${curRatio * 100}%, #2d2d3f ${curRatio * 100}% 100%)`;
+                            ? `linear-gradient(to right, #6b7280 0 ${c(divRatio)}, #2d2d3f ${c(divRatio)} 100%)`
+                            : `linear-gradient(to right, #3b3b50 0 ${c(divRatio)}, ${scoreColor} ${c(divRatio)} ${c(curRatio)}, #2d2d3f ${c(curRatio)} 100%)`;
                           return (
                             <>
                               <div className="relative">
+                                {/* | divider: placed before input so thumb (input) renders on top and covers it at score=0 */}
+                                <div
+                                  className="absolute top-1/2 -translate-y-1/2 w-px h-4 pointer-events-none"
+                                  style={{ left: c(divRatio), backgroundColor: "rgba(255,255,255,0.3)" }}
+                                />
                                 <input
                                   type="range"
                                   min={NOSCORE_MIN}
@@ -699,15 +704,11 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                                   className="w-full score-slider"
                                   style={{ "--slider-thumb-color": scoreColor, "--slider-track-bg": trackBg } as React.CSSProperties}
                                 />
-                                <div
-                                  className="absolute top-1/2 -translate-y-1/2 w-px h-4 pointer-events-none"
-                                  style={{ left: divCalc, backgroundColor: "rgba(255,255,255,0.25)" }}
-                                />
                               </div>
                               <div className="relative flex text-xs mt-1.5" style={{ color: "var(--text-secondary)" }}>
                                 <span>なし</span>
-                                <span className="absolute -translate-x-1/2" style={{ left: divCalc }}>0</span>
-                                <span className="absolute -translate-x-1/2" style={{ left: fiveCalc }}>5</span>
+                                <span className="absolute -translate-x-1/2" style={{ left: c(divRatio) }}>0</span>
+                                <span className="absolute -translate-x-1/2" style={{ left: c(fiveRatio) }}>5</span>
                                 <span className="ml-auto">10</span>
                               </div>
                             </>
