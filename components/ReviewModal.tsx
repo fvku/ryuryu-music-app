@@ -10,6 +10,9 @@ import { EMAIL_TO_SHORT_NAME, LEGACY_NAME_TO_EMAIL, getDisplayName, parseLegacyS
 
 const ALL_MEMBERS: { email: string; name: string }[] = Object.entries(EMAIL_TO_SHORT_NAME).map(([email, name]) => ({ email, name }));
 
+// スライダーのなしゾーン幅。小さくするほど「なし」と「0」が近くなる (-3〜0 の間で調整)
+const NOSCORE_MIN = -1.5;
+
 function parseLegacyScore(value: string): { score: number | null; comment: string } {
   const trimmed = value.trim();
   const spaceIdx = trimmed.indexOf(" ");
@@ -40,7 +43,6 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   const [averageScore, setAverageScore] = useState<number | null>(null);
   const [loadingScores, setLoadingScores] = useState(true);
 
-  const NOSCORE_MIN = -3; // no-score zone: [-3, 0), score zone: [0, 10]
   const [rawSlider, setRawSlider] = useState<number>(NOSCORE_MIN);
   const isNoScore = rawSlider < 0;
   const score: number | null = isNoScore ? null : Math.round(Math.max(0, rawSlider) * 2) / 2;
