@@ -84,6 +84,19 @@ input[type="range"]::-moz-range-thumb {
   transition: background 0.2s;
 }
 
+/* Score slider with zone separation */
+.score-slider::-webkit-slider-thumb {
+  background: var(--slider-thumb-color, var(--accent)) !important;
+}
+
+.score-slider::-moz-range-thumb {
+  background: var(--slider-thumb-color, var(--accent)) !important;
+}
+
+.score-slider {
+  background: var(--slider-track-bg, #2d2d3f) !important;
+}
+
 /* Focus ring */
 *:focus-visible {
   outline: 2px solid var(--accent);

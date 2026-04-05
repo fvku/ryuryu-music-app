@@ -40,7 +40,9 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   const [averageScore, setAverageScore] = useState<number | null>(null);
   const [loadingScores, setLoadingScores] = useState(true);
 
-  const [score, setScore] = useState(7.5);
+  const [sliderValue, setSliderValue] = useState(0); // 0=スコアなし, 1-21=0.0-10.0
+  const isNoScore = sliderValue === 0;
+  const score = isNoScore ? null : (sliderValue - 1) * 0.5;
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -52,7 +54,6 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   const [recommendSubmitting, setRecommendSubmitting] = useState(false);
   const [recommendSuccess, setRecommendSuccess] = useState(false);
   const [recommendError, setRecommendError] = useState<string | null>(null);
-  const [noScore, setNoScore] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const [mjAdoption, setMjAdoption] = useState(album.mjAdoption ?? "");
@@ -137,13 +138,12 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       const res = await fetch(`/api/scores/${album.no}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ score: noScore ? null : score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist }),
+        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "投稿に失敗しました");
       setSubmitSuccess(true);
-      setScore(7.5);
-      setNoScore(false);
+      setSliderValue(0);
       setComment("");
       setIsEditing(false);
       await fetchScores();
@@ -162,7 +162,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       const res = await fetch(`/api/scores/${album.no}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ score: noScore ? null : score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist }),
+        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "更新に失敗しました");
@@ -193,7 +193,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   function startEditingFromLegacy() {
     if (myLegacyScore) {
       const parsed = parseLegacyScore(myLegacyScore.value);
-      setScore(parsed.score ?? 7.5);
+      setSliderValue(parsed.score !== null ? Math.round(parsed.score * 2) + 1 : 0);
       setComment(parsed.comment);
     }
     setSubmitSuccess(false);
@@ -254,7 +254,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
 
   function startEditing() {
     if (myScore) {
-      setScore(myScore.score ?? 7.5);
+      setSliderValue(myScore.score !== null ? Math.round(myScore.score * 2) + 1 : 0);
       setComment(myScore.comment || "");
     }
     setSubmitSuccess(false);
@@ -646,40 +646,51 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                     )}
                     <form onSubmit={isEditing ? handleUpdate : handleSubmit} className="flex flex-col gap-4">
                       <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <label className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
-                            スコア
-                            {!noScore && (
-                              <>
-                                <span className="ml-2 text-xl font-bold" style={{ color: getScoreColor(score) }}>
-                                  {score % 1 === 0 ? score.toFixed(1) : score}
-                                </span>
-                                <span className="text-xs font-normal ml-1" style={{ color: "var(--text-secondary)" }}>/10</span>
-                              </>
-                            )}
-                            {noScore && <span className="ml-2 text-sm" style={{ color: "var(--text-secondary)" }}>—</span>}
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => setNoScore((v) => !v)}
-                            className="text-xs px-2 py-0.5 rounded-full transition-colors"
-                            style={{
-                              backgroundColor: noScore ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.06)",
-                              color: noScore ? "var(--accent)" : "var(--text-secondary)",
-                              border: `1px solid ${noScore ? "var(--accent)" : "var(--border-subtle)"}`,
-                            }}
-                          >
-                            スコアなし
-                          </button>
+                        <div className="flex items-center justify-between mb-3">
+                          <label className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>スコア</label>
+                          {isNoScore ? (
+                            <span className="text-sm font-bold" style={{ color: "var(--text-secondary)" }}>スコアなし</span>
+                          ) : (
+                            <span>
+                              <span className="text-2xl font-bold" style={{ color: getScoreColor(score!) }}>
+                                {score! % 1 === 0 ? score!.toFixed(1) : score}
+                              </span>
+                              <span className="text-xs ml-1" style={{ color: "var(--text-secondary)" }}>/10</span>
+                            </span>
+                          )}
                         </div>
-                        {!noScore && (
-                          <>
-                            <input type="range" min={0} max={10} step={0.5} value={score} onChange={(e) => setScore(parseFloat(e.target.value))} className="w-full" style={{ accentColor: getScoreColor(score) }} />
-                            <div className="flex justify-between text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
-                              <span>0</span><span>5</span><span>10</span>
-                            </div>
-                          </>
-                        )}
+                        <div className="relative">
+                          <input
+                            type="range"
+                            min={0}
+                            max={21}
+                            step={1}
+                            value={sliderValue}
+                            onChange={(e) => setSliderValue(parseInt(e.target.value))}
+                            className="w-full score-slider"
+                            style={(() => {
+                              const divPct = (1 / 21) * 100;
+                              const curPct = (sliderValue / 21) * 100;
+                              const trackBg = isNoScore
+                                ? `linear-gradient(to right, #6b7280 0% ${divPct}%, #2d2d3f ${divPct}% 100%)`
+                                : `linear-gradient(to right, #3b3b50 0% ${divPct}%, ${getScoreColor(score!)} ${divPct}% ${curPct}%, #2d2d3f ${curPct}% 100%)`;
+                              return {
+                                "--slider-thumb-color": isNoScore ? "#6b7280" : getScoreColor(score!),
+                                "--slider-track-bg": trackBg,
+                              } as React.CSSProperties;
+                            })()}
+                          />
+                          <div
+                            className="absolute top-1/2 -translate-y-1/2 w-px h-4 pointer-events-none"
+                            style={{ left: `${(1 / 21) * 100}%`, backgroundColor: "rgba(255,255,255,0.2)" }}
+                          />
+                        </div>
+                        <div className="relative flex text-xs mt-1.5" style={{ color: "var(--text-secondary)" }}>
+                          <span>なし</span>
+                          <span className="absolute" style={{ left: `${(1 / 21) * 100}%` }}>0</span>
+                          <span className="absolute left-1/2 -translate-x-1/2">5</span>
+                          <span className="ml-auto">10</span>
+                        </div>
                       </div>
                       <div>
                         <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-primary)" }}>
