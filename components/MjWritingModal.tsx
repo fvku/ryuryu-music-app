@@ -28,11 +28,7 @@ export default function MjWritingModal({ album, coverUrl, onClose, onSaved }: Pr
   const [tracks, setTracks] = useState<SpotifyTrack[]>([]);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [selectedTrack, setSelectedTrack] = useState<SpotifyTrack | null>(null);
-  // ASSIGNED名前（80字未満）を除いた既存テキストを初期値にセット
-  const [text, setText] = useState<string>(() => {
-    const t = album.mjText?.trim() ?? "";
-    return t.length >= 80 ? t : "";
-  });
+  const [text, setText] = useState<string>(() => album.mjText?.trim() ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,17 +60,16 @@ export default function MjWritingModal({ album, coverUrl, onClose, onSaved }: Pr
       .then((r) => (r.ok ? r.json() : []))
       .then((data: SpotifyTrack[]) => {
         setTracks(data);
-        // 曲名完全一致 → なければトラック番号で pre-select
-        if (album.mjTrack || album.mjTrackNo) {
-          const byName = album.mjTrack ? data.find((t) => t.name === album.mjTrack) : null;
-          const byNo = album.mjTrackNo ? data.find((t) => t.trackNumber === parseInt(album.mjTrackNo)) : null;
-          const found = byName ?? byNo ?? null;
-          if (found) setSelectedTrack(found);
-        }
+        // トラック番号 → 曲名の順で pre-select（番号を優先、名前が一致すればそちら）
+        const trackNoNum = album.mjTrackNo ? parseInt(album.mjTrackNo.trim(), 10) : NaN;
+        const byNo = !isNaN(trackNoNum) ? data.find((t) => t.trackNumber === trackNoNum) ?? null : null;
+        const byName = album.mjTrack?.trim() ? data.find((t) => t.name === album.mjTrack.trim()) ?? null : null;
+        const found = byName ?? byNo ?? null;
+        if (found) setSelectedTrack(found);
       })
       .catch(() => {})
       .finally(() => setLoadingTracks(false));
-  }, [album.spotifyUrl, album.mjTrackNo]);
+  }, [album.spotifyUrl, album.mjTrackNo, album.mjTrack]);
 
   async function handleSave() {
     setSaving(true);
@@ -128,7 +123,7 @@ export default function MjWritingModal({ album, coverUrl, onClose, onSaved }: Pr
           <div className="w-10 h-10" />
           <div className="absolute left-1/2 -translate-x-1/2 top-2 w-10 h-1 rounded-full sm:hidden" style={{ backgroundColor: "var(--border-subtle)" }} />
           <h2 className="font-bold text-sm" style={{ color: "var(--text-primary)" }}>
-            {text.length >= 80 ? "M/J 文章を編集" : "M/J 文章を書く"}
+            {text.length > 0 ? "M/J 文章を編集" : "M/J 文章を書く"}
           </h2>
           <button
             onClick={onClose}
