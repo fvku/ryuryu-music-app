@@ -666,13 +666,13 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                             max={23}
                             step={1}
                             value={sliderValue}
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value);
-                              if (val >= 1 && val <= 2) {
-                                setSliderValue(val > sliderValue ? 3 : 0);
-                              } else {
-                                setSliderValue(val);
-                              }
+                            onChange={(e) => setSliderValue(parseInt(e.target.value))}
+                            onMouseUp={(e) => {
+                              const val = parseInt((e.target as HTMLInputElement).value);
+                              if (val >= 1 && val <= 2) setSliderValue(val <= 1 ? 0 : 3);
+                            }}
+                            onTouchEnd={() => {
+                              if (sliderValue >= 1 && sliderValue <= 2) setSliderValue(sliderValue <= 1 ? 0 : 3);
                             }}
                             className="w-full score-slider"
                             style={(() => {
