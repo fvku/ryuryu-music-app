@@ -7,6 +7,7 @@ import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import { Bookmark, Recommendation } from "@/lib/sheets";
 import { EMAIL_TO_SHORT_NAME, LEGACY_NAME_TO_EMAIL, parseLegacyScoreNum, getDisplayName } from "@/lib/members";
 import ReviewModal from "@/components/ReviewModal";
+import MjWritingModal from "@/components/MjWritingModal";
 import { useNotifications } from "@/contexts/NotificationsContext";
 
 type Tab = "saved" | "foryou" | "reviewed";
@@ -31,6 +32,10 @@ export default function MyPage() {
   const [savedFilter, setSavedFilter] = useState<ReviewFilter>("unreviewed");
   const [savedMonthFilter, setSavedMonthFilter] = useState<string>("すべて");
   const [forYouFilter, setForYouFilter] = useState<ReviewFilter>("unreviewed");
+  const [forYouMode, setForYouMode] = useState<"recommend" | "mj">("recommend");
+  const [mjMonthFilter, setMjMonthFilter] = useState<string>("すべて");
+  const [mjTypeFilter, setMjTypeFilter] = useState<"all" | "monthly" | "japan">("all");
+  const [mjWritingAlbum, setMjWritingAlbum] = useState<ReleaseMasterAlbum | null>(null);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [forYou, setForYou] = useState<Recommendation[]>([]);
   const [myReviewedAlbumNos, setMyReviewedAlbumNos] = useState<Set<string>>(new Set());
@@ -237,6 +242,28 @@ export default function MyPage() {
     if (key === "foryou") markForYouSeen();
   }
 
+  // M/J 文章モード用
+  const mjAlbums = albums.filter((a) => a.mjAdoption === "採用" || a.mjAdoption === "J採用");
+  const mjMonths = ["すべて", ...Array.from(new Set(mjAlbums.map((a) => a.date?.substring(0, 7)).filter(Boolean))).sort().reverse()];
+  const filteredMjAlbums = mjAlbums
+    .filter((a) => mjMonthFilter === "すべて" || a.date?.substring(0, 7) === mjMonthFilter)
+    .filter((a) => {
+      if (mjTypeFilter === "monthly") return a.mjAdoption === "採用";
+      if (mjTypeFilter === "japan") return a.mjAdoption === "J採用";
+      return true;
+    });
+
+  // T列に名前（短文）が入っている = ASSIGNED
+  function isAssigned(album: ReleaseMasterAlbum) {
+    const t = album.mjText?.trim();
+    return t && t.length > 0 && t.length < 80;
+  }
+
+  function handleMjSaved(updated: Partial<ReleaseMasterAlbum>) {
+    if (!mjWritingAlbum) return;
+    setAlbums((prev) => prev.map((a) => (a.no === mjWritingAlbum.no ? { ...a, ...updated } : a)));
+  }
+
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: "saved", label: "SAVED", count: bookmarkedAlbums.length },
     { key: "foryou", label: "FOR YOU", count: forYou.length },
@@ -419,65 +446,184 @@ export default function MyPage() {
       {/* FOR YOU */}
       {tab === "foryou" && (
         <>
-          <ReviewFilterButtons value={forYouFilter} onChange={setForYouFilter} />
-          {filteredForYou.length === 0 ? (
-            <div className="text-center py-16 rounded-2xl border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
-              <p className="text-4xl mb-4">✉️</p>
-              <p style={{ color: "var(--text-secondary)" }}>
-                {forYouFilter === "all" ? "まだレコメンドが届いていません" : "該当するレコメンドはありません"}
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {filteredForYou.map((rec) => {
-                const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName)
-                  ?? albums.find((a) => a.no === rec.albumNo);
-                const coverUrl = album ? spotifyData[album.no]?.coverUrl || rec.coverUrl : rec.coverUrl;
-                const isReviewed = album ? myReviewedAlbumNos.has(album.no) : false;
-                return (
-                  <div
-                    key={rec.id}
-                    onClick={() => album && setSelectedAlbum(album)}
-                    className="rounded-2xl p-4 border transition-all hover:-translate-y-0.5 hover:border-violet-500/40 cursor-pointer active:scale-[0.99]"
-                    style={{ backgroundColor: "var(--bg-card)", borderColor: "rgba(139,92,246,0.3)" }}
-                  >
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>
-                        {getDisplayName(rec.recommenderId).charAt(0).toUpperCase()}
-                      </div>
-                      <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{getDisplayName(rec.recommenderId)}</span>
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>レコメンド</span>
-                      {isReviewed && (
-                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e" }}>レビュー済み</span>
-                      )}
-                      <span className="text-xs ml-auto" style={{ color: "var(--text-secondary)" }}>{formatDate(rec.createdAt)}</span>
-                    </div>
-                    <div className="flex gap-3 items-center">
-                      <div className="relative w-12 h-12 rounded-xl overflow-hidden flex-shrink-0" style={{ backgroundColor: "#2a2a3a" }}>
-                        {coverUrl ? (
-                          <Image src={coverUrl} alt={rec.albumTitle} fill sizes="48px" className="object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#6b7280" }}>
-                              <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
-                            </svg>
+          {/* トップレベル: レコメンド / M/J 文章 */}
+          <div className="flex gap-2 mb-4">
+            {(["recommend", "mj"] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setForYouMode(mode)}
+                className="px-4 py-1.5 text-xs font-bold rounded-lg border transition-colors"
+                style={{
+                  backgroundColor: forYouMode === mode ? "rgba(139,92,246,0.2)" : "transparent",
+                  color: forYouMode === mode ? "white" : "var(--text-secondary)",
+                  borderColor: forYouMode === mode ? "var(--accent)" : "var(--border-subtle)",
+                }}
+              >
+                {mode === "recommend" ? "レコメンド" : "M/J 文章"}
+              </button>
+            ))}
+          </div>
+
+          {/* レコメンドモード */}
+          {forYouMode === "recommend" && (
+            <>
+              <ReviewFilterButtons value={forYouFilter} onChange={setForYouFilter} />
+              {filteredForYou.length === 0 ? (
+                <div className="text-center py-16 rounded-2xl border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
+                  <p className="text-4xl mb-4">✉️</p>
+                  <p style={{ color: "var(--text-secondary)" }}>
+                    {forYouFilter === "all" ? "まだレコメンドが届いていません" : "該当するレコメンドはありません"}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {filteredForYou.map((rec) => {
+                    const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName)
+                      ?? albums.find((a) => a.no === rec.albumNo);
+                    const coverUrl = album ? spotifyData[album.no]?.coverUrl || rec.coverUrl : rec.coverUrl;
+                    const isReviewed = album ? myReviewedAlbumNos.has(album.no) : false;
+                    return (
+                      <div
+                        key={rec.id}
+                        onClick={() => album && setSelectedAlbum(album)}
+                        className="rounded-2xl p-4 border transition-all hover:-translate-y-0.5 hover:border-violet-500/40 cursor-pointer active:scale-[0.99]"
+                        style={{ backgroundColor: "var(--bg-card)", borderColor: "rgba(139,92,246,0.3)" }}
+                      >
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>
+                            {getDisplayName(rec.recommenderId).charAt(0).toUpperCase()}
                           </div>
+                          <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{getDisplayName(rec.recommenderId)}</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>レコメンド</span>
+                          {isReviewed && (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e" }}>レビュー済み</span>
+                          )}
+                          <span className="text-xs ml-auto" style={{ color: "var(--text-secondary)" }}>{formatDate(rec.createdAt)}</span>
+                        </div>
+                        <div className="flex gap-3 items-center">
+                          <div className="relative w-12 h-12 rounded-xl overflow-hidden flex-shrink-0" style={{ backgroundColor: "#2a2a3a" }}>
+                            {coverUrl ? (
+                              <Image src={coverUrl} alt={rec.albumTitle} fill sizes="48px" className="object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#6b7280" }}>
+                                  <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+                                </svg>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-sm truncate" style={{ color: "var(--text-primary)" }}>{rec.albumTitle}</p>
+                            <p className="text-xs truncate mt-0.5" style={{ color: "var(--accent)" }}>{rec.artistName}</p>
+                          </div>
+                        </div>
+                        {rec.message && (
+                          <p className="mt-3 text-sm leading-relaxed pl-1" style={{ color: "var(--text-secondary)" }}>
+                            &ldquo;{rec.message}&rdquo;
+                          </p>
                         )}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-sm truncate" style={{ color: "var(--text-primary)" }}>{rec.albumTitle}</p>
-                        <p className="text-xs truncate mt-0.5" style={{ color: "var(--accent)" }}>{rec.artistName}</p>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* M/J 文章モード */}
+          {forYouMode === "mj" && (
+            <>
+              {/* 月フィルター + MONTHLY/JAPAN タブ */}
+              <div className="flex items-center gap-2 flex-wrap mb-4">
+                <select
+                  value={mjMonthFilter}
+                  onChange={(e) => setMjMonthFilter(e.target.value)}
+                  className="px-3 py-1 rounded-xl border text-xs font-medium focus:outline-none flex-shrink-0"
+                  style={{
+                    backgroundColor: "var(--bg-card)",
+                    borderColor: mjMonthFilter !== "すべて" ? "var(--accent)" : "var(--border-subtle)",
+                    color: mjMonthFilter !== "すべて" ? "white" : "var(--text-secondary)",
+                  }}
+                >
+                  {mjMonths.map((m) => (
+                    <option key={m} value={m}>
+                      {m === "すべて" ? "すべて" : `${m.split("/")[0]}年${parseInt(m.split("/")[1])}月`}
+                    </option>
+                  ))}
+                </select>
+                {(["all", "monthly", "japan"] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setMjTypeFilter(f)}
+                    className="px-3 py-1 rounded-lg border text-xs font-bold transition-colors flex-shrink-0"
+                    style={{
+                      backgroundColor: mjTypeFilter === f ? "rgba(139,92,246,0.2)" : "transparent",
+                      color: mjTypeFilter === f ? "white" : "var(--text-secondary)",
+                      borderColor: mjTypeFilter === f ? "var(--accent)" : "var(--border-subtle)",
+                    }}
+                  >
+                    {f === "all" ? "すべて" : f === "monthly" ? "MONTHLY" : "JAPAN"}
+                  </button>
+                ))}
+              </div>
+
+              {filteredMjAlbums.length === 0 ? (
+                <div className="text-center py-16 rounded-2xl border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
+                  <p className="text-4xl mb-4">📝</p>
+                  <p style={{ color: "var(--text-secondary)" }}>該当するアルバムはありません</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {filteredMjAlbums.map((album) => {
+                    const cover = spotifyData[album.no]?.coverUrl || album.coverUrl;
+                    const assigned = isAssigned(album);
+                    const hasText = album.mjText && album.mjText.trim().length >= 80;
+                    return (
+                      <div
+                        key={album.no}
+                        onClick={() => setMjWritingAlbum(album)}
+                        className="flex items-center gap-4 p-4 rounded-2xl border transition-all hover:-translate-y-0.5 hover:border-violet-500/40 cursor-pointer active:scale-[0.99]"
+                        style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}
+                      >
+                        <div className="relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0" style={{ backgroundColor: "#2a2a3a" }}>
+                          {cover ? (
+                            <Image src={cover} alt={album.title} fill sizes="56px" className="object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#6b7280" }}>
+                                <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-sm truncate" style={{ color: "var(--text-primary)" }}>{album.title}</p>
+                          <p className="text-xs truncate mt-0.5" style={{ color: "var(--accent)" }}>{album.artist}</p>
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{album.date}</span>
+                            <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(139,92,246,0.12)", color: "var(--accent)" }}>
+                              {album.mjAdoption === "採用" ? "MONTHLY" : "JAPAN"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex-shrink-0 flex flex-col items-end gap-1">
+                          {assigned && (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(251,191,36,0.2)", color: "#fbbf24" }}>
+                              ASSIGNED
+                            </span>
+                          )}
+                          {hasText && (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
+                              済み
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    {rec.message && (
-                      <p className="mt-3 text-sm leading-relaxed pl-1" style={{ color: "var(--text-secondary)" }}>
-                        &ldquo;{rec.message}&rdquo;
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </>
       )}
@@ -534,6 +680,15 @@ export default function MyPage() {
           coverUrl={spotifyData[selectedAlbum.no]?.coverUrl}
           spotifyUrl={spotifyData[selectedAlbum.no]?.spotifyUrl}
           onClose={() => setSelectedAlbum(null)}
+        />
+      )}
+
+      {mjWritingAlbum && (
+        <MjWritingModal
+          album={mjWritingAlbum}
+          coverUrl={spotifyData[mjWritingAlbum.no]?.coverUrl || mjWritingAlbum.coverUrl}
+          onClose={() => setMjWritingAlbum(null)}
+          onSaved={handleMjSaved}
         />
       )}
     </div>

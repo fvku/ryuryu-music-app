@@ -13,7 +13,10 @@ export interface ReleaseMasterAlbum {
   title: string;
   artist: string;
   genre: "邦楽" | "洋楽" | "";
-  mjAdoption: string; // M/J採用 column
+  mjAdoption: string; // M/J採用 column (Q)
+  mjTrackNo: string;  // M Number column (R)
+  mjTrack: string;    // Track column (S)
+  mjText: string;     // M/J採用（220−300）column (T)
   legacyScores: { name: string; value: string }[]; // Kwisoo, Meri, Kohei, Eddie, Hanawa
   spotifyUrl: string; // AB column
   coverUrl: string;   // AC column

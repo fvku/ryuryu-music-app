@@ -55,6 +55,9 @@ export async function GET() {
         artist: row[3] || "",
         genre: (row[5] || "") as ReleaseMasterAlbum["genre"],
         mjAdoption: row[16] || "",
+        mjTrackNo: row[17] || "",
+        mjTrack: row[18] || "",
+        mjText: row[19] || "",
         legacyScores: LEGACY_MEMBERS
           .map((name, i) => ({ name, value: row[21 + i] || "" }))
           .filter((s) => s.value !== ""),

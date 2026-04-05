@@ -66,6 +66,9 @@ export async function GET(
       artist: row[3] || "",
       genre: (row[5] || "") as ReleaseMasterAlbum["genre"],
       mjAdoption: row[16] || "",
+      mjTrackNo: row[17] || "",
+      mjTrack: row[18] || "",
+      mjText: row[19] || "",
       legacyScores: LEGACY_MEMBERS
         .map((name, i) => ({ name, value: row[21 + i] || "" }))
         .filter((s) => s.value !== ""),
@@ -90,9 +93,10 @@ export async function PATCH(
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }
 
-    const { mjAdoption } = await request.json();
-    if (mjAdoption === undefined) {
-      return NextResponse.json({ error: "mjAdoptionが必要です" }, { status: 400 });
+    const body = await request.json();
+    const { mjAdoption, mjData } = body;
+    if (mjAdoption === undefined && mjData === undefined) {
+      return NextResponse.json({ error: "mjAdoption または mjData が必要です" }, { status: 400 });
     }
 
     const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
@@ -112,15 +116,33 @@ export async function PATCH(
     if (rowIndex === -1) {
       return NextResponse.json({ error: "アルバムが見つかりません" }, { status: 404 });
     }
-    const sheetRow = rowIndex + 2; // 1-indexed, header is row 1
+    const sheetRow = rowIndex + 2;
 
-    // 列Q（17列目）を更新
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `'Release Master'!Q${sheetRow}`,
-      valueInputOption: "RAW",
-      requestBody: { values: [[mjAdoption]] },
-    });
+    if (mjAdoption !== undefined) {
+      // 列Q（M/J採用）を更新
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'Release Master'!Q${sheetRow}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [[mjAdoption]] },
+      });
+    }
+
+    if (mjData !== undefined) {
+      // R列(M Number), S列(Track), T列(M/J採用文章) を一括更新
+      const { trackNo, trackName, mjText } = mjData as { trackNo: string; trackName: string; mjText: string };
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          valueInputOption: "RAW",
+          data: [
+            { range: `'Release Master'!R${sheetRow}`, values: [[trackNo ?? ""]] },
+            { range: `'Release Master'!S${sheetRow}`, values: [[trackName ?? ""]] },
+            { range: `'Release Master'!T${sheetRow}`, values: [[mjText ?? ""]] },
+          ],
+        },
+      });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {
