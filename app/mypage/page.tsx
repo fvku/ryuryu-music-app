@@ -258,15 +258,20 @@ export default function MyPage() {
       return true;
     });
 
-  // T列の短文（80字未満）に自分のアカウント名が含まれている = ASSIGNED（大小文字無視）
-  function isAssigned(album: ReleaseMasterAlbum) {
-    const t = album.mjText?.trim();
-    if (!t || t.length === 0 || t.length >= 80) return false;
+  // ASSIGN列（R=17）の値から担当者名を解析
+  function getAssignInfo(album: ReleaseMasterAlbum): { isMe: boolean; name: string } | null {
+    const a = album.mjAssign?.trim();
+    if (!a) return null;
     const userEmail = session?.user?.email?.toLowerCase() ?? "";
     const userShortName = (EMAIL_TO_SHORT_NAME[userEmail] ?? "").toLowerCase();
-    const tLow = t.toLowerCase();
-    return (userShortName && tLow.includes(userShortName)) ||
-           (userEmail && tLow.includes(userEmail.split("@")[0]));
+    const aLow = a.toLowerCase();
+    const isMe = (userShortName && aLow === userShortName) ||
+                 (userEmail && aLow === userEmail.split("@")[0]);
+    // 表示名：EMAIL_TO_SHORT_NAME で逆引き、なければそのまま
+    const displayName = Object.entries(EMAIL_TO_SHORT_NAME).find(
+      ([, name]) => name.toLowerCase() === aLow
+    )?.[1] ?? a;
+    return { isMe: !!isMe, name: displayName };
   }
 
   function handleMjSaved(updated: Partial<ReleaseMasterAlbum>) {
@@ -585,7 +590,7 @@ export default function MyPage() {
                 <div className="flex flex-col gap-2">
                   {filteredMjAlbums.map((album) => {
                     const cover = spotifyData[album.no]?.coverUrl || album.coverUrl;
-                    const assigned = isAssigned(album);
+                    const assignInfo = getAssignInfo(album);
                     const hasText = album.mjText && album.mjText.trim().length >= 80;
                     return (
                       <div
@@ -616,9 +621,17 @@ export default function MyPage() {
                           </div>
                         </div>
                         <div className="flex-shrink-0 flex flex-col items-end gap-1">
-                          {assigned && (
+                          {assignInfo === null ? (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(107,114,128,0.15)", color: "#6b7280" }}>
+                              unassigned
+                            </span>
+                          ) : assignInfo.isMe ? (
                             <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(251,191,36,0.2)", color: "#fbbf24" }}>
                               ASSIGNED
+                            </span>
+                          ) : (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(139,92,246,0.15)", color: "var(--accent)" }}>
+                              {assignInfo.name}
                             </span>
                           )}
                           {hasText && (

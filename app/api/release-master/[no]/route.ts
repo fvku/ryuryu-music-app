@@ -46,7 +46,7 @@ export async function GET(
     const sheets = google.sheets({ version: "v4", auth: getAuth() });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Release Master'!A2:AC",
+      range: "'Release Master'!A2:AD",
     });
 
     const rows = response.data.values;
@@ -66,14 +66,15 @@ export async function GET(
       artist: row[3] || "",
       genre: (row[5] || "") as ReleaseMasterAlbum["genre"],
       mjAdoption: row[16] || "",
-      mjTrackNo: row[17] || "",
-      mjTrack: row[18] || "",
-      mjText: row[19] || "",
+      mjAssign: row[17] || "",
+      mjTrackNo: row[18] || "",
+      mjTrack: row[19] || "",
+      mjText: row[20] || "",
       legacyScores: LEGACY_MEMBERS
-        .map((name, i) => ({ name, value: row[21 + i] || "" }))
+        .map((name, i) => ({ name, value: row[22 + i] || "" }))
         .filter((s) => s.value !== ""),
-      spotifyUrl: row[27] || "",
-      coverUrl: row[28] || "",
+      spotifyUrl: row[28] || "",
+      coverUrl: row[29] || "",
     };
 
     return NextResponse.json(album);
@@ -136,9 +137,9 @@ export async function PATCH(
         requestBody: {
           valueInputOption: "RAW",
           data: [
-            { range: `'Release Master'!R${sheetRow}`, values: [[trackNo ?? ""]] },
-            { range: `'Release Master'!S${sheetRow}`, values: [[trackName ?? ""]] },
-            { range: `'Release Master'!T${sheetRow}`, values: [[mjText ?? ""]] },
+            { range: `'Release Master'!S${sheetRow}`, values: [[trackNo ?? ""]] },
+            { range: `'Release Master'!T${sheetRow}`, values: [[trackName ?? ""]] },
+            { range: `'Release Master'!U${sheetRow}`, values: [[mjText ?? ""]] },
           ],
         },
       });

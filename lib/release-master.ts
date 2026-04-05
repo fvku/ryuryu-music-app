@@ -1,12 +1,13 @@
 import { google } from "googleapis";
 import { MEMBER_COLUMN_INDEX } from "./members";
 
+// W=22〜AA=26 (ASSIGN列がR=17に挿入されたため +1)
 const COLUMN_INDEX_TO_EMAIL: Record<number, string> = {
-  21: "kwisoo1102@gmail.com",
-  22: "akyme68@gmail.com",
-  23: "kohei.fuku0926@gmail.com",
-  24: "edwardcannell93@gmail.com",
-  25: "yoshinorihnw@gmail.com",
+  22: "kwisoo1102@gmail.com",
+  23: "akyme68@gmail.com",
+  24: "kohei.fuku0926@gmail.com",
+  25: "edwardcannell93@gmail.com",
+  26: "yoshinorihnw@gmail.com",
 };
 
 function getWriteAuth() {
@@ -91,7 +92,7 @@ export async function getReleaseMasterScoreRows(): Promise<ReleaseMasterScoreRow
   const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
   const resp = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "'Release Master'!A2:Z",
+    range: "'Release Master'!A2:AB",
   });
 
   const rows = resp.data.values || [];
