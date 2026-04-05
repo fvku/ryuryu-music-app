@@ -103,9 +103,9 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { mjAdoption, mjData } = body;
-    if (mjAdoption === undefined && mjData === undefined) {
-      return NextResponse.json({ error: "mjAdoption または mjData が必要です" }, { status: 400 });
+    const { mjAdoption, mjData, mjAssign } = body;
+    if (mjAdoption === undefined && mjData === undefined && mjAssign === undefined) {
+      return NextResponse.json({ error: "mjAdoption, mjData, または mjAssign が必要です" }, { status: 400 });
     }
 
     const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
@@ -139,10 +139,9 @@ export async function PATCH(
 
     // ★ 書き込み前に必要列の存在チェック
     const requiredForMjAdoption = mjAdoption !== undefined ? [SHEET_COL.MJ_ADOPTION] : [];
-    const requiredForMjData = mjData !== undefined
-      ? [SHEET_COL.MJ_TRACK_NO, SHEET_COL.MJ_TRACK, SHEET_COL.MJ_TEXT]
-      : [];
-    const missing = findMissingColumns(col, [...requiredForMjAdoption, ...requiredForMjData]);
+    const requiredForMjData     = mjData     !== undefined ? [SHEET_COL.MJ_TRACK_NO, SHEET_COL.MJ_TRACK, SHEET_COL.MJ_TEXT] : [];
+    const requiredForMjAssign   = mjAssign   !== undefined ? [SHEET_COL.MJ_ASSIGN] : [];
+    const missing = findMissingColumns(col, [...requiredForMjAdoption, ...requiredForMjData, ...requiredForMjAssign]);
 
     if (missing.length > 0) {
       return NextResponse.json(
@@ -180,6 +179,16 @@ export async function PATCH(
             { range: `'Release Master'!${cMjText}${sheetRow}`,   values: [[mjText    ?? ""]] },
           ],
         },
+      });
+    }
+
+    if (mjAssign !== undefined) {
+      const colLetter = indexToColumnLetter(col[SHEET_COL.MJ_ASSIGN]);
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'Release Master'!${colLetter}${sheetRow}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [[mjAssign]] },
       });
     }
 
