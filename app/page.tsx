@@ -46,19 +46,27 @@ export default function HomePage() {
         setAlbums(data);
         setLoading(false);
 
-        // 月の初期値：現在月にアルバムがなければ最新月
-        const availableMonths = Array.from(new Set(data.map((a) => getMonthKey(a.date)).filter(Boolean))).sort().reverse();
-        const now = new Date();
-        const currentMonthKey = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}`;
-        const defaultMonth = availableMonths.includes(currentMonthKey) ? currentMonthKey : (availableMonths[0] ?? "すべて");
-        setMonthFilter(defaultMonth);
+        // localStorageから保存済みフィルターを読む
+        const savedFilters = (() => { try { return JSON.parse(localStorage.getItem("ryuryu_home_filters") || "{}"); } catch { return {}; } })();
+        if (savedFilters.genre) setGenreFilters(savedFilters.genre);
 
-        // M/J採用：全値を初期選択
+        // 月の初期値：保存済みがあればそれを使い、なければ現在月
+        const availableMonths = Array.from(new Set(data.map((a) => getMonthKey(a.date)).filter(Boolean))).sort().reverse();
+        if (savedFilters.month) {
+          setMonthFilter(savedFilters.month);
+        } else {
+          const now = new Date();
+          const currentMonthKey = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}`;
+          const defaultMonth = availableMonths.includes(currentMonthKey) ? currentMonthKey : (availableMonths[0] ?? "すべて");
+          setMonthFilter(defaultMonth);
+        }
+
+        // M/J採用：保存済みがあればそれを使い、なければ全値を初期選択
         const allMjValues = [
           ...Array.from(new Set(data.map((a) => a.mjAdoption).filter(Boolean))).sort(),
           ...(data.some((a) => !a.mjAdoption) ? ["空欄"] : []),
         ];
-        setMjFilters(allMjValues);
+        setMjFilters(savedFilters.mj ?? allMjValues);
         setMjInitialized(true);
 
         // Pre-populate spotifyData from sheet cache
@@ -110,6 +118,14 @@ export default function HomePage() {
     }
     init();
   }, []);
+
+  // フィルター変更をlocalStorageに保存
+  useEffect(() => {
+    if (!mjInitialized) return;
+    try {
+      localStorage.setItem("ryuryu_home_filters", JSON.stringify({ month: monthFilter, genre: genreFilters, mj: mjFilters }));
+    } catch {}
+  }, [monthFilter, genreFilters, mjFilters, mjInitialized]);
 
   // Up Next用：セッション・スコアが揃ったら自分のレビュー済みNoを計算
   useEffect(() => {
