@@ -68,6 +68,10 @@ export default function HomePage() {
         ];
         setMjFilters(savedFilters.mj ?? allMjValues);
         setMjInitialized(true);
+        if (savedFilters.upNext) {
+          setUpNext(true);
+          if (savedFilters.savedMj) setSavedMjFilters(savedFilters.savedMj);
+        }
 
         // Pre-populate spotifyData from sheet cache
         const cachedData: Record<string, { coverUrl: string; spotifyUrl: string }> = {};
@@ -123,9 +127,9 @@ export default function HomePage() {
   useEffect(() => {
     if (!mjInitialized) return;
     try {
-      localStorage.setItem("ryuryu_home_filters", JSON.stringify({ month: monthFilter, genre: genreFilters, mj: mjFilters }));
+      localStorage.setItem("ryuryu_home_filters", JSON.stringify({ month: monthFilter, genre: genreFilters, mj: mjFilters, upNext, savedMj: savedMjFilters }));
     } catch {}
-  }, [monthFilter, genreFilters, mjFilters, mjInitialized]);
+  }, [monthFilter, genreFilters, mjFilters, mjInitialized, upNext, savedMjFilters]);
 
   // Up Next用：セッション・スコアが揃ったら自分のレビュー済みNoを計算
   useEffect(() => {
