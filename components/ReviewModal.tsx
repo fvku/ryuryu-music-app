@@ -273,6 +273,21 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     setIsEditing(true);
   }
 
+  // legacyScoresとscoresの値が食い違う場合はscoresを非表示にする
+  // (列追加前後で誤って取り込まれたデータを除外)
+  const legacyNumByEmail: Record<string, number | null> = {};
+  for (const ls of album.legacyScores) {
+    const email = LEGACY_NAME_TO_EMAIL[ls.name.toLowerCase()];
+    if (email) legacyNumByEmail[email] = parseLegacyScoreNum(ls.value);
+  }
+  const validScores = scores.filter((s) => {
+    const email = s.memberName.toLowerCase();
+    if (!(email in legacyNumByEmail)) return true; // legacyScoreなし → そのまま表示
+    const legacyNum = legacyNumByEmail[email];
+    if (legacyNum === null) return true; // legacyに数値なし → そのまま表示
+    return legacyNum === s.score; // 一致する場合のみ表示
+  });
+
   // 統合平均: Release Masterスコア優先。同一メンバーは Release Master を使う。
   const legacyCoveredIds = new Set<string>();
   const legacyScoreValues: number[] = [];
@@ -285,7 +300,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       legacyCoveredIds.add(ls.name.toLowerCase());
     }
   }
-  const appOnlyScoreValues = scores
+  const appOnlyScoreValues = validScores
     .filter((s) => !legacyCoveredIds.has(s.memberName.toLowerCase()) && s.score !== null)
     .map((s) => s.score as number);
 
@@ -436,11 +451,11 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
           )}
 
           {/* Member scores */}
-          {!loadingScores && scores.length > 0 && (
+          {!loadingScores && validScores.length > 0 && (
             <div>
               <h3 className="text-sm font-bold mb-3" style={{ color: "var(--text-primary)" }}>メンバーのレビュー</h3>
               <div className="flex flex-col gap-3">
-                {scores.map((s, i) => (
+                {validScores.map((s, i) => (
                   <div key={i} className="rounded-xl p-4 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
@@ -465,7 +480,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
 
           {/* Release Master 速報：scoresに取り込まれていない分のみ表示 */}
           {(() => {
-            const appScoredIds = new Set(scores.map((s) => s.memberName.toLowerCase()));
+            const appScoredIds = new Set(validScores.map((s) => s.memberName.toLowerCase()));
             const pending = album.legacyScores.filter((ls) => {
               const email = LEGACY_NAME_TO_EMAIL[ls.name.toLowerCase()];
               if (email && appScoredIds.has(email)) return false;
