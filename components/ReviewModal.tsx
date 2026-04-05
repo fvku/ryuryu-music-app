@@ -698,11 +698,15 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                                   max={SMAX}
                                   step={0.01}
                                   value={rawSlider}
-                                  onChange={(e) => setRawSlider(parseFloat(e.target.value))}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    // スコアゾーンは0.5刻みで即スナップ（カクカク感）、なしゾーンは滑らか
+                                    setRawSlider(val >= 0 ? Math.round(val * 2) / 2 : val);
+                                  }}
                                   onMouseUp={(e) => snapSlider(parseFloat((e.target as HTMLInputElement).value))}
                                   onTouchEnd={() => snapSlider(rawSlider)}
                                   className="w-full score-slider"
-                                  style={{ "--slider-thumb-color": scoreColor, "--slider-track-bg": trackBg } as React.CSSProperties}
+                                  style={{ position: "relative", zIndex: 1, "--slider-thumb-color": scoreColor, "--slider-track-bg": trackBg } as React.CSSProperties}
                                 />
                               </div>
                               <div className="relative flex text-xs mt-1.5" style={{ color: "var(--text-secondary)" }}>
