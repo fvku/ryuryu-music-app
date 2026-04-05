@@ -25,6 +25,14 @@ function formatDuration(ms: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+function getMjStyle(value: string) {
+  const isAdopted = value.includes("採用") && !value.includes("不採用");
+  return {
+    backgroundColor: isAdopted ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.06)",
+    color: isAdopted ? "var(--accent)" : "var(--text-secondary)",
+  };
+}
+
 const ASSIGN_VALUES = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa", ""];
 
 export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, onSaved }: Props) {
@@ -170,21 +178,34 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
         </div>
 
         <div className="px-5 py-5 flex flex-col gap-6">
-          {/* Album info */}
-          <div className="flex items-start gap-3">
+          {/* Album info — AlbumCard スタイル */}
+          <div className="flex items-center gap-4 p-4 rounded-2xl border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
             <div className="relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0" style={{ backgroundColor: "#2a2a3a" }}>
-              {coverUrl && <Image src={coverUrl} alt={album.title} fill sizes="56px" className="object-cover" />}
+              {coverUrl ? (
+                <Image src={coverUrl} alt={album.title} fill sizes="56px" className="object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#6b7280" }}>
+                    <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+                  </svg>
+                </div>
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-bold text-sm truncate" style={{ color: "var(--text-primary)" }}>{album.title}</p>
               <p className="text-xs truncate mt-0.5" style={{ color: "var(--accent)" }}>{album.artist}</p>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <span
-                  className="text-xs px-2 py-0.5 rounded-full font-medium"
-                  style={{ backgroundColor: "rgba(139,92,246,0.15)", color: "var(--accent)" }}
-                >
-                  {album.mjAdoption}
-                </span>
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{album.date}</span>
+                {album.genre && (
+                  <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "var(--text-secondary)" }}>
+                    {album.genre}
+                  </span>
+                )}
+                {album.mjAdoption && (
+                  <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={getMjStyle(album.mjAdoption)}>
+                    {album.mjAdoption}
+                  </span>
+                )}
                 {effectiveSpotifyUrl && (
                   <a
                     href={effectiveSpotifyUrl}
@@ -193,7 +214,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
                     className="flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
                     style={{ color: "#1DB954" }}
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
                     </svg>
                     Spotify
@@ -222,29 +243,33 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
               </button>
 
               {assignPicker && (
-                <div
-                  className="absolute left-0 top-full mt-1 z-10 rounded-xl border p-3 min-w-[200px]"
-                  style={{ backgroundColor: "var(--bg-primary)", borderColor: "var(--border-subtle)", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
-                >
-                  <p className="text-xs font-bold mb-2" style={{ color: "var(--text-secondary)" }}>担当者を選択</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {ASSIGN_VALUES.map((v) => (
-                      <button
-                        key={v || "__empty__"}
-                        type="button"
-                        onClick={() => { setAssignPending(v); setAssignPicker(false); }}
-                        className="text-xs px-3 py-1.5 rounded-full font-medium transition-colors"
-                        style={{
-                          backgroundColor: v === currentAssign ? "rgba(251,191,36,0.2)" : "rgba(255,255,255,0.08)",
-                          color: v === currentAssign ? "#fbbf24" : "var(--text-secondary)",
-                          border: `1px solid ${v === currentAssign ? "rgba(251,191,36,0.4)" : "var(--border-subtle)"}`,
-                        }}
-                      >
-                        {v || "なし"}
-                      </button>
-                    ))}
+                <>
+                  {/* 枠外タップで閉じるオーバーレイ */}
+                  <div className="fixed inset-0 z-[105]" onClick={() => setAssignPicker(false)} />
+                  <div
+                    className="absolute left-0 top-full mt-1 rounded-xl border p-3 min-w-[200px]"
+                    style={{ zIndex: 106, backgroundColor: "var(--bg-primary)", borderColor: "var(--border-subtle)", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
+                  >
+                    <p className="text-xs font-bold mb-2" style={{ color: "var(--text-secondary)" }}>担当者を選択</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {ASSIGN_VALUES.map((v) => (
+                        <button
+                          key={v || "__empty__"}
+                          type="button"
+                          onClick={() => { setAssignPending(v); setAssignPicker(false); }}
+                          className="text-xs px-3 py-1.5 rounded-full font-medium transition-colors"
+                          style={{
+                            backgroundColor: v === currentAssign ? "rgba(251,191,36,0.2)" : "rgba(255,255,255,0.08)",
+                            color: v === currentAssign ? "#fbbf24" : "var(--text-secondary)",
+                            border: `1px solid ${v === currentAssign ? "rgba(251,191,36,0.4)" : "var(--border-subtle)"}`,
+                          }}
+                        >
+                          {v || "なし"}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
           </div>
