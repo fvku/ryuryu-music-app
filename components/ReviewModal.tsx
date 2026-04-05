@@ -11,7 +11,7 @@ import { EMAIL_TO_SHORT_NAME, LEGACY_NAME_TO_EMAIL, getDisplayName, parseLegacyS
 const ALL_MEMBERS: { email: string; name: string }[] = Object.entries(EMAIL_TO_SHORT_NAME).map(([email, name]) => ({ email, name }));
 
 // スライダーのなしゾーン幅。小さくするほど「なし」と「0」が近くなる (-3〜0 の間で調整)
-const NOSCORE_MIN = -1.5;
+const NOSCORE_MIN = -1.4;
 
 function parseLegacyScore(value: string): { score: number | null; comment: string } {
   const trimmed = value.trim();
