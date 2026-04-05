@@ -666,7 +666,14 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
                             max={23}
                             step={1}
                             value={sliderValue}
-                            onChange={(e) => setSliderValue(parseInt(e.target.value))}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value);
+                              if (val >= 1 && val <= 2) {
+                                setSliderValue(val > sliderValue ? 3 : 0);
+                              } else {
+                                setSliderValue(val);
+                              }
+                            }}
                             className="w-full score-slider"
                             style={(() => {
                               const divPct = (3 / 23) * 100;
