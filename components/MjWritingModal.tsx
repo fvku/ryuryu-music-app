@@ -278,7 +278,6 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
           <div>
             <h3 className="text-xs font-bold mb-2.5" style={{ color: "var(--text-primary)" }}>
               おすすめトラック
-              <span className="font-normal ml-1" style={{ color: "var(--text-secondary)" }}>(任意)</span>
             </h3>
             {selectedTrack && (
               <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-xl" style={{ backgroundColor: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.3)" }}>

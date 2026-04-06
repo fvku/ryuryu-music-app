@@ -592,9 +592,8 @@ export default function MyPage() {
                     const cover = spotifyData[album.no]?.coverUrl || album.coverUrl;
                     const assignInfo = getAssignInfo(album);
                     const isPosted = album.mjAdoption === "掲載" || album.mjAdoption === "J掲載";
-                    const hasText = isPosted
-                      ? !!(album.mjTrack || album.mjTrackNo)
-                      : album.mjText && album.mjText.trim().length >= 80;
+                    const hasTrack = !!(album.mjTrack || album.mjTrackNo);
+                    const hasText = hasTrack && (isPosted || !!(album.mjText && album.mjText.trim().length >= 80));
                     return (
                       <div
                         key={album.no}
