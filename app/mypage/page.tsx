@@ -618,6 +618,12 @@ export default function MyPage() {
                             <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(139,92,246,0.12)", color: "var(--accent)" }}>
                               {(album.mjAdoption === "採用" || album.mjAdoption === "掲載") ? "MONTHLY" : "JAPAN"}
                             </span>
+                            <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{
+                              backgroundColor: (album.mjAdoption === "採用" || album.mjAdoption === "J採用") ? "rgba(34,197,94,0.12)" : "rgba(234,179,8,0.12)",
+                              color: (album.mjAdoption === "採用" || album.mjAdoption === "J採用") ? "#22c55e" : "#eab308",
+                            }}>
+                              {(album.mjAdoption === "採用" || album.mjAdoption === "J採用") ? "採用" : "掲載"}
+                            </span>
                           </div>
                         </div>
                         <div className="flex-shrink-0 flex flex-col items-end gap-1">

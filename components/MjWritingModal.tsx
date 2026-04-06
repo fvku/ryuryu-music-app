@@ -143,7 +143,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   }
 
   const charCount = text.length;
-  const isValid = text.trim().length > 0 && charCount <= 300;
+  const isValid = (text.trim().length > 0 || selectedTrack !== null) && charCount <= 300;
   const effectiveSpotifyUrl = spotifyUrl || album.spotifyUrl;
 
   if (!mounted) return null;
