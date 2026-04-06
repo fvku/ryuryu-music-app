@@ -73,7 +73,7 @@ export default function MyPage() {
         setAlbums(albumData);
 
         // M/J 文章の月フィルター初期値：最新月
-        const mjAlbumsLocal = albumData.filter((a) => a.mjAdoption === "採用" || a.mjAdoption === "J採用");
+        const mjAlbumsLocal = albumData.filter((a) => ["採用", "J採用", "掲載", "J掲載"].includes(a.mjAdoption ?? ""));
         const mjMonthsLocal = Array.from(new Set(mjAlbumsLocal.map((a) => a.date?.substring(0, 7)).filter(Boolean))).sort().reverse();
         if (mjMonthsLocal.length > 0) setMjMonthFilter(mjMonthsLocal[0] as string);
 
@@ -248,13 +248,13 @@ export default function MyPage() {
   }
 
   // M/J 文章モード用
-  const mjAlbums = albums.filter((a) => a.mjAdoption === "採用" || a.mjAdoption === "J採用");
+  const mjAlbums = albums.filter((a) => ["採用", "J採用", "掲載", "J掲載"].includes(a.mjAdoption ?? ""));
   const mjMonths = ["すべて", ...Array.from(new Set(mjAlbums.map((a) => a.date?.substring(0, 7)).filter(Boolean))).sort().reverse()];
   const filteredMjAlbums = mjAlbums
     .filter((a) => mjMonthFilter === "すべて" || a.date?.substring(0, 7) === mjMonthFilter)
     .filter((a) => {
-      if (mjTypeFilter === "monthly") return a.mjAdoption === "採用";
-      if (mjTypeFilter === "japan") return a.mjAdoption === "J採用";
+      if (mjTypeFilter === "monthly") return a.mjAdoption === "採用" || a.mjAdoption === "掲載";
+      if (mjTypeFilter === "japan") return a.mjAdoption === "J採用" || a.mjAdoption === "J掲載";
       return true;
     });
 
@@ -616,7 +616,7 @@ export default function MyPage() {
                           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{album.date}</span>
                             <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(139,92,246,0.12)", color: "var(--accent)" }}>
-                              {album.mjAdoption === "採用" ? "MONTHLY" : "JAPAN"}
+                              {(album.mjAdoption === "採用" || album.mjAdoption === "掲載") ? "MONTHLY" : "JAPAN"}
                             </span>
                           </div>
                         </div>
