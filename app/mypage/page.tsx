@@ -591,7 +591,10 @@ export default function MyPage() {
                   {filteredMjAlbums.map((album) => {
                     const cover = spotifyData[album.no]?.coverUrl || album.coverUrl;
                     const assignInfo = getAssignInfo(album);
-                    const hasText = album.mjText && album.mjText.trim().length >= 80;
+                    const isPosted = album.mjAdoption === "掲載" || album.mjAdoption === "J掲載";
+                    const hasText = isPosted
+                      ? !!(album.mjTrack || album.mjTrackNo)
+                      : album.mjText && album.mjText.trim().length >= 80;
                     return (
                       <div
                         key={album.no}
