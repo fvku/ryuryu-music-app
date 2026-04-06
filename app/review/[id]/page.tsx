@@ -37,11 +37,7 @@ export default function ReviewPage({ params }: PageProps) {
 
   async function fetchData() {
     try {
-      const [albumRes, scoresRes] = await Promise.all([
-        fetch(`/api/release-master/${params.id}`),
-        fetch(`/api/scores/${params.id}`),
-      ]);
-
+      const albumRes = await fetch(`/api/release-master/${params.id}`);
       if (!albumRes.ok) {
         const data = await albumRes.json();
         throw new Error(data.error || "アルバムの取得に失敗しました");
@@ -51,6 +47,7 @@ export default function ReviewPage({ params }: PageProps) {
       setAlbum(albumData);
       setDisplayCoverUrl("");
 
+      const scoresRes = await fetch(`/api/scores/${params.id}?title=${encodeURIComponent(albumData.title)}&artist=${encodeURIComponent(albumData.artist)}`);
       if (scoresRes.ok) {
         const scoresData = await scoresRes.json();
         setScores(scoresData.scores || []);
@@ -101,7 +98,7 @@ export default function ReviewPage({ params }: PageProps) {
       setScore(7.5);
       setComment("");
       setIsEditing(false);
-      const scoresRes = await fetch(`/api/scores/${params.id}`);
+      const scoresRes = await fetch(`/api/scores/${params.id}?title=${encodeURIComponent(album?.title ?? "")}&artist=${encodeURIComponent(album?.artist ?? "")}`);
       if (scoresRes.ok) {
         const scoresData = await scoresRes.json();
         setScores(scoresData.scores || []);
@@ -122,13 +119,13 @@ export default function ReviewPage({ params }: PageProps) {
       const response = await fetch(`/api/scores/${params.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ score, comment: comment.trim() }),
+        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album?.title, artistName: album?.artist }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "レビューの更新に失敗しました");
       setSubmitSuccess(true);
       setIsEditing(false);
-      const scoresRes = await fetch(`/api/scores/${params.id}`);
+      const scoresRes = await fetch(`/api/scores/${params.id}?title=${encodeURIComponent(album?.title ?? "")}&artist=${encodeURIComponent(album?.artist ?? "")}`);
       if (scoresRes.ok) {
         const scoresData = await scoresRes.json();
         setScores(scoresData.scores || []);

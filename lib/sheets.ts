@@ -71,7 +71,7 @@ export async function getAllScores(): Promise<Score[]> {
   }));
 }
 
-export async function getScoresForAlbum(albumNo: string): Promise<Score[]> {
+export async function getScoresForAlbum(albumTitle: string, artistName: string): Promise<Score[]> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
 
@@ -84,7 +84,7 @@ export async function getScoresForAlbum(albumNo: string): Promise<Score[]> {
   if (!rows || rows.length === 0) return [];
 
   return rows
-    .filter((row) => row[0] === albumNo)
+    .filter((row) => row[5] === albumTitle && row[6] === artistName)
     .map((row) => ({
       reviewId: row[0] || "",
       memberName: row[1] || "",
@@ -115,14 +115,15 @@ export async function addScore(scoreData: Omit<Score, "submittedAt">): Promise<S
   return score;
 }
 
-export async function hasScore(albumNo: string, memberName: string, altNames: string[] = []): Promise<boolean> {
-  const scores = await getScoresForAlbum(albumNo);
+export async function hasScore(albumTitle: string, artistName: string, memberName: string, altNames: string[] = []): Promise<boolean> {
+  const scores = await getScoresForAlbum(albumTitle, artistName);
   const allNames = [memberName, ...altNames].map((n) => n.trim().toLowerCase());
   return scores.some((s) => allNames.includes(s.memberName.trim().toLowerCase()));
 }
 
 export async function updateScore(
-  albumNo: string,
+  albumTitle: string,
+  artistName: string,
   memberName: string, // canonical value to STORE
   score: number | null,
   comment: string,
@@ -137,25 +138,24 @@ export async function updateScore(
 
   const allSearchNames = [memberName, ...altNames].map((n) => n.trim().toLowerCase());
   const rowIndex = rows.findIndex(
-    (row) => row[0] === albumNo && allSearchNames.includes(row[1]?.trim().toLowerCase() ?? "")
+    (row) => row[5] === albumTitle && row[6] === artistName && allSearchNames.includes(row[1]?.trim().toLowerCase() ?? "")
   );
   if (rowIndex === -1) return null;
 
   const sheetRowNumber = rowIndex + 2;
   const submittedAt = new Date().toISOString();
-  const existingAlbumTitle = rows[rowIndex][5] || "";
-  const existingArtistName = rows[rowIndex][6] || "";
+  const existingReviewId = rows[rowIndex][0] || "";
 
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `scores!A${sheetRowNumber}:G${sheetRowNumber}`,
     valueInputOption: "RAW",
     requestBody: {
-      values: [[albumNo, memberName, score ?? "", comment, submittedAt, existingAlbumTitle, existingArtistName]],
+      values: [[existingReviewId, memberName, score ?? "", comment, submittedAt, albumTitle, artistName]],
     },
   });
 
-  return { reviewId: albumNo, memberName, score, comment, submittedAt, albumTitle: existingAlbumTitle, artistName: existingArtistName };
+  return { reviewId: existingReviewId, memberName, score, comment, submittedAt, albumTitle, artistName };
 }
 
 export interface Recommendation {

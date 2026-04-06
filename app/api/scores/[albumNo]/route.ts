@@ -9,11 +9,14 @@ import { LEGACY_NAME_TO_EMAIL } from "@/lib/members";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { albumNo: string } }
 ) {
   try {
-    const scores = await getScoresForAlbum(params.albumNo);
+    const { searchParams } = new URL(request.url);
+    const albumTitle = searchParams.get("title") ?? "";
+    const artistName = searchParams.get("artist") ?? "";
+    const scores = await getScoresForAlbum(albumTitle, artistName);
     const scoredScores = scores.filter((s) => s.score !== null);
     const averageScore =
       scoredScores.length > 0
@@ -45,7 +48,9 @@ export async function POST(
       .map(([name]) => name);
 
     const body = await request.json();
-    const { score, comment, albumTitle, artistName } = body as { score: number | null; comment: string; albumTitle?: string; artistName?: string };
+    const { score, comment, albumTitle: _albumTitle, artistName: _artistName } = body as { score: number | null; comment: string; albumTitle?: string; artistName?: string };
+    const albumTitle = _albumTitle ?? "";
+    const artistName = _artistName ?? "";
 
     if (score !== null && score !== undefined) {
       if (typeof score !== "number" || score < 0 || score > 10) {
@@ -58,7 +63,7 @@ export async function POST(
 
     await initScoresSheet();
 
-    const alreadyScored = await hasScore(params.albumNo, memberName, altNames);
+    const alreadyScored = await hasScore(albumTitle, artistName, memberName, altNames);
     if (alreadyScored) {
       return NextResponse.json({ error: "すでにレビューを投稿済みです" }, { status: 409 });
     }
@@ -115,7 +120,7 @@ export async function PUT(
     }
 
     const trimmedComment = (comment || "").trim();
-    const updated = await updateScore(params.albumNo, memberName, score ?? null, trimmedComment, altNames);
+    const updated = await updateScore(albumTitle || "", artistName || "", memberName, score ?? null, trimmedComment, altNames);
     if (!updated) {
       return NextResponse.json({ error: "レビューが見つかりません" }, { status: 404 });
     }

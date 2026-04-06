@@ -27,7 +27,7 @@ export async function GET() {
     ]);
 
     const pendingMap = new Map(pending.map((p) => [`${p.albumNo}::${p.memberEmail}`, p]));
-    const appScoreMap = new Map(allScores.map((s) => [`${s.reviewId}::${s.memberName.toLowerCase()}`, s]));
+    const appScoreMap = new Map(allScores.map((s) => [`${s.albumTitle}::${s.artistName}::${s.memberName.toLowerCase()}`, s]));
 
     const now = Date.now();
     const synced: string[] = [];
@@ -43,7 +43,7 @@ export async function GET() {
         if (score === null && !comment) continue;
 
         const key = `${row.albumNo}::${email}`;
-        const existingAppScore = appScoreMap.get(key);
+        const existingAppScore = appScoreMap.get(`${row.albumTitle}::${row.artistName}::${email}`);
 
         // Already synced with same value → clean up pending if any
         if (existingAppScore && existingAppScore.score === score && existingAppScore.comment === comment) {
@@ -80,7 +80,7 @@ export async function GET() {
           .map(([name]) => name);
 
         if (existingAppScore) {
-          await updateScore(row.albumNo, email, score, comment, altNames);
+          await updateScore(row.albumTitle, row.artistName, email, score, comment, altNames);
         } else {
           await addScore({
             reviewId: row.albumNo,

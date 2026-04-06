@@ -109,7 +109,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
 
   const fetchScores = useCallback(async () => {
     try {
-      const res = await fetch(`/api/scores/${album.no}`);
+      const res = await fetch(`/api/scores/${album.no}?title=${encodeURIComponent(album.title)}&artist=${encodeURIComponent(album.artist)}`);
       if (res.ok) {
         const data = await res.json();
         setScores(data.scores || []);
