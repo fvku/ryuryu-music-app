@@ -284,10 +284,25 @@ export default function MyPage() {
     setAlbums((prev) => prev.map((a) => (a.no === mjWritingAlbum.no ? { ...a, ...updated } : a)));
   }
 
+  // FOR YOU バッジ数: 未確認レコメンド + 自分にASSIGNされた未済みM/J
+  const unreviewedRecCount = forYou.filter((rec) => {
+    const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName)
+      ?? albums.find((a) => a.no === rec.albumNo);
+    return !album || !myReviewedAlbumNos.has(album.no);
+  }).length;
+  const mjPendingCount = mjAlbums.filter((album) => {
+    const assignInfo = getAssignInfo(album);
+    if (!assignInfo?.isMe) return false;
+    const isPosted = album.mjAdoption === "掲載" || album.mjAdoption === "J掲載";
+    const hasTrack = !!(album.mjTrack || album.mjTrackNo);
+    return !(hasTrack && (isPosted || !!(album.mjText && album.mjText.trim().length >= 80)));
+  }).length;
+  const forYouBadgeCount = unreviewedRecCount + mjPendingCount;
+
   const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: "saved", label: "SAVED", count: bookmarkedAlbums.length },
-    { key: "foryou", label: "FOR YOU", count: forYou.length },
-    { key: "reviewed", label: "REVIEWED", count: reviewedAlbums.length },
+    { key: "saved", label: "SAVED", count: 0 },
+    { key: "foryou", label: "FOR YOU", count: forYouBadgeCount },
+    { key: "reviewed", label: "REVIEWED", count: 0 },
   ];
 
   function ReviewFilterButtons({ value, onChange }: { value: ReviewFilter; onChange: (v: ReviewFilter) => void }) {
