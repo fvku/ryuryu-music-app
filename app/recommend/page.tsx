@@ -117,6 +117,7 @@ export default function RecommendPage() {
   }
 
   const albumMap = new Map(albums.map((a) => [a.no, a]));
+  const albumByTitleArtist = new Map(albums.map((a) => [`${a.title}::${a.artist}`, a]));
 
   return (
     <div>
@@ -135,8 +136,8 @@ export default function RecommendPage() {
           {timeline.slice(0, displayCount).map((item, i) => {
             if (item.type === "recommendation") {
               const rec = item.data;
-              const album = albumMap.get(rec.albumNo);
-              const coverUrl = spotifyData[rec.albumNo]?.coverUrl || rec.coverUrl;
+              const album = albumByTitleArtist.get(`${rec.albumTitle}::${rec.artistName}`) ?? albumMap.get(rec.albumNo);
+              const coverUrl = (album ? spotifyData[album.no]?.coverUrl : undefined) || rec.coverUrl;
               return (
                 <div
                   key={`rec-${rec.id}-${i}`}
@@ -199,7 +200,7 @@ export default function RecommendPage() {
 
             // review
             const review = item.data;
-            const album = albumMap.get(review.reviewId);
+            const album = albumByTitleArtist.get(`${review.albumTitle}::${review.artistName}`) ?? albumMap.get(review.reviewId);
             const coverUrl = spotifyData[review.reviewId]?.coverUrl;
             return (
               <div
