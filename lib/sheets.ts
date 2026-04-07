@@ -83,7 +83,7 @@ export async function getScoresForAlbum(albumTitle: string, artistName: string):
   const rows = response.data.values;
   if (!rows || rows.length === 0) return [];
 
-  return rows
+  const matched = rows
     .filter((row) => row[5] === albumTitle && row[6] === artistName)
     .map((row) => ({
       reviewId: row[0] || "",
@@ -94,6 +94,17 @@ export async function getScoresForAlbum(albumTitle: string, artistName: string):
       albumTitle: row[5] || "",
       artistName: row[6] || "",
     }));
+
+  // 同一メンバーの重複エントリは最新のもののみ残す
+  const latestByMember = new Map<string, Score>();
+  for (const s of matched) {
+    const key = s.memberName.toLowerCase();
+    const existing = latestByMember.get(key);
+    if (!existing || s.submittedAt > existing.submittedAt) {
+      latestByMember.set(key, s);
+    }
+  }
+  return Array.from(latestByMember.values());
 }
 
 export async function addScore(scoreData: Omit<Score, "submittedAt">): Promise<Score> {
