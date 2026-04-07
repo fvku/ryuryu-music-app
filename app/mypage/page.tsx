@@ -85,8 +85,13 @@ export default function MyPage() {
           (userShortName && s.memberName.toLowerCase() === userShortName.toLowerCase())
         );
         setMyScores(myAppScores);
+        // albumTitle+artistName で現在のアルバムリストからNo.を引く（古いreviewIdは使わない）
+        const titleArtistToNo = new Map(albumData.map((a) => [`${a.title}::${a.artist}`, a.no]));
         const reviewedNos = new Set<string>();
-        myAppScores.forEach((s) => reviewedNos.add(s.reviewId));
+        myAppScores.forEach((s) => {
+          const no = titleArtistToNo.get(`${s.albumTitle}::${s.artistName}`);
+          if (no) reviewedNos.add(no);
+        });
         // legacyScores からも自分分を追加
         albumData.forEach((a) => {
           if (a.legacyScores.some((ls) =>
