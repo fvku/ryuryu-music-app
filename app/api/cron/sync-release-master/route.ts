@@ -80,7 +80,7 @@ export async function GET() {
           .map(([name]) => name);
 
         if (existingAppScore) {
-          await updateScore(row.albumTitle, row.artistName, email, score, comment, altNames);
+          await updateScore(row.albumTitle, row.artistName, email, score, comment, altNames, pendingEntry.detectedAt);
         } else {
           await addScore({
             reviewId: row.albumNo,
@@ -89,6 +89,7 @@ export async function GET() {
             comment,
             albumTitle: row.albumTitle,
             artistName: row.artistName,
+            submittedAt: pendingEntry.detectedAt,
           });
         }
 

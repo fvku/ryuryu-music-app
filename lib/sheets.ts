@@ -107,11 +107,11 @@ export async function getScoresForAlbum(albumTitle: string, artistName: string):
   return Array.from(latestByMember.values());
 }
 
-export async function addScore(scoreData: Omit<Score, "submittedAt">): Promise<Score> {
+export async function addScore(scoreData: Omit<Score, "submittedAt"> & { submittedAt?: string }): Promise<Score> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
 
-  const submittedAt = new Date().toISOString();
+  const submittedAt = scoreData.submittedAt ?? new Date().toISOString();
   const score: Score = { ...scoreData, submittedAt };
 
   await sheets.spreadsheets.values.append({
@@ -138,7 +138,8 @@ export async function updateScore(
   memberName: string, // canonical value to STORE
   score: number | null,
   comment: string,
-  altNames: string[] = [] // additional names to SEARCH by (backward compat)
+  altNames: string[] = [], // additional names to SEARCH by (backward compat)
+  submittedAtOverride?: string
 ): Promise<Score | null> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
@@ -154,7 +155,7 @@ export async function updateScore(
   if (rowIndex === -1) return null;
 
   const sheetRowNumber = rowIndex + 2;
-  const submittedAt = new Date().toISOString();
+  const submittedAt = submittedAtOverride ?? new Date().toISOString();
   const existingReviewId = rows[rowIndex][0] || "";
 
   await sheets.spreadsheets.values.update({
