@@ -79,9 +79,13 @@ export async function POST(
     });
 
     if (shortName && score !== null && score !== undefined) {
-      writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment).catch((e) =>
-        console.error("Failed to write score to Release Master:", e)
-      );
+      try {
+        await writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment);
+      } catch (e) {
+        console.error("Failed to write score to Release Master:", e);
+        // scoresシートへの保存は成功しているため処理は続行するが警告を付与
+        return NextResponse.json({ ...newScore, warning: "Release Masterへの反映に失敗しました" }, { status: 201 });
+      }
     }
 
     return NextResponse.json(newScore, { status: 201 });
@@ -126,9 +130,12 @@ export async function PUT(
     }
 
     if (shortName && score !== null && score !== undefined) {
-      writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment).catch((e) =>
-        console.error("Failed to write score to Release Master:", e)
-      );
+      try {
+        await writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment);
+      } catch (e) {
+        console.error("Failed to write score to Release Master:", e);
+        return NextResponse.json({ ...updated, warning: "Release Masterへの反映に失敗しました" });
+      }
     }
 
     return NextResponse.json(updated);

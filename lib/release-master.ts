@@ -168,14 +168,16 @@ export async function writeScoreToReleaseMaster(
   const rows = titleColRes.data.values || [];
   let rowNum: number | null = null;
   for (let i = 0; i < rows.length; i++) {
-    if (rows[i][0] === albumTitle && rows[i][1] === artistName) {
+    if ((rows[i][0] || "").trim() === albumTitle.trim() && (rows[i][1] || "").trim() === artistName.trim()) {
       rowNum = i + 2;
       break;
     }
   }
-  if (!rowNum) return;
+  if (rowNum === null) return;
 
-  const colLetter = indexToColumnLetter(col[memberName]);
+  const colIdx = col[memberName];
+  if (colIdx === undefined) throw new Error(`COLUMN_NOT_FOUND: ${memberName}`);
+  const colLetter = indexToColumnLetter(colIdx);
   const cellValue = comment ? `${score} ${comment}` : `${score}`;
 
   await sheets.spreadsheets.values.update({

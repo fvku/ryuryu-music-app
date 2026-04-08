@@ -84,7 +84,7 @@ export async function getScoresForAlbum(albumTitle: string, artistName: string):
   if (!rows || rows.length === 0) return [];
 
   const matched = rows
-    .filter((row) => row[5] === albumTitle && row[6] === artistName)
+    .filter((row) => (row[5] || "").trim() === albumTitle.trim() && (row[6] || "").trim() === artistName.trim())
     .map((row) => ({
       reviewId: row[0] || "",
       memberName: row[1] || "",
@@ -149,7 +149,7 @@ export async function updateScore(
 
   const allSearchNames = [memberName, ...altNames].map((n) => n.trim().toLowerCase());
   const rowIndex = rows.findIndex(
-    (row) => row[5] === albumTitle && row[6] === artistName && allSearchNames.includes(row[1]?.trim().toLowerCase() ?? "")
+    (row) => (row[5] || "").trim() === albumTitle.trim() && (row[6] || "").trim() === artistName.trim() && allSearchNames.includes(row[1]?.trim().toLowerCase() ?? "")
   );
   if (rowIndex === -1) return null;
 
