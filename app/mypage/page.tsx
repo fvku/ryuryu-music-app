@@ -125,16 +125,24 @@ export default function MyPage() {
 
           Promise.resolve(allScores).then((scores) => {
             const summary: Record<string, { avg: number; count: number; total: number; members: Set<string>; memberScores: Record<string, number> }> = {};
-            scores.forEach((s) => {
-              if (!summary[s.reviewId]) summary[s.reviewId] = { avg: 0, count: 0, total: 0, members: new Set(), memberScores: {} };
-              summary[s.reviewId].members.add(s.memberName.toLowerCase());
+            // 同一アルバム×同一メンバーは最新エントリのみ残す
+            const latestMap = new Map<string, Score>();
+            for (const s of scores) {
+              const key = `${s.albumTitle}::${s.artistName}::${s.memberName.toLowerCase()}`;
+              const existing = latestMap.get(key);
+              if (!existing || s.submittedAt > existing.submittedAt) latestMap.set(key, s);
+            }
+            for (const s of Array.from(latestMap.values())) {
+              const key = `${s.albumTitle}::${s.artistName}`;
+              if (!summary[key]) summary[key] = { avg: 0, count: 0, total: 0, members: new Set(), memberScores: {} };
+              summary[key].members.add(s.memberName.toLowerCase());
               if (s.score !== null) {
-                summary[s.reviewId].total += s.score;
-                summary[s.reviewId].count += 1;
-                summary[s.reviewId].memberScores[s.memberName.toLowerCase()] = s.score;
-                summary[s.reviewId].avg = Math.round((summary[s.reviewId].total / summary[s.reviewId].count) * 10) / 10;
+                summary[key].total += s.score;
+                summary[key].count += 1;
+                summary[key].memberScores[s.memberName.toLowerCase()] = s.score;
+                summary[key].avg = Math.round((summary[key].total / summary[key].count) * 10) / 10;
               }
-            });
+            }
             setScoreSummary(summary);
           }),
         ]);
@@ -199,7 +207,7 @@ export default function MyPage() {
   }
 
   function getCombinedScore(album: ReleaseMasterAlbum) {
-    const app = scoreSummary[album.no];
+    const app = scoreSummary[`${album.title}::${album.artist}`];
     const legacyCoveredIds = new Set<string>();
     let legacyTotal = 0, legacyCount = 0;
     for (const ls of album.legacyScores) {
@@ -222,7 +230,7 @@ export default function MyPage() {
   }
 
   function getMyScore(album: ReleaseMasterAlbum): number | null {
-    const appScore = myScores.find((s) => s.reviewId === album.no);
+    const appScore = myScores.find((s) => s.albumTitle === album.title && s.artistName === album.artist);
     if (appScore) return appScore.score;
     const userEmail = session?.user?.email?.toLowerCase() ?? "";
     const userShortName = EMAIL_TO_SHORT_NAME[userEmail] ?? null;
