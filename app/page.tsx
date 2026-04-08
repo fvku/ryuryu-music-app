@@ -100,19 +100,28 @@ export default function HomePage() {
             : Promise.resolve(),
 
           fetch("/api/scores").then((r) => r.ok ? r.json() : []).then((scores: Score[]) => {
-            const summary: Record<string, { avg: number; count: number; total: number; members: Set<string>; memberScores: Record<string, number> }> = {};
-            scores.forEach((s) => {
-              if (!summary[s.reviewId]) summary[s.reviewId] = { avg: 0, count: 0, total: 0, members: new Set(), memberScores: {} };
-              summary[s.reviewId].members.add(s.memberName.toLowerCase());
+            // albumTitle+artistName をキーに集計（同一メンバーは最新のみ）
+            type Entry = { avg: number; count: number; total: number; members: Set<string>; memberScores: Record<string, number> };
+            const summary: Record<string, Entry> = {};
+            // まず同一アルバム×同一メンバーは最新エントリのみ残す
+            const latestMap = new Map<string, Score>();
+            for (const s of scores) {
+              const key = `${s.albumTitle}::${s.artistName}::${s.memberName.toLowerCase()}`;
+              const existing = latestMap.get(key);
+              if (!existing || s.submittedAt > existing.submittedAt) latestMap.set(key, s);
+            }
+            for (const s of Array.from(latestMap.values())) {
+              const key = `${s.albumTitle}::${s.artistName}`;
+              if (!summary[key]) summary[key] = { avg: 0, count: 0, total: 0, members: new Set(), memberScores: {} };
+              summary[key].members.add(s.memberName.toLowerCase());
               if (s.score !== null) {
-                summary[s.reviewId].total += s.score;
-                summary[s.reviewId].count += 1;
-                summary[s.reviewId].memberScores[s.memberName.toLowerCase()] = s.score;
-                summary[s.reviewId].avg = Math.round((summary[s.reviewId].total / summary[s.reviewId].count) * 10) / 10;
+                summary[key].total += s.score;
+                summary[key].count += 1;
+                summary[key].memberScores[s.memberName.toLowerCase()] = s.score;
+                summary[key].avg = Math.round((summary[key].total / summary[key].count) * 10) / 10;
               }
-            });
+            }
             setScoreSummary(summary);
-
           }),
         ]);
       } catch (err) {
@@ -137,9 +146,11 @@ export default function HomePage() {
     if (!userEmail || Object.keys(scoreSummary).length === 0) return;
     const shortName = EMAIL_TO_SHORT_NAME[userEmail] ?? null;
     const reviewed = new Set<string>();
-    Object.entries(scoreSummary).forEach(([albumNo, s]) => {
+    const titleArtistToNo = new Map(albums.map((a) => [`${a.title}::${a.artist}`, a.no]));
+    Object.entries(scoreSummary).forEach(([titleArtistKey, s]) => {
       if (s.memberScores[userEmail] !== undefined || (shortName && s.memberScores[shortName.toLowerCase()] !== undefined)) {
-        reviewed.add(albumNo);
+        const no = titleArtistToNo.get(titleArtistKey);
+        if (no) reviewed.add(no);
       }
     });
     // legacyScores からも追加
@@ -155,7 +166,7 @@ export default function HomePage() {
   }, [session, scoreSummary, albums]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function getCombinedScore(album: ReleaseMasterAlbum) {
-    const app = scoreSummary[album.no];
+    const app = scoreSummary[`${album.title}::${album.artist}`];
     // Release Master scores take priority: collect all valid legacy scores
     const legacyCoveredIds = new Set<string>();
     let legacyTotal = 0, legacyCount = 0;
