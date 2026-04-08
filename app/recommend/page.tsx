@@ -201,7 +201,7 @@ export default function RecommendPage() {
             // review
             const review = item.data;
             const album = albumByTitleArtist.get(`${review.albumTitle}::${review.artistName}`) ?? albumMap.get(review.reviewId);
-            const coverUrl = spotifyData[review.reviewId]?.coverUrl;
+            const coverUrl = (album ? spotifyData[album.no]?.coverUrl : undefined);
             return (
               <div
                 key={`rev-${review.reviewId}-${review.memberName}-${i}`}
