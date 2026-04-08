@@ -28,9 +28,9 @@ export async function POST(req: NextRequest) {
       getAllSyncPending(),
     ]);
 
-    // 既存スコアのキーセット (albumNo::email)
+    // 既存スコアのキーセット (albumTitle::artistName::email)
     const existingKeys = new Set(
-      allScores.map((s) => `${s.reviewId}::${s.memberName.toLowerCase()}`)
+      allScores.map((s) => `${s.albumTitle}::${s.artistName}::${s.memberName.toLowerCase()}`)
     );
 
     const imported: string[] = [];
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
         if (score !== null && (score < 0 || score > 10)) continue;
         if (score === null && !comment) continue;
 
-        const key = `${row.albumNo}::${email}`;
+        const key = `${row.albumTitle}::${row.artistName}::${email}`;
         if (existingKeys.has(key)) {
           skipped.push(key);
           continue;
