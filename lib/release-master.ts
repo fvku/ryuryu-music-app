@@ -2,7 +2,7 @@ import { google } from "googleapis";
 import { MEMBER_COLUMN_INDEX } from "./members";
 import { buildHeaderMap, findMissingColumns, indexToColumnLetter, SHEET_COL } from "./sheet-headers";
 
-function getWriteAuth() {
+export function getWriteAuth() {
   const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
   if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
   let credentials;
