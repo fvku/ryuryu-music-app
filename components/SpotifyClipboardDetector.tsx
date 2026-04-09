@@ -142,9 +142,9 @@ export default function SpotifyClipboardDetector() {
         </button>
       )}
 
-      {/* Slide-up popup */}
+      {/* Center popup */}
       <div
-        className="fixed inset-0 z-50 flex items-end justify-center pointer-events-none"
+        className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none px-4"
         aria-hidden={!isVisible}
       >
         {/* Backdrop */}
@@ -158,13 +158,17 @@ export default function SpotifyClipboardDetector() {
 
         {/* Panel */}
         <div
-          className="relative w-full max-w-lg pointer-events-auto rounded-t-2xl p-5 transition-transform duration-300 ease-out"
+          className="relative w-full max-w-sm pointer-events-auto rounded-2xl p-5 transition-all duration-200 ease-out"
           style={{
             backgroundColor: "var(--bg-card, #1a1a22)",
-            transform: isVisible ? "translateY(0)" : "translateY(110%)",
-            borderTop: "1px solid var(--border-subtle)",
+            border: "1px solid var(--border-subtle)",
+            opacity: isVisible ? 1 : 0,
+            transform: isVisible ? "scale(1)" : "scale(0.95)",
           }}
         >
+          <p className="text-xs font-medium mb-4" style={{ color: "var(--text-secondary)" }}>
+            クリップボードのURLからアルバムを追加
+          </p>
           {popup.type === "loading" && (
             <div className="py-8 flex flex-col items-center gap-3">
               <div className="w-6 h-6 rounded-full border-2 border-green-400 border-t-transparent animate-spin" />
