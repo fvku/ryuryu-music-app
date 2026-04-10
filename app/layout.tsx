@@ -6,6 +6,7 @@ import BottomNav from "@/components/BottomNav";
 import HowToUseModal from "@/components/HowToUseModal";
 import ColumnErrorIndicator from "@/components/ColumnErrorIndicator";
 import SpotifyClipboardDetector from "@/components/SpotifyClipboardDetector";
+import GlobalReviewModal from "@/components/GlobalReviewModal";
 
 export const metadata: Metadata = {
   title: "月次アルバムレビュー",
@@ -75,6 +76,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
           <BottomNav />
           <SpotifyClipboardDetector />
+          <GlobalReviewModal />
         </Providers>
       </body>
     </html>

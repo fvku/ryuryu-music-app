@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useGlobalReviewModal } from "@/contexts/GlobalReviewModalContext";
 
 interface AlbumInfo {
   id: string;
@@ -30,7 +30,7 @@ const SPOTIFY_ALBUM_RE = /open\.spotify\.com\/(?:[^/]+\/)?album\/([A-Za-z0-9]+)/
 
 export default function SpotifyClipboardDetector() {
   const { data: session } = useSession();
-  const router = useRouter();
+  const { openAlbum } = useGlobalReviewModal();
   const [popup, setPopup] = useState<PopupState>({ type: "idle" });
   const [inputUrl, setInputUrl] = useState("");
   const lastProcessedId = useRef<string | null>(null);
@@ -227,7 +227,7 @@ export default function SpotifyClipboardDetector() {
                 onClick={() => {
                   if ((popup.type === "exists" || popup.type === "added") && popup.no) {
                     dismiss();
-                    router.push(`/review/${popup.no}`);
+                    openAlbum(popup.no);
                   }
                 }}
               >
