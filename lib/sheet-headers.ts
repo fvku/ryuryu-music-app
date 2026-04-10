@@ -76,6 +76,7 @@ export const SHEET_COL = {
   KOHEI:  "Kohei",   // Y列
   EDDIE:  "Eddie",   // Z列
   HANAWA: "Hanawa",  // AA列
+  KAEDE:  "Kaede",   // AB列
 } as const;
 
 /** 読み取り専用列のフォールバック（header名が不一致の場合に使う 0始まりインデックス） */

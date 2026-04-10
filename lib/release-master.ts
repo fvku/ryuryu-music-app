@@ -109,6 +109,8 @@ export async function getReleaseMasterScoreRows(): Promise<ReleaseMasterScoreRow
     "Kohei":  "kohei.fuku0926@gmail.com",
     "Eddie":  "edwardcannell93@gmail.com",
     "Hanawa": "yoshinorihnw@gmail.com",
+    // TODO: replace with Kaede's actual email address
+    "Kaede":  "kaede@placeholder.com",
   };
 
   return dataRows

@@ -4,6 +4,8 @@ export const EMAIL_TO_SHORT_NAME: Record<string, string> = {
   "yoshinorihnw@gmail.com": "Hanawa",
   "edwardcannell93@gmail.com": "Eddie",
   "kwisoo1102@gmail.com": "Kwisoo",
+  // TODO: replace with Kaede's actual email address
+  "kaede@placeholder.com": "Kaede",
 };
 
 // Known legacy name variants (lower-cased) → canonical email
@@ -15,6 +17,7 @@ export const LEGACY_NAME_TO_EMAIL: Record<string, string> = {
   "hanawa": "yoshinorihnw@gmail.com",
   "eddie": "edwardcannell93@gmail.com",
   "kwisoo": "kwisoo1102@gmail.com",
+  "kaede": "kaede@placeholder.com",
 };
 
 // Column index (0-based from column A) for Release Master columns W–AA (shifted +1 by ASSIGN column at R)
@@ -24,6 +27,7 @@ export const MEMBER_COLUMN_INDEX: Record<string, number> = {
   "Kohei": 24,  // Y
   "Eddie": 25,  // Z
   "Hanawa": 26, // AA
+  "Kaede": 27,  // AB
 };
 
 export function getMemberShortName(email: string | null | undefined): string | null {
