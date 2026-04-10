@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
     const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
 
-    // Read A column to determine next No.
+    // Read A column to determine next No. (use max value to be safe)
     const noRes = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: "'Release Master'!A2:A",
@@ -49,7 +49,6 @@ export async function POST(request: NextRequest) {
       if (!isNaN(n) && n > maxNo) maxNo = n;
     }
     const nextNo = maxNo + 1;
-    const nextRow = noRows.length + 2; // header is row 1, data starts at row 2
 
     // Format today's date as YYYY/MM/DD
     const today = new Date();
@@ -76,14 +75,16 @@ export async function POST(request: NextRequest) {
     rowData[28] = spotifyUrl;
     rowData[29] = coverUrl;
 
-    await sheets.spreadsheets.values.update({
+    // Use append to safely add after the last row with data
+    await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `'Release Master'!A${nextRow}`,
+      range: "'Release Master'!A:A",
       valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
       requestBody: { values: [rowData] },
     });
 
-    return NextResponse.json({ ok: true, no: String(nextNo), rowNum: nextRow });
+    return NextResponse.json({ ok: true, no: String(nextNo) });
   } catch (error) {
     console.error("add-album failed:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });

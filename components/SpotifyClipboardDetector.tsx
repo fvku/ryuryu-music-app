@@ -43,34 +43,38 @@ export default function SpotifyClipboardDetector() {
     setShowButton(false);
 
     try {
-      // Check if album already exists in Release Master
-      const checkRes = await fetch(`/api/sheets/check-album?spotifyId=${albumId}`);
-      const checkData = await checkRes.json();
+      // Fetch album info and existence check in parallel
+      const [albumRes, checkRes] = await Promise.all([
+        fetch(`/api/spotify/album?id=${albumId}`),
+        fetch(`/api/sheets/check-album?spotifyId=${albumId}`),
+      ]);
+
+      if (!albumRes.ok) {
+        const err = await albumRes.text();
+        setPopup({ type: "error", message: `Spotify取得失敗: ${err}` });
+        return;
+      }
+      if (!checkRes.ok) {
+        const err = await checkRes.text();
+        setPopup({ type: "error", message: `シート確認失敗: ${err}` });
+        return;
+      }
+
+      const [album, checkData]: [AlbumInfo, { exists: boolean; no?: string }] = await Promise.all([
+        albumRes.json(),
+        checkRes.json(),
+      ]);
+
+      lastProcessedId.current = albumId;
 
       if (checkData.exists) {
-        // Fetch album info for display
-        const albumRes = await fetch(`/api/spotify/album?id=${albumId}`);
-        if (!albumRes.ok) {
-          setPopup({ type: "idle" });
-          return;
-        }
-        const album: AlbumInfo = await albumRes.json();
-        lastProcessedId.current = albumId;
         setPopup({ type: "exists", album, no: checkData.no ?? "" });
         return;
       }
 
-      // Fetch full album details
-      const albumRes = await fetch(`/api/spotify/album?id=${albumId}`);
-      if (!albumRes.ok) {
-        setPopup({ type: "idle" });
-        return;
-      }
-      const album: AlbumInfo = await albumRes.json();
-      lastProcessedId.current = albumId;
       setPopup({ type: "new", album });
-    } catch {
-      setPopup({ type: "idle" });
+    } catch (e) {
+      setPopup({ type: "error", message: String(e) });
     }
   }, []);
 
