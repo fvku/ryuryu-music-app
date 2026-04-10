@@ -33,6 +33,7 @@ export default function SpotifyClipboardDetector() {
   const { openAlbum } = useGlobalReviewModal();
   const [popup, setPopup] = useState<PopupState>({ type: "idle" });
   const [inputUrl, setInputUrl] = useState("");
+  const [detectedUrl, setDetectedUrl] = useState<string | null>(null);
   const lastProcessedId = useRef<string | null>(null);
 
   const processUrl = useCallback(async (text: string) => {
@@ -86,17 +87,21 @@ export default function SpotifyClipboardDetector() {
     try {
       const text = await navigator.clipboard.readText();
       const match = text.match(SPOTIFY_ALBUM_RE);
-      if (!match) return;
+      if (!match) {
+        setDetectedUrl(null);
+        return;
+      }
       const albumId = match[1];
       if (lastProcessedId.current === albumId) return;
-      await processUrl(text);
+      setDetectedUrl(text);
     } catch {
-      // Permission denied — do nothing, button is always visible
+      // Permission denied — ボタンは非表示のまま
     }
-  }, [processUrl]);
+  }, []);
 
   useEffect(() => {
     if (!session) return;
+    tryClipboardSilently(); // マウント時に一度確認
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         tryClipboardSilently();
@@ -107,19 +112,9 @@ export default function SpotifyClipboardDetector() {
   }, [session, tryClipboardSilently]);
 
   const handleButtonClick = async () => {
-    // Try clipboard first; if it fails or has no match, open input dialog
-    try {
-      const text = await navigator.clipboard.readText();
-      const match = text.match(SPOTIFY_ALBUM_RE);
-      if (match) {
-        await processUrl(text);
-        return;
-      }
-    } catch {
-      // Permission denied — fall through to input dialog
+    if (detectedUrl) {
+      await processUrl(detectedUrl);
     }
-    setInputUrl("");
-    setPopup({ type: "input" });
   };
 
   const handleAdd = async (album: AlbumInfo) => {
@@ -149,8 +144,8 @@ export default function SpotifyClipboardDetector() {
 
   return (
     <>
-      {/* Always-visible trigger button (for logged-in users) */}
-      {session && !isVisible && (
+      {/* クリップボードにSpotify URLがあるときだけ表示 */}
+      {session && !isVisible && detectedUrl && (
         <button
           onClick={handleButtonClick}
           className="fixed bottom-24 right-4 z-40 flex items-center gap-2 px-3 py-2 rounded-full text-xs font-medium shadow-lg transition-all"
