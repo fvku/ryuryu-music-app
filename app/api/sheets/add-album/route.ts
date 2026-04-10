@@ -52,9 +52,12 @@ export async function POST(request: NextRequest) {
 
     const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
     const totalCols = (headerRes.data.values?.[0] ?? []).length;
+
+    // 書き込み対象列をヘッダー名で解決
+    const yohiColIdx    = col["洋邦"]              ?? 5;   // F列
+    const timeColIdx    = col["Time"]               ?? 6;   // G列
     const spotifyColIdx = col[SHEET_COL.SPOTIFY_URL] ?? -1;
     const coverColIdx   = col[SHEET_COL.COVER_URL]   ?? -1;
-    const trackColIdx   = col[SHEET_COL.MJ_TRACK]     ?? 19;
 
     if (spotifyColIdx < 0) {
       return NextResponse.json({ error: `COLUMN_NOT_FOUND: ${SHEET_COL.SPOTIFY_URL}` }, { status: 500 });
@@ -86,18 +89,16 @@ export async function POST(request: NextRequest) {
     const dateStr = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}`;
 
     const trackInfo = `${trackCount}songs, ${formatDuration(totalDurationMs)}`;
-    const firstTrackName = tracks[0]?.name ?? "";
 
     const rowSize = Math.max(totalCols, spotifyColIdx + 1, coverColIdx + 1);
     const rowData = new Array(rowSize).fill("");
-    rowData[0] = String(nextNo);
-    rowData[1] = dateStr;
-    rowData[2] = title;
-    rowData[3] = artist;
-    rowData[4] = `${title} / ${artist}`;
-    rowData[5] = "洋楽";
-    rowData[6] = trackInfo;
-    rowData[trackColIdx] = firstTrackName;
+    // 書き込む列: No.(A), Date(B), Title(C), Artist(D), 洋邦(F), Time(G), Spotify, spotifyカバー
+    rowData[0]           = String(nextNo);
+    rowData[1]           = dateStr;
+    rowData[2]           = title;
+    rowData[3]           = artist;
+    rowData[yohiColIdx]  = "洋楽";
+    rowData[timeColIdx]  = trackInfo;
     rowData[spotifyColIdx] = spotifyUrl;
     if (coverColIdx >= 0) rowData[coverColIdx] = coverUrl;
 
