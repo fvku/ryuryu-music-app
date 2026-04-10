@@ -38,19 +38,18 @@ export async function POST(request: NextRequest) {
 
     const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
 
-    // Read header row and A column in parallel
-    const [headerRes, noRes] = await Promise.all([
+    // ヘッダー行とデータ行（A〜D列）を同時取得
+    const [headerRes, dataRes] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId,
         range: "'Release Master'!1:1",
       }),
       sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: "'Release Master'!A2:A",
+        range: "'Release Master'!A2:D",
       }),
     ]);
 
-    // Resolve Spotify URL and cover URL columns dynamically from headers
     const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
     const totalCols = (headerRes.data.values?.[0] ?? []).length;
     const spotifyColIdx = col[SHEET_COL.SPOTIFY_URL] ?? -1;
@@ -61,28 +60,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `COLUMN_NOT_FOUND: ${SHEET_COL.SPOTIFY_URL}` }, { status: 500 });
     }
 
-    // Determine next No.
-    const noRows = noRes.data.values ?? [];
+    const dataRows = dataRes.data.values ?? [];
+
+    // タイトル（C=index2）とアーティスト（D=index3）が両方空白の最初の行を探す
+    let targetRowNum: number | null = null;
+    for (let i = 0; i < dataRows.length; i++) {
+      const rowTitle  = (dataRows[i][2] ?? "").trim();
+      const rowArtist = (dataRows[i][3] ?? "").trim();
+      if (!rowTitle && !rowArtist) {
+        targetRowNum = i + 2; // ヘッダーが1行目なのでデータは2行目〜
+        break;
+      }
+    }
+
+    // maxNo を計算
     let maxNo = 0;
-    for (const row of noRows) {
+    for (const row of dataRows) {
       const n = parseInt(row[0] ?? "", 10);
       if (!isNaN(n) && n > maxNo) maxNo = n;
     }
     const nextNo = maxNo + 1;
 
-    // Format today's date as YYYY/MM/DD
+    // 日付
     const today = new Date();
     const dateStr = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}`;
 
-    // Track info: "Nsongs, Xmin Ysec"
     const trackInfo = `${trackCount}songs, ${formatDuration(totalDurationMs)}`;
     const firstTrackName = tracks[0]?.name ?? "";
 
-    // Build row sized to cover all columns
     const rowSize = Math.max(totalCols, spotifyColIdx + 1, coverColIdx + 1);
     const rowData = new Array(rowSize).fill("");
-
-    // Fixed-position columns (A–G, T) — these haven't moved
     rowData[0] = String(nextNo);
     rowData[1] = dateStr;
     rowData[2] = title;
@@ -91,19 +98,27 @@ export async function POST(request: NextRequest) {
     rowData[5] = "洋楽";
     rowData[6] = trackInfo;
     rowData[trackColIdx] = firstTrackName;
-
-    // Header-resolved columns
     rowData[spotifyColIdx] = spotifyUrl;
     if (coverColIdx >= 0) rowData[coverColIdx] = coverUrl;
 
-    // Use append to safely add after the last row with data
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: "'Release Master'!A:A",
-      valueInputOption: "RAW",
-      insertDataOption: "INSERT_ROWS",
-      requestBody: { values: [rowData] },
-    });
+    if (targetRowNum !== null) {
+      // タイトル・アーティストが空白の既存行に上書き
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'Release Master'!A${targetRowNum}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [rowData] },
+      });
+    } else {
+      // 空白行がなければ末尾に追加
+      await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: "'Release Master'!A:A",
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: [rowData] },
+      });
+    }
 
     return NextResponse.json({ ok: true, no: String(nextNo) });
   } catch (error) {
