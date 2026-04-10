@@ -40,7 +40,7 @@ export async function GET() {
     const sheets = google.sheets({ version: "v4", auth: getAuth() });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Release Master'!A1:AD",  // 1行目からヘッダー込みで取得
+      range: "'Release Master'!A1:AZ",  // 1行目からヘッダー込みで取得（列追加に備え余裕を持たせる）
     });
 
     const allRows = response.data.values;

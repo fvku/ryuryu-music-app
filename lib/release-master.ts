@@ -93,7 +93,7 @@ export async function getReleaseMasterScoreRows(): Promise<ReleaseMasterScoreRow
   const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
   const resp = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "'Release Master'!A1:AB",  // ヘッダー込みで取得
+    range: "'Release Master'!A1:AZ",  // ヘッダー込みで取得（列追加に備え余裕を持たせる）
   });
 
   const allRows = resp.data.values || [];
