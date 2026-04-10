@@ -171,8 +171,7 @@ export default function RecommendPage() {
   return (
     <div>
       <div className="mb-4">
-        <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>タイムライン</h1>
-        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>レビューとレコメンドの最新情報</p>
+        <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>タイムライン</h1>
       </div>
 
       {/* フィルター */}
