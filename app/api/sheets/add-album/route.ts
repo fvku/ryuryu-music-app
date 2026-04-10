@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getWriteAuth } from "@/lib/release-master";
+import { buildHeaderMap, SHEET_COL } from "@/lib/sheet-headers";
 
 export const dynamic = "force-dynamic";
 
@@ -37,11 +38,30 @@ export async function POST(request: NextRequest) {
 
     const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
 
-    // Read A column to determine next No. (use max value to be safe)
-    const noRes = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "'Release Master'!A2:A",
-    });
+    // Read header row and A column in parallel
+    const [headerRes, noRes] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: "'Release Master'!1:1",
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: "'Release Master'!A2:A",
+      }),
+    ]);
+
+    // Resolve Spotify URL and cover URL columns dynamically from headers
+    const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
+    const totalCols = (headerRes.data.values?.[0] ?? []).length;
+    const spotifyColIdx = col[SHEET_COL.SPOTIFY_URL] ?? -1;
+    const coverColIdx   = col[SHEET_COL.COVER_URL]   ?? -1;
+    const trackColIdx   = col[SHEET_COL.MJ_TRACK]     ?? 19;
+
+    if (spotifyColIdx < 0) {
+      return NextResponse.json({ error: `COLUMN_NOT_FOUND: ${SHEET_COL.SPOTIFY_URL}` }, { status: 500 });
+    }
+
+    // Determine next No.
     const noRows = noRes.data.values ?? [];
     let maxNo = 0;
     for (const row of noRows) {
@@ -56,24 +76,25 @@ export async function POST(request: NextRequest) {
 
     // Track info: "Nsongs, Xmin Ysec"
     const trackInfo = `${trackCount}songs, ${formatDuration(totalDurationMs)}`;
-
-    // First track name for column T (index 19, 0-based)
     const firstTrackName = tracks[0]?.name ?? "";
 
-    // Build sparse row: 30 elements (A=0 to AD=29)
-    // A(0)=No., B(1)=Date, C(2)=Title, D(3)=Artist, E(4)=Title/Artist, F(5)=洋楽,
-    // G(6)=trackInfo, T(19)=firstTrack, AC(28)=spotifyUrl, AD(29)=coverUrl
-    const rowData = new Array(30).fill("");
-    rowData[0]  = String(nextNo);
-    rowData[1]  = dateStr;
-    rowData[2]  = title;
-    rowData[3]  = artist;
-    rowData[4]  = `${title} / ${artist}`;
-    rowData[5]  = "洋楽";
-    rowData[6]  = trackInfo;
-    rowData[19] = firstTrackName;
-    rowData[28] = spotifyUrl;
-    rowData[29] = coverUrl;
+    // Build row sized to cover all columns
+    const rowSize = Math.max(totalCols, spotifyColIdx + 1, coverColIdx + 1);
+    const rowData = new Array(rowSize).fill("");
+
+    // Fixed-position columns (A–G, T) — these haven't moved
+    rowData[0] = String(nextNo);
+    rowData[1] = dateStr;
+    rowData[2] = title;
+    rowData[3] = artist;
+    rowData[4] = `${title} / ${artist}`;
+    rowData[5] = "洋楽";
+    rowData[6] = trackInfo;
+    rowData[trackColIdx] = firstTrackName;
+
+    // Header-resolved columns
+    rowData[spotifyColIdx] = spotifyUrl;
+    if (coverColIdx >= 0) rowData[coverColIdx] = coverUrl;
 
     // Use append to safely add after the last row with data
     await sheets.spreadsheets.values.append({
