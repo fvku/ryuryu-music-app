@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
 interface AlbumInfo {
@@ -29,6 +30,7 @@ const SPOTIFY_ALBUM_RE = /open\.spotify\.com\/(?:[^/]+\/)?album\/([A-Za-z0-9]+)/
 
 export default function SpotifyClipboardDetector() {
   const { data: session } = useSession();
+  const router = useRouter();
   const [popup, setPopup] = useState<PopupState>({ type: "idle" });
   const [inputUrl, setInputUrl] = useState("");
   const lastProcessedId = useRef<string | null>(null);
@@ -219,7 +221,16 @@ export default function SpotifyClipboardDetector() {
 
           {(popup.type === "new" || popup.type === "exists" || popup.type === "added") && (
             <>
-              <div className="flex items-start gap-4 mb-4">
+              {/* アルバム情報エリア — exists/added の場合はクリックでレビューページへ */}
+              <div
+                className={`flex items-start gap-4 mb-4 ${(popup.type === "exists" || popup.type === "added") && popup.no ? "cursor-pointer rounded-xl -mx-1 px-1 py-1 hover:bg-white/5 transition-colors" : ""}`}
+                onClick={() => {
+                  if ((popup.type === "exists" || popup.type === "added") && popup.no) {
+                    dismiss();
+                    router.push(`/review/${popup.no}`);
+                  }
+                }}
+              >
                 {popup.album.coverUrl && (
                   <Image
                     src={popup.album.coverUrl}
@@ -239,7 +250,7 @@ export default function SpotifyClipboardDetector() {
                   </p>
                 </div>
                 <button
-                  onClick={dismiss}
+                  onClick={(e) => { e.stopPropagation(); dismiss(); }}
                   className="flex-shrink-0 text-lg leading-none"
                   style={{ color: "var(--text-secondary)" }}
                   aria-label="閉じる"
@@ -249,13 +260,9 @@ export default function SpotifyClipboardDetector() {
               </div>
 
               {popup.type === "exists" && (
-                <div
-                  className="text-sm px-3 py-2 rounded-lg text-center"
-                  style={{ backgroundColor: "rgba(255,255,255,0.05)", color: "var(--text-secondary)" }}
-                >
-                  Release Masterに登録済みです
-                  {popup.no && <span className="ml-1 font-medium">（No.{popup.no}）</span>}
-                </div>
+                <p className="text-xs text-center" style={{ color: "var(--text-secondary)" }}>
+                  登録済みです（No.{popup.no}）　タップしてレビューを開く
+                </p>
               )}
 
               {popup.type === "new" && (
@@ -269,12 +276,9 @@ export default function SpotifyClipboardDetector() {
               )}
 
               {popup.type === "added" && (
-                <div
-                  className="text-sm px-3 py-2 rounded-lg text-center font-medium"
-                  style={{ backgroundColor: "rgba(29,185,84,0.15)", color: "#1DB954" }}
-                >
-                  追加しました（No.{popup.no}）
-                </div>
+                <p className="text-xs text-center font-medium" style={{ color: "#1DB954" }}>
+                  追加しました（No.{popup.no}）　タップしてレビューを開く
+                </p>
               )}
             </>
           )}
