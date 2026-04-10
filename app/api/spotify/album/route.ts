@@ -17,7 +17,8 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
-      return NextResponse.json({ error: "Album not found" }, { status: 404 });
+      const body = await response.text();
+      return NextResponse.json({ error: "Album not found", status: response.status, body }, { status: 404 });
     }
 
     const data = await response.json();
