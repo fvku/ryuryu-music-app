@@ -1,7 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAccessToken, clearTokenCache } from "@/lib/spotify";
-
 export const dynamic = "force-dynamic";
+
+async function fetchFreshToken(): Promise<string> {
+  const clientId = process.env.SPOTIFY_CLIENT_ID;
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  if (!clientId || !clientSecret) throw new Error("Spotify credentials not set");
+
+  const res = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Token fetch failed: ${await res.text()}`);
+  const data = await res.json();
+  return data.access_token;
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -11,19 +28,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    let accessToken = await getAccessToken();
-    let response = await fetch(`https://api.spotify.com/v1/albums/${albumId}`, {
+    // キャッシュを使わず毎回フレッシュなトークンを取得
+    const accessToken = await fetchFreshToken();
+    const response = await fetch(`https://api.spotify.com/v1/albums/${albumId}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-
-    // 401の場合はキャッシュをクリアして1回リトライ
-    if (response.status === 401) {
-      clearTokenCache();
-      accessToken = await getAccessToken();
-      response = await fetch(`https://api.spotify.com/v1/albums/${albumId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-    }
 
     if (!response.ok) {
       const body = await response.text();
