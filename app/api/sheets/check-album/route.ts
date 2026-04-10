@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getWriteAuth } from "@/lib/release-master";
+import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,19 @@ export async function GET(request: NextRequest) {
   try {
     const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
 
-    // Read AC column (Spotify URLs) and A column (No.) together
+    // Read header row to find Spotify URL column dynamically
+    const headerRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Release Master'!1:1",
+    });
+    const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
+    const spotifyColIdx = col[SHEET_COL.SPOTIFY_URL];
+    if (spotifyColIdx === undefined) {
+      return NextResponse.json({ error: `COLUMN_NOT_FOUND: ${SHEET_COL.SPOTIFY_URL}` }, { status: 500 });
+    }
+    const spotifyColLetter = indexToColumnLetter(spotifyColIdx);
+
+    // Read Spotify URL column and A column (No.) together
     const [noRes, urlRes] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId,
@@ -27,7 +40,7 @@ export async function GET(request: NextRequest) {
       }),
       sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: "'Release Master'!AC2:AC",
+        range: `'Release Master'!${spotifyColLetter}2:${spotifyColLetter}`,
       }),
     ]);
 
