@@ -24,7 +24,8 @@ type PopupState =
   | { type: "added"; album: AlbumInfo; no: string }
   | { type: "error"; message: string };
 
-const SPOTIFY_ALBUM_RE = /open\.spotify\.com\/album\/([A-Za-z0-9]+)/;
+// ロケールプレフィックス（/intl-ja/ 等）とクエリパラメータを無視してアルバムIDを抽出
+const SPOTIFY_ALBUM_RE = /open\.spotify\.com\/(?:[^/]+\/)?album\/([A-Za-z0-9]+)/;
 
 export default function SpotifyClipboardDetector() {
   const { data: session } = useSession();
