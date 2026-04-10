@@ -24,6 +24,15 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+function getMonthKey(date: string): string {
+  return date.substring(0, 7);
+}
+
+function formatMonth(key: string): string {
+  const [year, month] = key.split("/");
+  return `${year}年${parseInt(month)}月`;
+}
+
 export default function RecommendPage() {
   const { data: session } = useSession();
   const myEmail = session?.user?.email?.toLowerCase() ?? null;
@@ -34,9 +43,15 @@ export default function RecommendPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<ReleaseMasterAlbum | null>(null);
   const [displayCount, setDisplayCount] = useState(20);
+  const [monthFilter, setMonthFilter] = useState("すべて");
+  const [memberFilter, setMemberFilter] = useState("すべて");
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const loadMore = useCallback(() => setDisplayCount((prev) => prev + 20), []);
+
+  // フィルター変更時はリストを先頭に戻す
+  useEffect(() => { setDisplayCount(20); }, [monthFilter, memberFilter]);
+
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
@@ -65,7 +80,6 @@ export default function RecommendPage() {
 
         setAlbums(albumData);
 
-        // Spotify cache
         const cached: Record<string, { coverUrl: string; spotifyUrl: string }> = {};
         albumData.forEach((a) => {
           if (a.spotifyUrl || a.coverUrl) cached[a.no] = { coverUrl: a.coverUrl, spotifyUrl: a.spotifyUrl };
@@ -83,7 +97,6 @@ export default function RecommendPage() {
           });
         }
 
-        // Build timeline
         const items: TimelineItem[] = [
           ...recData.map((r) => ({ type: "recommendation" as const, data: r, createdAt: r.createdAt })),
           ...scoresData.filter((s) => s.submittedAt).map((s) => ({ type: "review" as const, data: s, createdAt: s.submittedAt })),
@@ -119,24 +132,120 @@ export default function RecommendPage() {
   const albumMap = new Map(albums.map((a) => [a.no, a]));
   const albumByTitleArtist = new Map(albums.map((a) => [`${a.title}::${a.artist}`, a]));
 
+  function getAlbumForItem(item: TimelineItem): ReleaseMasterAlbum | undefined {
+    if (item.type === "review") {
+      return albumByTitleArtist.get(`${item.data.albumTitle}::${item.data.artistName}`) ?? albumMap.get(item.data.reviewId);
+    }
+    return albumByTitleArtist.get(`${item.data.albumTitle}::${item.data.artistName}`) ?? albumMap.get(item.data.albumNo);
+  }
+
+  function getItemMember(item: TimelineItem): string {
+    return item.type === "review" ? item.data.memberName : item.data.recommenderId;
+  }
+
+  // 月一覧（アルバムの date から）
+  const availableMonths = Array.from(
+    new Set(
+      timeline
+        .map((item) => getAlbumForItem(item)?.date)
+        .filter((d): d is string => !!d)
+        .map((d) => getMonthKey(d))
+    )
+  ).sort().reverse();
+
+  // メンバー一覧（タイムラインに登場する人）
+  const availableMembers = Array.from(
+    new Set(timeline.map((item) => getItemMember(item)).filter(Boolean))
+  ).sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b)));
+
+  // フィルター適用
+  const filteredTimeline = timeline.filter((item) => {
+    if (monthFilter !== "すべて") {
+      const album = getAlbumForItem(item);
+      if (!album?.date || getMonthKey(album.date) !== monthFilter) return false;
+    }
+    if (memberFilter !== "すべて" && getItemMember(item) !== memberFilter) return false;
+    return true;
+  });
+
   return (
     <div>
-      <div className="mb-6">
+      <div className="mb-4">
         <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>タイムライン</h1>
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>レビューとレコメンドの最新情報</p>
       </div>
 
-      {timeline.length === 0 ? (
+      {/* フィルター */}
+      <div className="mb-5 flex flex-col gap-3">
+        {/* 月 */}
+        <div className="grid grid-cols-[4rem_1fr] items-center gap-x-2">
+          <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>月：</span>
+          <select
+            value={monthFilter}
+            onChange={(e) => setMonthFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border text-xs font-medium focus:outline-none w-fit"
+            style={{
+              backgroundColor: "var(--bg-card)",
+              borderColor: monthFilter !== "すべて" ? "var(--accent)" : "var(--border-subtle)",
+              color: monthFilter !== "すべて" ? "white" : "var(--text-secondary)",
+            }}
+          >
+            <option value="すべて">すべて</option>
+            {availableMonths.map((m) => (
+              <option key={m} value={m}>{formatMonth(m)}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* メンバー */}
+        <div className="grid grid-cols-[4rem_1fr] items-start gap-x-2">
+          <span className="text-xs font-medium pt-1" style={{ color: "var(--text-secondary)" }}>メンバー：</span>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setMemberFilter("すべて")}
+              className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
+              style={{
+                backgroundColor: memberFilter === "すべて" ? "var(--accent)" : "var(--bg-card)",
+                color: memberFilter === "すべて" ? "white" : "var(--text-secondary)",
+                border: `1px solid ${memberFilter === "すべて" ? "var(--accent)" : "var(--border-subtle)"}`,
+              }}
+            >
+              すべて
+            </button>
+            {availableMembers.map((m) => {
+              const active = memberFilter === m;
+              return (
+                <button
+                  key={m}
+                  onClick={() => setMemberFilter(active ? "すべて" : m)}
+                  className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
+                  style={{
+                    backgroundColor: active ? "rgba(139,92,246,0.3)" : "var(--bg-card)",
+                    color: active ? "white" : "var(--text-secondary)",
+                    border: `1px solid ${active ? "var(--accent)" : "var(--border-subtle)"}`,
+                  }}
+                >
+                  {getDisplayName(m)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <p className="text-xs text-right" style={{ color: "var(--text-secondary)" }}>{filteredTimeline.length}件</p>
+      </div>
+
+      {filteredTimeline.length === 0 ? (
         <div className="text-center py-16 rounded-2xl border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
           <p className="text-4xl mb-4">🎵</p>
-          <p style={{ color: "var(--text-secondary)" }}>まだ投稿がありません</p>
+          <p style={{ color: "var(--text-secondary)" }}>該当する投稿がありません</p>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {timeline.slice(0, displayCount).map((item, i) => {
+          {filteredTimeline.slice(0, displayCount).map((item, i) => {
             if (item.type === "recommendation") {
               const rec = item.data;
-              const album = albumByTitleArtist.get(`${rec.albumTitle}::${rec.artistName}`) ?? albumMap.get(rec.albumNo);
+              const album = getAlbumForItem(item);
               const coverUrl = (album ? spotifyData[album.no]?.coverUrl : undefined) || rec.coverUrl;
               return (
                 <div
@@ -145,7 +254,6 @@ export default function RecommendPage() {
                   style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}
                   onClick={() => album && setSelectedAlbum(album)}
                 >
-                  {/* Meta */}
                   <div className="flex items-center gap-2 mb-3 flex-wrap">
                     <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>
                       {getDisplayName(rec.recommenderId).charAt(0).toUpperCase()}
@@ -170,7 +278,6 @@ export default function RecommendPage() {
                     )}
                     <span className="text-xs ml-auto" style={{ color: "var(--text-secondary)" }}>{formatDate(rec.createdAt)}</span>
                   </div>
-                  {/* Album */}
                   <div className="flex gap-3 items-center">
                     <div className="relative w-12 h-12 rounded-xl overflow-hidden flex-shrink-0" style={{ backgroundColor: "#2a2a3a" }}>
                       {coverUrl ? (
@@ -198,10 +305,9 @@ export default function RecommendPage() {
               );
             }
 
-            // review
             const review = item.data;
-            const album = albumByTitleArtist.get(`${review.albumTitle}::${review.artistName}`) ?? albumMap.get(review.reviewId);
-            const coverUrl = (album ? spotifyData[album.no]?.coverUrl : undefined);
+            const album = getAlbumForItem(item);
+            const coverUrl = album ? spotifyData[album.no]?.coverUrl : undefined;
             return (
               <div
                 key={`rev-${review.reviewId}-${review.memberName}-${i}`}
@@ -209,7 +315,6 @@ export default function RecommendPage() {
                 style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}
                 onClick={() => album && setSelectedAlbum(album)}
               >
-                {/* Meta */}
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: "rgba(139,92,246,0.2)", color: "var(--accent)" }}>
                     {getDisplayName(review.memberName).charAt(0).toUpperCase()}
@@ -218,7 +323,6 @@ export default function RecommendPage() {
                   <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(34,197,94,0.15)", color: "#22c55e" }}>レビュー</span>
                   <span className="text-xs ml-auto" style={{ color: "var(--text-secondary)" }}>{formatDate(review.submittedAt)}</span>
                 </div>
-                {/* Album */}
                 <div className="flex gap-3 items-center">
                   <div className="relative w-12 h-12 rounded-xl overflow-hidden flex-shrink-0" style={{ backgroundColor: "#2a2a3a" }}>
                     {coverUrl ? (
@@ -254,7 +358,8 @@ export default function RecommendPage() {
           })}
         </div>
       )}
-      {!loading && displayCount < timeline.length && (
+
+      {!loading && displayCount < filteredTimeline.length && (
         <div ref={sentinelRef} className="flex justify-center py-6">
           <div className="w-6 h-6 rounded-full border-2 animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
         </div>
