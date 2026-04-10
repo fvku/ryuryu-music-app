@@ -124,9 +124,9 @@ export async function getReleaseMasterScoreRows(): Promise<ReleaseMasterScoreRow
         if (val.trim()) memberScores[email] = val.trim();
       }
       return {
-        albumNo:    row[col["No."] ?? 0]          || "",
-        albumTitle: row[col["アルバム名"] ?? 2]   || "",
-        artistName: row[col["アーティスト"] ?? 3] || "",
+        albumNo:    (row[col["No."] ?? 0]          || "").trim(),
+        albumTitle: (row[col["アルバム名"] ?? 2]   || "").trim(),
+        artistName: (row[col["アーティスト"] ?? 3] || "").trim(),
         memberScores,
       };
     });
