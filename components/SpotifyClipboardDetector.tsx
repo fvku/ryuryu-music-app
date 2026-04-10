@@ -17,6 +17,7 @@ interface AlbumInfo {
 
 type PopupState =
   | { type: "idle" }
+  | { type: "input" }
   | { type: "loading" }
   | { type: "exists"; album: AlbumInfo; no: string }
   | { type: "new"; album: AlbumInfo }
@@ -28,22 +29,22 @@ const SPOTIFY_ALBUM_RE = /open\.spotify\.com\/album\/([A-Za-z0-9]+)/;
 export default function SpotifyClipboardDetector() {
   const { data: session } = useSession();
   const [popup, setPopup] = useState<PopupState>({ type: "idle" });
-  const [showButton, setShowButton] = useState(false);
+  const [inputUrl, setInputUrl] = useState("");
   const lastProcessedId = useRef<string | null>(null);
 
-  const processClipboard = useCallback(async (text: string) => {
+  const processUrl = useCallback(async (text: string) => {
     const match = text.match(SPOTIFY_ALBUM_RE);
-    if (!match) return;
+    if (!match) {
+      setPopup({ type: "error", message: "SpotifyのアルバムURLが見つかりませんでした" });
+      return;
+    }
     const albumId = match[1];
 
-    // Skip if already processed this album
     if (lastProcessedId.current === albumId) return;
 
     setPopup({ type: "loading" });
-    setShowButton(false);
 
     try {
-      // Fetch album info and existence check in parallel
       const [albumRes, checkRes] = await Promise.all([
         fetch(`/api/spotify/album?id=${albumId}`),
         fetch(`/api/sheets/check-album?spotifyId=${albumId}`),
@@ -78,29 +79,45 @@ export default function SpotifyClipboardDetector() {
     }
   }, []);
 
-  const tryClipboard = useCallback(async () => {
+  const tryClipboardSilently = useCallback(async () => {
     try {
       const text = await navigator.clipboard.readText();
-      setShowButton(false);
-      await processClipboard(text);
+      const match = text.match(SPOTIFY_ALBUM_RE);
+      if (!match) return;
+      const albumId = match[1];
+      if (lastProcessedId.current === albumId) return;
+      await processUrl(text);
     } catch {
-      // Permission denied — show manual trigger button
-      setShowButton(true);
+      // Permission denied — do nothing, button is always visible
     }
-  }, [processClipboard]);
+  }, [processUrl]);
 
   useEffect(() => {
     if (!session) return;
-
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        tryClipboard();
+        tryClipboardSilently();
       }
     };
-
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [session, tryClipboard]);
+  }, [session, tryClipboardSilently]);
+
+  const handleButtonClick = async () => {
+    // Try clipboard first; if it fails or has no match, open input dialog
+    try {
+      const text = await navigator.clipboard.readText();
+      const match = text.match(SPOTIFY_ALBUM_RE);
+      if (match) {
+        await processUrl(text);
+        return;
+      }
+    } catch {
+      // Permission denied — fall through to input dialog
+    }
+    setInputUrl("");
+    setPopup({ type: "input" });
+  };
 
   const handleAdd = async (album: AlbumInfo) => {
     setPopup({ type: "loading" });
@@ -129,15 +146,12 @@ export default function SpotifyClipboardDetector() {
 
   return (
     <>
-      {/* Manual trigger button (shown when clipboard permission denied) */}
-      {showButton && !isVisible && (
+      {/* Always-visible trigger button (for logged-in users) */}
+      {session && !isVisible && (
         <button
-          onClick={tryClipboard}
+          onClick={handleButtonClick}
           className="fixed bottom-24 right-4 z-40 flex items-center gap-2 px-3 py-2 rounded-full text-xs font-medium shadow-lg transition-all"
-          style={{
-            backgroundColor: "#1DB954",
-            color: "#fff",
-          }}
+          style={{ backgroundColor: "#1DB954", color: "#fff" }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
@@ -151,7 +165,6 @@ export default function SpotifyClipboardDetector() {
         className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none px-4"
         aria-hidden={!isVisible}
       >
-        {/* Backdrop */}
         {isVisible && (
           <div
             className="absolute inset-0 pointer-events-auto"
@@ -160,7 +173,6 @@ export default function SpotifyClipboardDetector() {
           />
         )}
 
-        {/* Panel */}
         <div
           className="relative w-full max-w-sm pointer-events-auto rounded-2xl p-5 transition-all duration-200 ease-out"
           style={{
@@ -170,6 +182,33 @@ export default function SpotifyClipboardDetector() {
             transform: isVisible ? "scale(1)" : "scale(0.95)",
           }}
         >
+          {popup.type === "input" && (
+            <div>
+              <p className="text-sm font-medium mb-3">SpotifyのアルバムURLを貼り付け</p>
+              <input
+                type="text"
+                value={inputUrl}
+                onChange={(e) => setInputUrl(e.target.value)}
+                placeholder="https://open.spotify.com/album/..."
+                className="w-full text-sm px-3 py-2 rounded-lg mb-3 outline-none"
+                style={{
+                  backgroundColor: "rgba(255,255,255,0.07)",
+                  border: "1px solid var(--border-subtle)",
+                  color: "var(--text-primary)",
+                }}
+                autoFocus
+              />
+              <button
+                onClick={() => processUrl(inputUrl)}
+                disabled={!inputUrl.trim()}
+                className="w-full py-2.5 rounded-xl text-sm font-semibold transition-opacity disabled:opacity-40"
+                style={{ backgroundColor: "#1DB954", color: "#fff" }}
+              >
+                確認
+              </button>
+            </div>
+          )}
+
           {popup.type === "loading" && (
             <div className="py-8 flex flex-col items-center gap-3">
               <div className="w-6 h-6 rounded-full border-2 border-green-400 border-t-transparent animate-spin" />
