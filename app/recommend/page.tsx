@@ -170,10 +170,6 @@ export default function RecommendPage() {
 
   return (
     <div>
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>タイムライン</h1>
-      </div>
-
       {/* フィルター */}
       <div className="mb-5 flex flex-col gap-3">
         {/* 月 */}
