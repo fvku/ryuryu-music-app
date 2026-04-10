@@ -7,6 +7,10 @@ interface TokenCache {
 
 let tokenCache: TokenCache | null = null;
 
+export function clearTokenCache() {
+  tokenCache = null;
+}
+
 export async function getAccessToken(): Promise<string> {
   if (tokenCache && Date.now() < tokenCache.expiresAt) {
     return tokenCache.accessToken;
