@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const accessToken = await getAccessToken();
-    const response = await fetch(`https://api.spotify.com/v1/albums/${albumId}?market=JP`, {
+    const response = await fetch(`https://api.spotify.com/v1/albums/${albumId}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
