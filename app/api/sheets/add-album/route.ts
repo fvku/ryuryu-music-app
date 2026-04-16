@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getWriteAuth } from "@/lib/release-master";
-import { buildHeaderMap, SHEET_COL } from "@/lib/sheet-headers";
+import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +35,7 @@ function formatDuration(ms: number): string {
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as AddAlbumBody;
-    const { title, artist, releaseDate, trackCount, totalDurationMs, coverUrl, spotifyUrl, tracks } = body;
+    const { title, artist, releaseDate, trackCount, totalDurationMs, coverUrl, spotifyUrl } = body;
 
     if (!title || !artist || !spotifyUrl) {
       return NextResponse.json({ error: "title, artist, spotifyUrl are required" }, { status: 400 });
@@ -61,10 +61,9 @@ export async function POST(request: NextRequest) {
     ]);
 
     const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
-    const totalCols = (headerRes.data.values?.[0] ?? []).length;
 
     // 書き込み対象列をヘッダー名で解決
-    const timeColIdx    = col["Time"]               ?? 6;   // G列
+    const timeColIdx    = col["Time"]               ?? 6;
     const spotifyColIdx = col[SHEET_COL.SPOTIFY_URL] ?? -1;
     const coverColIdx   = col[SHEET_COL.COVER_URL]   ?? -1;
 
@@ -75,49 +74,47 @@ export async function POST(request: NextRequest) {
     const dataRows = dataRes.data.values ?? [];
 
     // タイトル（C=index2）とアーティスト（D=index3）が両方空白の最初の行を探す
+    // 列Aに既存のNo.があればそれを読み取る
     let targetRowNum: number | null = null;
+    let no = "";
     for (let i = 0; i < dataRows.length; i++) {
       const rowTitle  = (dataRows[i][2] ?? "").trim();
       const rowArtist = (dataRows[i][3] ?? "").trim();
       if (!rowTitle && !rowArtist) {
         targetRowNum = i + 2; // ヘッダーが1行目なのでデータは2行目〜
+        no = (dataRows[i][0] ?? "").toString().trim();
         break;
       }
     }
 
+    // 空白行がなければ末尾の次の行に追加
+    const writeRow = targetRowNum ?? (dataRows.length + 2);
+
     const trackInfo = `${trackCount}songs, ${formatDuration(totalDurationMs)}`;
     const dateStr = formatReleaseDate(releaseDate);
 
-    const rowSize = Math.max(totalCols, spotifyColIdx + 1, coverColIdx + 1);
-    const rowData = new Array(rowSize).fill("");
-    // 書き込む列: Date(B), Title(C), Artist(D), Time(G), Spotify, spotifyカバー
-    rowData[1]             = dateStr;
-    rowData[2]             = title;
-    rowData[3]             = artist;
-    rowData[timeColIdx]    = trackInfo;
-    rowData[spotifyColIdx] = spotifyUrl;
-    if (coverColIdx >= 0) rowData[coverColIdx] = coverUrl;
+    // 値のあるセルのみ個別に書き込む（既存の数式・値を上書きしない）
+    const cellsToWrite: [number, string][] = [
+      [1, dateStr],
+      [2, title],
+      [3, artist],
+      [timeColIdx, trackInfo],
+      [spotifyColIdx, spotifyUrl],
+    ];
+    if (coverColIdx >= 0) cellsToWrite.push([coverColIdx, coverUrl]);
 
-    if (targetRowNum !== null) {
-      // タイトル・アーティストが空白の既存行に上書き
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `'Release Master'!A${targetRowNum}`,
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
         valueInputOption: "RAW",
-        requestBody: { values: [rowData] },
-      });
-    } else {
-      // 空白行がなければ末尾に追加
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: "'Release Master'!A:A",
-        valueInputOption: "RAW",
-        insertDataOption: "INSERT_ROWS",
-        requestBody: { values: [rowData] },
-      });
-    }
+        data: cellsToWrite.map(([colIdx, value]) => ({
+          range: `'Release Master'!${indexToColumnLetter(colIdx)}${writeRow}`,
+          values: [[value]],
+        })),
+      },
+    });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, no });
   } catch (error) {
     console.error("add-album failed:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
