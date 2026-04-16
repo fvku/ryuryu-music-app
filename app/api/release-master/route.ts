@@ -76,7 +76,16 @@ export async function GET() {
         coverUrl:   row[col[SHEET_COL.COVER_URL]]   || "",
       }));
 
-    return NextResponse.json(albums);
+    // タイトル+アーティストが同じ行は先頭（シート上で上にある行）を残して重複除去
+    const seen = new Set<string>();
+    const dedupedAlbums = albums.filter((a) => {
+      const key = `${a.title.trim().toLowerCase()}::${a.artist.trim().toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    return NextResponse.json(dedupedAlbums);
   } catch (error) {
     console.error("Failed to get Release Master albums:", error);
     return NextResponse.json({ error: "アルバム一覧の取得に失敗しました" }, { status: 500 });
