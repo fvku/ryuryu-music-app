@@ -380,7 +380,7 @@ export default function HomePage() {
             <AlbumCard
               key={album.no}
               album={album}
-              coverUrl={spotifyData[album.no]?.coverUrl}
+              coverUrl={album.coverUrl || spotifyData[album.no]?.coverUrl}
               averageScore={getCombinedScore(album).avg}
               scoreCount={getCombinedScore(album).count}
               onClick={() => setSelectedAlbum(album)}
@@ -393,8 +393,8 @@ export default function HomePage() {
       {selectedAlbum && (
         <ReviewModal
           album={selectedAlbum}
-          coverUrl={spotifyData[selectedAlbum.no]?.coverUrl}
-          spotifyUrl={spotifyData[selectedAlbum.no]?.spotifyUrl}
+          coverUrl={selectedAlbum.coverUrl || spotifyData[selectedAlbum.no]?.coverUrl}
+          spotifyUrl={selectedAlbum.spotifyUrl || spotifyData[selectedAlbum.no]?.spotifyUrl}
           onClose={() => setSelectedAlbum(null)}
         />
       )}

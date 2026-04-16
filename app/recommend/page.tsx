@@ -241,7 +241,7 @@ export default function RecommendPage() {
             if (item.type === "recommendation") {
               const rec = item.data;
               const album = getAlbumForItem(item);
-              const coverUrl = (album ? spotifyData[album.no]?.coverUrl : undefined) || rec.coverUrl;
+              const coverUrl = album?.coverUrl || (album ? spotifyData[album.no]?.coverUrl : undefined) || rec.coverUrl;
               return (
                 <div
                   key={`rec-${rec.id}-${i}`}
@@ -302,7 +302,7 @@ export default function RecommendPage() {
 
             const review = item.data;
             const album = getAlbumForItem(item);
-            const coverUrl = album ? spotifyData[album.no]?.coverUrl : undefined;
+            const coverUrl = album?.coverUrl || (album ? spotifyData[album.no]?.coverUrl : undefined);
             return (
               <div
                 key={`rev-${review.reviewId}-${review.memberName}-${i}`}
@@ -363,8 +363,8 @@ export default function RecommendPage() {
       {selectedAlbum && (
         <ReviewModal
           album={selectedAlbum}
-          coverUrl={spotifyData[selectedAlbum.no]?.coverUrl}
-          spotifyUrl={spotifyData[selectedAlbum.no]?.spotifyUrl}
+          coverUrl={selectedAlbum.coverUrl || spotifyData[selectedAlbum.no]?.coverUrl}
+          spotifyUrl={selectedAlbum.spotifyUrl || spotifyData[selectedAlbum.no]?.spotifyUrl}
           onClose={() => setSelectedAlbum(null)}
         />
       )}
