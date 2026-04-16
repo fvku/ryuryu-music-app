@@ -8,11 +8,21 @@ export const dynamic = "force-dynamic";
 interface AddAlbumBody {
   title: string;
   artist: string;
+  releaseDate: string;
   trackCount: number;
   totalDurationMs: number;
   coverUrl: string;
   spotifyUrl: string;
   tracks: { name: string; durationMs: number }[];
+}
+
+function formatReleaseDate(releaseDate: string): string {
+  // Spotify returns "YYYY-MM-DD", "YYYY-MM", or "YYYY"
+  const parts = releaseDate.split("-");
+  const year  = parts[0] ?? "";
+  const month = parts[1] ? parts[1].padStart(2, "0") : "01";
+  const day   = parts[2] ? parts[2].padStart(2, "0") : "01";
+  return `${year}/${month}/${day}`;
 }
 
 function formatDuration(ms: number): string {
@@ -25,7 +35,7 @@ function formatDuration(ms: number): string {
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as AddAlbumBody;
-    const { title, artist, trackCount, totalDurationMs, coverUrl, spotifyUrl, tracks } = body;
+    const { title, artist, releaseDate, trackCount, totalDurationMs, coverUrl, spotifyUrl, tracks } = body;
 
     if (!title || !artist || !spotifyUrl) {
       return NextResponse.json({ error: "title, artist, spotifyUrl are required" }, { status: 400 });
@@ -54,7 +64,6 @@ export async function POST(request: NextRequest) {
     const totalCols = (headerRes.data.values?.[0] ?? []).length;
 
     // 書き込み対象列をヘッダー名で解決
-    const yohiColIdx    = col["洋邦"]              ?? 5;   // F列
     const timeColIdx    = col["Time"]               ?? 6;   // G列
     const spotifyColIdx = col[SHEET_COL.SPOTIFY_URL] ?? -1;
     const coverColIdx   = col[SHEET_COL.COVER_URL]   ?? -1;
@@ -84,21 +93,17 @@ export async function POST(request: NextRequest) {
     }
     const nextNo = maxNo + 1;
 
-    // 日付
-    const today = new Date();
-    const dateStr = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}`;
-
     const trackInfo = `${trackCount}songs, ${formatDuration(totalDurationMs)}`;
+    const dateStr = formatReleaseDate(releaseDate);
 
     const rowSize = Math.max(totalCols, spotifyColIdx + 1, coverColIdx + 1);
     const rowData = new Array(rowSize).fill("");
-    // 書き込む列: No.(A), Date(B), Title(C), Artist(D), 洋邦(F), Time(G), Spotify, spotifyカバー
-    rowData[0]           = String(nextNo);
-    rowData[1]           = dateStr;
-    rowData[2]           = title;
-    rowData[3]           = artist;
-    rowData[yohiColIdx]  = "洋楽";
-    rowData[timeColIdx]  = trackInfo;
+    // 書き込む列: No.(A), Date(B), Title(C), Artist(D), Time(G), Spotify, spotifyカバー
+    rowData[0]             = String(nextNo);
+    rowData[1]             = dateStr;
+    rowData[2]             = title;
+    rowData[3]             = artist;
+    rowData[timeColIdx]    = trackInfo;
     rowData[spotifyColIdx] = spotifyUrl;
     if (coverColIdx >= 0) rowData[coverColIdx] = coverUrl;
 

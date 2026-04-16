@@ -9,6 +9,7 @@ interface AlbumInfo {
   id: string;
   title: string;
   artist: string;
+  releaseDate: string;
   trackCount: number;
   totalDurationMs: number;
   coverUrl: string;
