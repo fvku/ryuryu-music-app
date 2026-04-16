@@ -23,7 +23,7 @@ type PopupState =
   | { type: "loading" }
   | { type: "exists"; album: AlbumInfo; no: string }
   | { type: "new"; album: AlbumInfo }
-  | { type: "added"; album: AlbumInfo; no: string }
+  | { type: "added"; album: AlbumInfo }
   | { type: "error"; message: string };
 
 // ロケールプレフィックス（/intl-ja/ 等）とクエリパラメータを無視してアルバムIDを抽出
@@ -131,7 +131,7 @@ export default function SpotifyClipboardDetector() {
         setPopup({ type: "error", message: data.error ?? "追加に失敗しました" });
         return;
       }
-      setPopup({ type: "added", album, no: data.no ?? "" });
+      setPopup({ type: "added", album });
     } catch (e) {
       setPopup({ type: "error", message: String(e) });
     }
@@ -219,9 +219,9 @@ export default function SpotifyClipboardDetector() {
             <>
               {/* アルバム情報エリア — exists/added の場合はクリックでレビューページへ */}
               <div
-                className={`flex items-start gap-4 mb-4 ${(popup.type === "exists" || popup.type === "added") && popup.no ? "cursor-pointer rounded-xl -mx-1 px-1 py-1 hover:bg-white/5 transition-colors" : ""}`}
+                className={`flex items-start gap-4 mb-4 ${popup.type === "exists" && popup.no ? "cursor-pointer rounded-xl -mx-1 px-1 py-1 hover:bg-white/5 transition-colors" : ""}`}
                 onClick={() => {
-                  if ((popup.type === "exists" || popup.type === "added") && popup.no) {
+                  if (popup.type === "exists" && popup.no) {
                     dismiss();
                     openAlbum(popup.no);
                   }
@@ -273,7 +273,7 @@ export default function SpotifyClipboardDetector() {
 
               {popup.type === "added" && (
                 <p className="text-xs text-center font-medium" style={{ color: "#1DB954" }}>
-                  追加しました（No.{popup.no}）　タップしてレビューを開く
+                  追加しました
                 </p>
               )}
             </>

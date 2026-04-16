@@ -85,21 +85,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // maxNo を計算
-    let maxNo = 0;
-    for (const row of dataRows) {
-      const n = parseInt(row[0] ?? "", 10);
-      if (!isNaN(n) && n > maxNo) maxNo = n;
-    }
-    const nextNo = maxNo + 1;
-
     const trackInfo = `${trackCount}songs, ${formatDuration(totalDurationMs)}`;
     const dateStr = formatReleaseDate(releaseDate);
 
     const rowSize = Math.max(totalCols, spotifyColIdx + 1, coverColIdx + 1);
     const rowData = new Array(rowSize).fill("");
-    // 書き込む列: No.(A), Date(B), Title(C), Artist(D), Time(G), Spotify, spotifyカバー
-    rowData[0]             = String(nextNo);
+    // 書き込む列: Date(B), Title(C), Artist(D), Time(G), Spotify, spotifyカバー
     rowData[1]             = dateStr;
     rowData[2]             = title;
     rowData[3]             = artist;
@@ -126,7 +117,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ ok: true, no: String(nextNo) });
+    return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("add-album failed:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
