@@ -87,9 +87,9 @@ export async function POST(request: NextRequest) {
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       tools: [
-        { type: "web_search_20250305", name: "web_search" } as Parameters<typeof client.messages.create>[0]["tools"][number],
+        { type: "web_search_20250305", name: "web_search" },
         SUBMIT_TOOL,
-      ],
+      ] as Parameters<typeof client.messages.create>[0]["tools"],
       messages: [
         { role: "user", content: buildUserPrompt(yearMonth, genre) },
       ],
