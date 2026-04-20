@@ -173,7 +173,7 @@ export default function SpotifyClipboardDetector() {
         )}
 
         <div
-          className="relative w-full max-w-sm pointer-events-auto rounded-2xl p-5 transition-all duration-200 ease-out"
+          className={`relative w-full max-w-sm rounded-2xl p-5 transition-all duration-200 ease-out ${isVisible ? "pointer-events-auto" : "pointer-events-none"}`}
           style={{
             backgroundColor: "var(--bg-card, #1a1a22)",
             border: "1px solid var(--border-subtle)",
