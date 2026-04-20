@@ -48,7 +48,7 @@ const LEGACY_NAME_TO_EMAIL: Record<string, string> = {
   "hanawa": "yoshinorihnw@gmail.com",
   "eddie": "edwardcannell93@gmail.com",
   "kwisoo": "kwisoo1102@gmail.com",
-  "kaede": "kaede@placeholder.com",
+  "kaede": "qururiquiqui@gmail.com",
 };
 
 const EMAIL_TO_SHORT_NAME: Record<string, string> = {
@@ -57,7 +57,7 @@ const EMAIL_TO_SHORT_NAME: Record<string, string> = {
   "yoshinorihnw@gmail.com": "Hanawa",
   "edwardcannell93@gmail.com": "Eddie",
   "kwisoo1102@gmail.com": "Kwisoo",
-  "kaede@placeholder.com": "Kaede",
+  "qururiquiqui@gmail.com": "Kaede",
 };
 
 function normalizeToEmail(memberName: string): string {

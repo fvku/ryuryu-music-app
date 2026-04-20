@@ -109,8 +109,7 @@ export async function getReleaseMasterScoreRows(): Promise<ReleaseMasterScoreRow
     "Kohei":  "kohei.fuku0926@gmail.com",
     "Eddie":  "edwardcannell93@gmail.com",
     "Hanawa": "yoshinorihnw@gmail.com",
-    // TODO: Kaede のメールアドレスが確定したらここに追加し、bulk import を実行する
-    // "Kaede": "kaede@actual-email.com",
+    "Kaede": "qururiquiqui@gmail.com",
   };
 
   return dataRows

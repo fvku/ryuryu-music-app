@@ -4,8 +4,7 @@ export const EMAIL_TO_SHORT_NAME: Record<string, string> = {
   "yoshinorihnw@gmail.com": "Hanawa",
   "edwardcannell93@gmail.com": "Eddie",
   "kwisoo1102@gmail.com": "Kwisoo",
-  // TODO: replace with Kaede's actual email address
-  "kaede@placeholder.com": "Kaede",
+  "qururiquiqui@gmail.com": "Kaede",
 };
 
 // Known legacy name variants (lower-cased) → canonical email
@@ -17,7 +16,7 @@ export const LEGACY_NAME_TO_EMAIL: Record<string, string> = {
   "hanawa": "yoshinorihnw@gmail.com",
   "eddie": "edwardcannell93@gmail.com",
   "kwisoo": "kwisoo1102@gmail.com",
-  "kaede": "kaede@placeholder.com",
+  "kaede": "qururiquiqui@gmail.com",
 };
 
 // Column index (0-based from column A) for Release Master columns W–AA (shifted +1 by ASSIGN column at R)
