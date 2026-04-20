@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Anthropic from "@anthropic-ai/sdk";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -62,22 +62,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "yearMonth must be YYYY-MM format" }, { status: 400 });
     }
 
-    const apiKey = process.env.GOOGLE_AI_API_KEY;
+    const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: "GOOGLE_AI_API_KEY is not set" }, { status: 500 });
+      return NextResponse.json({ error: "ANTHROPIC_API_KEY is not set" }, { status: 500 });
     }
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash-lite",
-      systemInstruction: SYSTEM_PROMPT,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      tools: [{ googleSearch: {} }] as any,
+    const client = new Anthropic({ apiKey });
+
+    const response = await client.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 4096,
+      system: SYSTEM_PROMPT,
+      tools: [{ type: "web_search_20250305", name: "web_search" }] as Parameters<typeof client.messages.create>[0]["tools"],
+      messages: [
+        { role: "user", content: buildUserPrompt(yearMonth, genre) },
+      ],
     });
 
-    const result = await model.generateContent(buildUserPrompt(yearMonth, genre));
-    const text = result.response.text();
-    const jsonStr = extractJson(text);
+    const fullText = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === "text")
+      .map((block) => block.text)
+      .join("");
+
+    const jsonStr = extractJson(fullText);
     const parsed = JSON.parse(jsonStr);
 
     return NextResponse.json(parsed);
