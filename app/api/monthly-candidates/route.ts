@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -13,7 +13,7 @@ const GENRE_LABEL: Record<string, string> = {
 
 const SYSTEM_PROMPT = `あなたは音楽批評家です。
 指定された月にリリースされた高評価・話題のアルバムを、
-AOTY（Album of the Year）・RateYourMusic・Pitchfork・Resident Advisor・NME・音楽系Twitterを横断検索し、
+AOTY（Album of the Year）・RateYourMusic・Pitchfork・Resident Advisor・NME・音楽系SNSを横断検索し、
 verified済みのアルバムのみ6〜10件をJSON形式で返してください。
 
 出力は必ずJSONのみ。説明文・コードブロック記法は不要。
@@ -46,10 +46,8 @@ function buildUserPrompt(yearMonth: string, genre: string): string {
 }
 
 function extractJson(text: string): string {
-  // コードブロックがあれば除去
   const codeBlock = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (codeBlock) return codeBlock[1].trim();
-  // { で始まる部分を抽出
   const start = text.indexOf("{");
   const end   = text.lastIndexOf("}");
   if (start !== -1 && end !== -1) return text.slice(start, end + 1);
@@ -64,30 +62,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "yearMonth must be YYYY-MM format" }, { status: 400 });
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.GOOGLE_AI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: "ANTHROPIC_API_KEY is not set" }, { status: 500 });
+      return NextResponse.json({ error: "GOOGLE_AI_API_KEY is not set" }, { status: 500 });
     }
 
-    const client = new Anthropic({ apiKey });
-
-    const response = await client.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      tools: [{ type: "web_search_20250305", name: "web_search" }] as Parameters<typeof client.messages.create>[0]["tools"],
-      messages: [
-        { role: "user", content: buildUserPrompt(yearMonth, genre) },
-      ],
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash",
+      systemInstruction: SYSTEM_PROMPT,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tools: [{ googleSearch: {} }] as any,
     });
 
-    // content 配列から text ブロックを結合
-    const fullText = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("");
-
-    const jsonStr = extractJson(fullText);
+    const result = await model.generateContent(buildUserPrompt(yearMonth, genre));
+    const text = result.response.text();
+    const jsonStr = extractJson(text);
     const parsed = JSON.parse(jsonStr);
 
     return NextResponse.json(parsed);
