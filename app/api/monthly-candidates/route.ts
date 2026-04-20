@@ -4,6 +4,10 @@ import Anthropic from "@anthropic-ai/sdk";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// Server-side in-memory cache (persists across warm invocations)
+const serverCache = new Map<string, { data: unknown; savedAt: number }>();
+const SERVER_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+
 const GENRE_LABEL: Record<string, string> = {
   all:        "ジャンルを問わずすべてのジャンル",
   indie:      "インディーロック・オルタナティブ・シューゲイザー・ポストパンクなどインディー・オルタナ系",
@@ -13,11 +17,12 @@ const GENRE_LABEL: Record<string, string> = {
 
 const SYSTEM_PROMPT = `あなたは音楽批評家です。
 指定された月にリリースされた高評価・話題のアルバムを、
-AOTY（Album of the Year）・RateYourMusic・Pitchfork・Resident Advisor・NME・音楽系SNSを横断検索してください。
+AOTY（Album of the Year）・RateYourMusic・Pitchfork・Resident Advisor・NMEで調べてください。
 
-重要: EP・シングル・ライブ盤・コンピレーションは除外し、スタジオフルアルバムのみ6〜10件を対象とすること。
-
-検索が完了したら、テキストで回答せず、必ずsubmit_albumsツールを呼び出して結果を提出してください。`;
+重要:
+- EP・シングル・ライブ盤・コンピレーションは除外し、スタジオフルアルバムのみ6〜10件を対象とすること
+- web_search の呼び出しは合計3回以内に収めること（コスト削減のため）
+- 検索が完了したら、テキストで回答せず、必ずsubmit_albumsツールを呼び出して結果を提出してください`;
 
 // Tool schema — Anthropic validates input against this, so we never get malformed JSON
 const SUBMIT_TOOL: Anthropic.Tool = {
@@ -69,10 +74,19 @@ function buildUserPrompt(yearMonth: string, genre: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const { yearMonth, genre = "all" } = await request.json() as { yearMonth: string; genre?: string };
+    const { yearMonth, genre = "all", forceRefresh = false } = await request.json() as { yearMonth: string; genre?: string; forceRefresh?: boolean };
 
     if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
       return NextResponse.json({ error: "yearMonth must be YYYY-MM format" }, { status: 400 });
+    }
+
+    // Check server-side cache first
+    const key = `${yearMonth}:${genre}`;
+    if (!forceRefresh) {
+      const cached = serverCache.get(key);
+      if (cached && Date.now() - cached.savedAt < SERVER_CACHE_TTL) {
+        return NextResponse.json(cached.data);
+      }
     }
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -101,6 +115,7 @@ export async function POST(request: NextRequest) {
     );
 
     if (toolUse) {
+      serverCache.set(key, { data: toolUse.input, savedAt: Date.now() });
       return NextResponse.json(toolUse.input);
     }
 

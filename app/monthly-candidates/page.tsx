@@ -205,11 +205,11 @@ export default function MonthlyCandidatesPage() {
   const [fromCache, setFromCache] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function fetchAndEnrich(yearMonth: string, genre: string): Promise<ApiResponse> {
+  async function fetchAndEnrich(yearMonth: string, genre: string, forceRefresh = false): Promise<ApiResponse> {
     const res = await fetch("/api/monthly-candidates", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ yearMonth, genre }),
+      body: JSON.stringify({ yearMonth, genre, forceRefresh }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "取得に失敗しました");
@@ -254,7 +254,7 @@ export default function MonthlyCandidatesPage() {
     setResult(null);
     setFromCache(false);
     try {
-      const enriched = await fetchAndEnrich(selectedMonth, selectedGenre);
+      const enriched = await fetchAndEnrich(selectedMonth, selectedGenre, forceRefresh);
       saveCache(selectedMonth, selectedGenre, enriched);
       setResult(enriched);
     } catch (e) {
