@@ -20,7 +20,7 @@ const SYSTEM_PROMPT = `あなたは音楽批評家です。
 AOTY（Album of the Year）・RateYourMusic・Pitchfork・Resident Advisor・NMEで調べてください。
 
 重要:
-- EP・シングル・ライブ盤・コンピレーションは除外し、スタジオフルアルバムのみ6〜10件を対象とすること
+- EP・シングル・ライブ盤・コンピレーションは除外し、スタジオフルアルバムのみ10〜15件を対象とすること
 - web_search の呼び出しは合計3回以内に収めること（コスト削減のため）
 - 検索が完了したら、テキストで回答せず、必ずsubmit_albumsツールを呼び出して結果を提出してください`;
 
@@ -69,7 +69,7 @@ const SUBMIT_TOOL: Anthropic.Tool = {
 function buildUserPrompt(yearMonth: string, genre: string): string {
   const [year, month] = yearMonth.split("-");
   const genreLabel = GENRE_LABEL[genre] ?? GENRE_LABEL.all;
-  return `${year}年${month}月にリリースされた${genreLabel}の高評価・話題のスタジオフルアルバムを検索して、submit_albumsツールで結果を返してください。EPは除外してください。`;
+  return `${year}年${month}月にリリースされた${genreLabel}の高評価・話題のスタジオフルアルバムを10〜15件検索して、submit_albumsツールで結果を返してください。EPは除外してください。`;
 }
 
 export async function POST(request: NextRequest) {
