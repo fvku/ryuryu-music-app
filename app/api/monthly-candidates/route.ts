@@ -13,45 +13,58 @@ const GENRE_LABEL: Record<string, string> = {
 
 const SYSTEM_PROMPT = `あなたは音楽批評家です。
 指定された月にリリースされた高評価・話題のアルバムを、
-AOTY（Album of the Year）・RateYourMusic・Pitchfork・Resident Advisor・NME・音楽系SNSを横断検索し、
-verified済みのアルバムのみ6〜10件をJSON形式で返してください。
+AOTY（Album of the Year）・RateYourMusic・Pitchfork・Resident Advisor・NME・音楽系SNSを横断検索してください。
 
-出力は必ずJSONのみ。説明文・コードブロック記法は不要。
-以下のスキーマに従ってください:
+重要: EP・シングル・ライブ盤・コンピレーションは除外し、スタジオフルアルバムのみ6〜10件を対象とすること。
 
-{
-  "month": "YYYY-MM",
-  "albums": [
-    {
-      "title": "アルバム名",
-      "artist": "アーティスト名",
-      "country": "US",
-      "genres": ["indie rock", "shoegaze"],
-      "sources": [
-        { "name": "AOTY", "score": 88, "note": "88/100" },
-        { "name": "Pitchfork", "score": null, "note": "Best New Music" }
-      ],
-      "hypeScore": 90,
-      "spotifySearchQuery": "Artist Title"
-    }
-  ]
-}
+検索が完了したら、テキストで回答せず、必ずsubmit_albumsツールを呼び出して結果を提出してください。`;
 
-hypeScoreは0〜100の数値で、複数メディアのスコア・話題性を総合した独自推定値。`;
+// Tool schema — Anthropic validates input against this, so we never get malformed JSON
+const SUBMIT_TOOL: Anthropic.Tool = {
+  name: "submit_albums",
+  description: "検索結果のアルバムリストを提出する",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      month: { type: "string", description: "YYYY-MM" },
+      albums: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title:              { type: "string" },
+            artist:             { type: "string" },
+            country:            { type: "string" },
+            releaseDate:        { type: "string", description: "YYYY-MM-DD" },
+            genres:             { type: "array", items: { type: "string" } },
+            sources: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name:  { type: "string" },
+                  score: { type: "number" },
+                  note:  { type: "string" },
+                  url:   { type: "string" },
+                },
+                required: ["name", "note"],
+              },
+            },
+            hypeScore:           { type: "number", description: "0〜100" },
+            spotifySearchQuery:  { type: "string" },
+          },
+          required: ["title", "artist", "genres", "sources", "hypeScore", "spotifySearchQuery"],
+        },
+      },
+    },
+    required: ["month", "albums"],
+  },
+};
 
 function buildUserPrompt(yearMonth: string, genre: string): string {
   const [year, month] = yearMonth.split("-");
   const genreLabel = GENRE_LABEL[genre] ?? GENRE_LABEL.all;
-  return `${year}年${month}月にリリースされた${genreLabel}の高評価・話題アルバムを検索して、JSONで返してください。`;
-}
-
-function extractJson(text: string): string {
-  const codeBlock = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeBlock) return codeBlock[1].trim();
-  const start = text.indexOf("{");
-  const end   = text.lastIndexOf("}");
-  if (start !== -1 && end !== -1) return text.slice(start, end + 1);
-  return text.trim();
+  return `${year}年${month}月にリリースされた${genreLabel}の高評価・話題のスタジオフルアルバムを検索して、submit_albumsツールで結果を返してください。EPは除外してください。`;
 }
 
 export async function POST(request: NextRequest) {
@@ -73,21 +86,29 @@ export async function POST(request: NextRequest) {
       model: "claude-haiku-4-5",
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
-      tools: [{ type: "web_search_20250305", name: "web_search" }] as Parameters<typeof client.messages.create>[0]["tools"],
+      tools: [
+        { type: "web_search_20250305", name: "web_search" } as Parameters<typeof client.messages.create>[0]["tools"][number],
+        SUBMIT_TOOL,
+      ],
       messages: [
         { role: "user", content: buildUserPrompt(yearMonth, genre) },
       ],
     });
 
-    const fullText = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("");
+    // Extract from tool_use block — Anthropic validates schema so input is always valid
+    const toolUse = response.content.find(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "submit_albums"
+    );
 
-    const jsonStr = extractJson(fullText);
-    const parsed = JSON.parse(jsonStr);
+    if (toolUse) {
+      return NextResponse.json(toolUse.input);
+    }
 
-    return NextResponse.json(parsed);
+    // Fallback: should not reach here, but handle gracefully
+    return NextResponse.json(
+      { error: "アルバムリストが取得できませんでした。再度お試しください。" },
+      { status: 500 }
+    );
   } catch (error) {
     console.error("monthly-candidates error:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });

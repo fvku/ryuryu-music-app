@@ -1,21 +1,26 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 
 interface AlbumSource {
   name: string;
   score: number | null;
   note: string;
+  url?: string | null;
 }
 
 interface AlbumCandidate {
   title: string;
   artist: string;
   country: string;
+  releaseDate?: string;
   genres: string[];
   sources: AlbumSource[];
   hypeScore: number;
   spotifySearchQuery: string;
+  coverUrl?: string;
+  spotifyUrl?: string;
 }
 
 interface ApiResponse {
@@ -82,16 +87,32 @@ function SkeletonCard() {
 }
 
 function AlbumCard({ album }: { album: AlbumCandidate }) {
-  const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(album.spotifySearchQuery)}`;
+  const spotifyUrl = album.spotifyUrl ?? `https://open.spotify.com/search/${encodeURIComponent(album.spotifySearchQuery)}`;
   return (
     <div className="bg-gray-800/60 border border-gray-700/50 rounded-2xl p-5 flex flex-col gap-3">
-      {/* タイトル・アーティスト・国 */}
-      <div>
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="font-bold text-white text-base leading-snug">{album.title}</h3>
-          <span className="text-xs text-gray-500 shrink-0 mt-0.5">{album.country}</span>
+      {/* カバー画像 + タイトル・アーティスト */}
+      <div className="flex items-start gap-3">
+        {album.coverUrl ? (
+          <Image
+            src={album.coverUrl}
+            alt={album.title}
+            width={64}
+            height={64}
+            className="rounded-lg flex-shrink-0 object-cover"
+          />
+        ) : (
+          <div className="w-16 h-16 rounded-lg flex-shrink-0 bg-gray-700/60" />
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-1">
+            <h3 className="font-bold text-white text-sm leading-snug">{album.title}</h3>
+            <span className="text-xs text-gray-500 shrink-0 mt-0.5">{album.country}</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-0.5">{album.artist}</p>
+          {album.releaseDate && (
+            <p className="text-xs text-gray-500 mt-0.5">{album.releaseDate}</p>
+          )}
         </div>
-        <p className="text-sm text-gray-400 mt-0.5">{album.artist}</p>
       </div>
 
       {/* hypeScore バッジ */}
@@ -114,31 +135,65 @@ function AlbumCard({ album }: { album: AlbumCandidate }) {
           {album.sources.map((src, i) => (
             <li key={i} className="flex items-center gap-2 text-xs text-gray-400">
               <span className="font-medium text-gray-300 w-24 shrink-0">{src.name}</span>
-              <span>{src.note}</span>
+              {src.url ? (
+                <a
+                  href={src.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-gray-200 transition-colors"
+                >
+                  {src.note}
+                </a>
+              ) : (
+                <span>{src.note}</span>
+              )}
             </li>
           ))}
         </ul>
       )}
 
-      {/* アクションボタン */}
-      <div className="flex gap-2 mt-auto pt-1">
+      {/* Spotifyボタン */}
+      <div className="mt-auto pt-1">
         <a
           href={spotifyUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex-1 text-center py-2 rounded-xl text-xs font-semibold bg-[#1DB954]/90 hover:bg-[#1DB954] text-white transition-colors"
+          className="block text-center py-2 rounded-xl text-xs font-semibold bg-[#1DB954]/90 hover:bg-[#1DB954] text-white transition-colors"
         >
-          Spotifyで検索
+          Spotifyで聴く
         </a>
-        <button
-          disabled
-          className="flex-1 py-2 rounded-xl text-xs font-semibold bg-gray-700/50 text-gray-500 cursor-not-allowed border border-gray-600/30"
-        >
-          近日実装
-        </button>
       </div>
     </div>
   );
+}
+
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7日
+
+function cacheKey(yearMonth: string, genre: string) {
+  return `monthly-candidates:${yearMonth}:${genre}`;
+}
+
+function loadCache(yearMonth: string, genre: string): ApiResponse | null {
+  try {
+    const raw = localStorage.getItem(cacheKey(yearMonth, genre));
+    if (!raw) return null;
+    const { data, savedAt } = JSON.parse(raw) as { data: ApiResponse; savedAt: number };
+    if (Date.now() - savedAt > CACHE_TTL_MS) {
+      localStorage.removeItem(cacheKey(yearMonth, genre));
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function saveCache(yearMonth: string, genre: string, data: ApiResponse) {
+  try {
+    localStorage.setItem(cacheKey(yearMonth, genre), JSON.stringify({ data, savedAt: Date.now() }));
+  } catch {
+    // localStorage unavailable — ignore
+  }
 }
 
 export default function MonthlyCandidatesPage() {
@@ -147,21 +202,61 @@ export default function MonthlyCandidatesPage() {
   const [selectedGenre, setSelectedGenre] = useState("all");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ApiResponse | null>(null);
+  const [fromCache, setFromCache] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSearch() {
-    setLoading(true);
+  async function fetchAndEnrich(yearMonth: string, genre: string): Promise<ApiResponse> {
+    const res = await fetch("/api/monthly-candidates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ yearMonth, genre }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "取得に失敗しました");
+
+    const parsed = data as ApiResponse;
+
+    const albumsWithCovers = await Promise.all(
+      parsed.albums.map(async (album) => {
+        try {
+          const searchRes = await fetch(
+            `/api/spotify/search?q=${encodeURIComponent(album.spotifySearchQuery)}`
+          );
+          if (searchRes.ok) {
+            const results = await searchRes.json();
+            if (Array.isArray(results) && results.length > 0) {
+              return { ...album, coverUrl: results[0].coverUrl, spotifyUrl: results[0].spotifyUrl };
+            }
+          }
+        } catch {
+          // ignore
+        }
+        return album;
+      })
+    );
+
+    return { ...parsed, albums: albumsWithCovers };
+  }
+
+  async function handleSearch(forceRefresh = false) {
     setError(null);
+
+    if (!forceRefresh) {
+      const cached = loadCache(selectedMonth, selectedGenre);
+      if (cached) {
+        setResult(cached);
+        setFromCache(true);
+        return;
+      }
+    }
+
+    setLoading(true);
     setResult(null);
+    setFromCache(false);
     try {
-      const res = await fetch("/api/monthly-candidates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ yearMonth: selectedMonth, genre: selectedGenre }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "取得に失敗しました");
-      setResult(data as ApiResponse);
+      const enriched = await fetchAndEnrich(selectedMonth, selectedGenre);
+      saveCache(selectedMonth, selectedGenre, enriched);
+      setResult(enriched);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -211,7 +306,7 @@ export default function MonthlyCandidatesPage() {
 
         {/* 検索ボタン */}
         <button
-          onClick={handleSearch}
+          onClick={() => handleSearch(false)}
           disabled={loading}
           className="w-full py-3 rounded-xl text-sm font-semibold bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors mb-8"
         >
@@ -235,7 +330,17 @@ export default function MonthlyCandidatesPage() {
         {/* 結果 */}
         {result && !loading && (
           <>
-            <p className="text-xs text-gray-500 mb-4">{result.albums.length}件のアルバム候補</p>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs text-gray-500">{result.albums.length}件のアルバム候補</p>
+              {fromCache && (
+                <button
+                  onClick={() => handleSearch(true)}
+                  className="text-xs text-gray-500 underline hover:text-gray-300 transition-colors"
+                >
+                  キャッシュ済み — 再取得
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {result.albums.map((album, i) => (
                 <AlbumCard key={i} album={album} />
