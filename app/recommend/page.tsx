@@ -49,8 +49,11 @@ export default function RecommendPage() {
 
   const loadMore = useCallback(() => setDisplayCount((prev) => prev + 20), []);
 
-  // フィルター変更時はリストを先頭に戻す
+  // フィルター変更時はリストを先頭に戻す & localStorageに保存
   useEffect(() => { setDisplayCount(20); }, [monthFilter, memberFilter]);
+  useEffect(() => {
+    try { localStorage.setItem("ryuryu_timeline_filters", JSON.stringify({ month: monthFilter, member: memberFilter })); } catch {}
+  }, [monthFilter, memberFilter]);
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -103,6 +106,11 @@ export default function RecommendPage() {
         ];
         items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setTimeline(items);
+
+        // localStorageから保存済みフィルターを復元
+        const saved = (() => { try { return JSON.parse(localStorage.getItem("ryuryu_timeline_filters") || "{}"); } catch { return {}; } })();
+        if (saved.month) setMonthFilter(saved.month);
+        if (saved.member) setMemberFilter(saved.member);
       } catch (e) {
         setError(e instanceof Error ? e.message : "エラーが発生しました");
       } finally {

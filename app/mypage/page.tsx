@@ -47,6 +47,13 @@ export default function MyPage() {
   const [selectedAlbum, setSelectedAlbum] = useState<ReleaseMasterAlbum | null>(null);
   const [reviewedSearch, setReviewedSearch] = useState("");
 
+  // フィルター変更をlocalStorageに保存
+  useEffect(() => {
+    try {
+      localStorage.setItem("ryuryu_mypage_filters", JSON.stringify({ tab, savedFilter, savedMonthFilter, forYouFilter, forYouMode, mjTypeFilter, mjMonthFilter }));
+    } catch {}
+  }, [tab, savedFilter, savedMonthFilter, forYouFilter, forYouMode, mjTypeFilter, mjMonthFilter]);
+
   useEffect(() => {
     if (status === "unauthenticated") { setLoading(false); return; }
     if (status !== "authenticated") return;
@@ -72,10 +79,23 @@ export default function MyPage() {
         setBookmarks(bmData);
         setAlbums(albumData);
 
-        // M/J 文章の月フィルター初期値：最新月
+        // localStorageから保存済みフィルターを復元
+        const savedF = (() => { try { return JSON.parse(localStorage.getItem("ryuryu_mypage_filters") || "{}"); } catch { return {}; } })();
+        if (savedF.tab) setTab(savedF.tab);
+        if (savedF.savedFilter) setSavedFilter(savedF.savedFilter);
+        if (savedF.savedMonthFilter) setSavedMonthFilter(savedF.savedMonthFilter);
+        if (savedF.forYouFilter) setForYouFilter(savedF.forYouFilter);
+        if (savedF.forYouMode) setForYouMode(savedF.forYouMode);
+        if (savedF.mjTypeFilter) setMjTypeFilter(savedF.mjTypeFilter);
+
+        // M/J 文章の月フィルター初期値：保存済み優先、なければ最新月
         const mjAlbumsLocal = albumData.filter((a) => ["採用", "J採用", "掲載", "J掲載"].includes(a.mjAdoption ?? ""));
         const mjMonthsLocal = Array.from(new Set(mjAlbumsLocal.map((a) => a.date?.substring(0, 7)).filter(Boolean))).sort().reverse();
-        if (mjMonthsLocal.length > 0) setMjMonthFilter(mjMonthsLocal[0] as string);
+        if (savedF.mjMonthFilter) {
+          setMjMonthFilter(savedF.mjMonthFilter);
+        } else if (mjMonthsLocal.length > 0) {
+          setMjMonthFilter(mjMonthsLocal[0] as string);
+        }
 
         setForYou(forYouData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
 
