@@ -46,13 +46,15 @@ export default function MyPage() {
   const [loading, setLoading] = useState(true);
   const [selectedAlbum, setSelectedAlbum] = useState<ReleaseMasterAlbum | null>(null);
   const [reviewedSearch, setReviewedSearch] = useState("");
+  const [filtersInitialized, setFiltersInitialized] = useState(false);
 
-  // フィルター変更をlocalStorageに保存
+  // 初期化完了後のみ保存
   useEffect(() => {
+    if (!filtersInitialized) return;
     try {
       localStorage.setItem("ryuryu_mypage_filters", JSON.stringify({ tab, savedFilter, savedMonthFilter, forYouFilter, forYouMode, mjTypeFilter, mjMonthFilter }));
     } catch {}
-  }, [tab, savedFilter, savedMonthFilter, forYouFilter, forYouMode, mjTypeFilter, mjMonthFilter]);
+  }, [tab, savedFilter, savedMonthFilter, forYouFilter, forYouMode, mjTypeFilter, mjMonthFilter, filtersInitialized]);
 
   useEffect(() => {
     if (status === "unauthenticated") { setLoading(false); return; }
@@ -96,6 +98,7 @@ export default function MyPage() {
         } else if (mjMonthsLocal.length > 0) {
           setMjMonthFilter(mjMonthsLocal[0] as string);
         }
+        setFiltersInitialized(true);
 
         setForYou(forYouData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
 

@@ -45,15 +45,18 @@ export default function RecommendPage() {
   const [displayCount, setDisplayCount] = useState(20);
   const [monthFilter, setMonthFilter] = useState("すべて");
   const [memberFilter, setMemberFilter] = useState("すべて");
+  const [filtersInitialized, setFiltersInitialized] = useState(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const loadMore = useCallback(() => setDisplayCount((prev) => prev + 20), []);
 
-  // フィルター変更時はリストを先頭に戻す & localStorageに保存
+  // フィルター変更時はリストを先頭に戻す
   useEffect(() => { setDisplayCount(20); }, [monthFilter, memberFilter]);
+  // 初期化完了後のみ保存
   useEffect(() => {
+    if (!filtersInitialized) return;
     try { localStorage.setItem("ryuryu_timeline_filters", JSON.stringify({ month: monthFilter, member: memberFilter })); } catch {}
-  }, [monthFilter, memberFilter]);
+  }, [monthFilter, memberFilter, filtersInitialized]);
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -111,6 +114,7 @@ export default function RecommendPage() {
         const saved = (() => { try { return JSON.parse(localStorage.getItem("ryuryu_timeline_filters") || "{}"); } catch { return {}; } })();
         if (saved.month) setMonthFilter(saved.month);
         if (saved.member) setMemberFilter(saved.member);
+        setFiltersInitialized(true);
       } catch (e) {
         setError(e instanceof Error ? e.message : "エラーが発生しました");
       } finally {
