@@ -1,15 +1,16 @@
 /**
- * Release Master の Time列(G) / #列(H) が空のアルバムを Spotify から補完する。
+ * Release Master の Time列(G) が空のアルバムを Spotify から補完する。
  *
  * 動作:
- *   1. Release Master を読み込み、Time が空の行を抽出
+ *   1. Release Master を読み込み、Time が空の行を抽出（--force なら既存値も上書き）
  *   2. Spotify列(AD) に URL があればそのアルバムIDを使用、なければ検索
  *   3. Spotify Album API でトラック一覧を取得し、総再生時間と曲数を算出
- *   4. Time列 → "H:MM:SS" or "MM:SS" 形式、#列 → 曲数 を書き込む
+ *   4. Time列 → "12songs, 46min 20sec" 形式で書き込む
  *
  * 実行方法:
- *   npx tsx scripts/fill-time-tracks.ts          # dry-run
- *   npx tsx scripts/fill-time-tracks.ts --apply  # 実際に書き込む
+ *   npx tsx scripts/fill-time-tracks.ts                   # dry-run（空のみ）
+ *   npx tsx scripts/fill-time-tracks.ts --apply           # 書き込み（空のみ）
+ *   npx tsx scripts/fill-time-tracks.ts --apply --force   # 書き込み（全上書き）
  */
 
 import { config } from "dotenv";
@@ -21,6 +22,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 config({ path: path.resolve(__dirname, "../.env.local") });
 
 const apply = process.argv.includes("--apply");
+const force = process.argv.includes("--force");
 
 // ── Spotify ──────────────────────────────────────────────────────────────────
 
@@ -92,14 +94,11 @@ async function searchAlbumId(artist: string, title: string): Promise<string | nu
   return item ? extractAlbumId(item.external_urls.spotify) : null;
 }
 
-function formatDuration(totalMs: number): string {
+function formatEntry(totalMs: number, totalTracks: number): string {
   const totalSec = Math.round(totalMs / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  const mm = String(m).padStart(2, "0");
-  const ss = String(s).padStart(2, "0");
-  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+  const totalMin = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${totalTracks}songs, ${totalMin}min ${sec}sec`;
 }
 
 function sleep(ms: number) {
@@ -125,7 +124,7 @@ function colLetter(i: number): string {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`モード: ${apply ? "APPLY（書き込みあり）" : "DRY-RUN（書き込みなし）"}\n`);
+  console.log(`モード: ${apply ? "APPLY（書き込みあり）" : "DRY-RUN（書き込みなし）"}${force ? " + FORCE（全上書き）" : ""}\n`);
 
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
   if (!spreadsheetId) throw new Error("RELEASE_MASTER_SPREADSHEET_ID is not set");
@@ -153,7 +152,7 @@ async function main() {
   const cTime  = colLetter(timeIdx);
   const cTrack = colLetter(trackIdx);
 
-  // Time が空の行を抽出
+  // Time が空の行を抽出（--force なら既存値があっても対象に含める）
   const targets = dataRows
     .map((row, i) => ({
       rowNum: i + 2,
@@ -164,7 +163,7 @@ async function main() {
       tracks: (row[trackIdx]   ?? "").trim(),
       spotify:(row[spotifyIdx] ?? "").trim(),
     }))
-    .filter((r) => r.no && r.title && !r.time);
+    .filter((r) => r.no && r.title && (force || !r.time));
 
   console.log(`Time が空の行: ${targets.length} 件\n`);
   if (targets.length === 0) { console.log("対象なし。"); return; }
@@ -194,16 +193,11 @@ async function main() {
       }
 
       const info = await getAlbumInfo(albumId);
-      const timeStr  = formatDuration(info.totalDurationMs);
-      const trackStr = String(info.totalTracks);
+      const entry = formatEntry(info.totalDurationMs, info.totalTracks);
 
-      console.log(`${timeStr} / ${trackStr}曲`);
+      console.log(entry);
 
-      writes.push({ range: `'Release Master'!${cTime}${t.rowNum}`,  values: [[timeStr]]  });
-      // #列は既に値があればスキップ
-      if (!t.tracks) {
-        writes.push({ range: `'Release Master'!${cTrack}${t.rowNum}`, values: [[trackStr]] });
-      }
+      writes.push({ range: `'Release Master'!${cTime}${t.rowNum}`, values: [[entry]] });
       ok++;
     } catch (e) {
       console.log(`ERROR: ${e}`);
