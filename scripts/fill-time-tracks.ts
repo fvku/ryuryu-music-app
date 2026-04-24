@@ -23,6 +23,8 @@ config({ path: path.resolve(__dirname, "../.env.local") });
 
 const apply = process.argv.includes("--apply");
 const force = process.argv.includes("--force");
+const fromRowArg = process.argv.find((a) => a.startsWith("--from-row="));
+const fromRow = fromRowArg ? parseInt(fromRowArg.split("=")[1], 10) : 1;
 
 // ── Spotify ──────────────────────────────────────────────────────────────────
 
@@ -124,7 +126,7 @@ function colLetter(i: number): string {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`モード: ${apply ? "APPLY（書き込みあり）" : "DRY-RUN（書き込みなし）"}${force ? " + FORCE（全上書き）" : ""}\n`);
+  console.log(`モード: ${apply ? "APPLY（書き込みあり）" : "DRY-RUN（書き込みなし）"}${force ? " + FORCE（全上書き）" : ""}${fromRow > 1 ? ` + FROM row${fromRow}` : ""}\n`);
 
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
   if (!spreadsheetId) throw new Error("RELEASE_MASTER_SPREADSHEET_ID is not set");
@@ -163,7 +165,7 @@ async function main() {
       tracks: (row[trackIdx]   ?? "").trim(),
       spotify:(row[spotifyIdx] ?? "").trim(),
     }))
-    .filter((r) => r.no && r.title && (force || !r.time));
+    .filter((r) => r.no && r.title && r.rowNum >= fromRow && (force || !r.time));
 
   console.log(`Time が空の行: ${targets.length} 件\n`);
   if (targets.length === 0) { console.log("対象なし。"); return; }
