@@ -141,14 +141,10 @@ export default function RecommendPage() {
     );
   }
 
-  const albumMap = new Map(albums.map((a) => [a.no, a]));
   const albumByTitleArtist = new Map(albums.map((a) => [`${a.title}::${a.artist}`, a]));
 
   function getAlbumForItem(item: TimelineItem): ReleaseMasterAlbum | undefined {
-    if (item.type === "review") {
-      return albumByTitleArtist.get(`${item.data.albumTitle}::${item.data.artistName}`) ?? albumMap.get(item.data.reviewId);
-    }
-    return albumByTitleArtist.get(`${item.data.albumTitle}::${item.data.artistName}`) ?? albumMap.get(item.data.albumNo);
+    return albumByTitleArtist.get(`${item.data.albumTitle}::${item.data.artistName}`);
   }
 
   function getItemMember(item: TimelineItem): string {

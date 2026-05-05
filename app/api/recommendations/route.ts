@@ -17,10 +17,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(recs);
     }
 
-    const albumNo = searchParams.get("albumNo");
+    const albumTitle = searchParams.get("albumTitle");
+    const artistName = searchParams.get("artistName");
     const recommendations = await getAllRecommendations();
-    if (albumNo) {
-      return NextResponse.json(recommendations.filter((r) => r.albumNo === albumNo));
+    if (albumTitle && artistName) {
+      return NextResponse.json(recommendations.filter(
+        (r) => r.albumTitle === albumTitle && r.artistName === artistName
+      ));
     }
     return NextResponse.json(recommendations);
   } catch (error) {

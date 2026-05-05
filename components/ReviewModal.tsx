@@ -100,12 +100,12 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   }
 
   useEffect(() => {
-    fetch(`/api/recommendations?albumNo=${encodeURIComponent(album.no)}`)
+    fetch(`/api/recommendations?albumTitle=${encodeURIComponent(album.title)}&artistName=${encodeURIComponent(album.artist)}`)
       .then((r) => r.ok ? r.json() : [])
       .then((recs: Recommendation[]) =>
         setAlbumRecs(recs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
       );
-  }, [album.no]);
+  }, [album.title, album.artist]);
 
   useEffect(() => {
     if (status === "authenticated") {

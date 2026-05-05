@@ -270,8 +270,7 @@ export default function MyPage() {
     savedMonthFilter === "すべて" || a.date?.substring(0, 7) === savedMonthFilter
   );
   const filteredForYou = forYou.filter((rec) => {
-    const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName)
-      ?? albums.find((a) => a.no === rec.albumNo);
+    const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName);
     if (!album) return forYouFilter === "all";
     if (forYouFilter === "reviewed") return myReviewedAlbumNos.has(album.no);
     if (forYouFilter === "unreviewed") return !myReviewedAlbumNos.has(album.no);
@@ -317,8 +316,7 @@ export default function MyPage() {
 
   // FOR YOU バッジ数: 未確認レコメンド + 自分にASSIGNされた未済みM/J
   const unreviewedRecCount = forYou.filter((rec) => {
-    const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName)
-      ?? albums.find((a) => a.no === rec.albumNo);
+    const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName);
     return !album || !myReviewedAlbumNos.has(album.no);
   }).length;
   const mjPendingCount = mjAlbums.filter((album) => {
@@ -543,8 +541,7 @@ export default function MyPage() {
               ) : (
                 <div className="flex flex-col gap-3">
                   {filteredForYou.map((rec) => {
-                    const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName)
-                      ?? albums.find((a) => a.no === rec.albumNo);
+                    const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName);
                     const coverUrl = album ? spotifyData[album.no]?.coverUrl || rec.coverUrl : rec.coverUrl;
                     const isReviewed = album ? myReviewedAlbumNos.has(album.no) : false;
                     return (
