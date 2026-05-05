@@ -1,7 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAccessToken } from "@/lib/spotify";
+import { getAccessToken, clearTokenCache } from "@/lib/spotify";
 
 export const dynamic = "force-dynamic";
+
+async function fetchTracks(albumId: string): Promise<{ track_number: number; name: string; duration_ms: number }[]> {
+  const accessToken = await getAccessToken();
+  const res = await fetch(
+    `https://api.spotify.com/v1/albums/${albumId}/tracks?market=JP&limit=50`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (res.status === 401) {
+    clearTokenCache();
+    const freshToken = await getAccessToken();
+    const retry = await fetch(
+      `https://api.spotify.com/v1/albums/${albumId}/tracks?market=JP&limit=50`,
+      { headers: { Authorization: `Bearer ${freshToken}` } }
+    );
+    if (!retry.ok) throw new Error(`Spotify API error: ${retry.status}`);
+    const data = await retry.json();
+    return data.items;
+  }
+  if (!res.ok) throw new Error(`Spotify API error: ${res.status}`);
+  const data = await res.json();
+  return data.items;
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -10,7 +32,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "spotifyUrl is required" }, { status: 400 });
   }
 
-  // Extract album ID from Spotify URL: https://open.spotify.com/album/{id}
   const match = spotifyUrl.match(/album\/([a-zA-Z0-9]+)/);
   if (!match) {
     return NextResponse.json({ error: "Invalid Spotify URL" }, { status: 400 });
@@ -18,20 +39,12 @@ export async function GET(req: NextRequest) {
   const albumId = match[1];
 
   try {
-    const accessToken = await getAccessToken();
-    const res = await fetch(
-      `https://api.spotify.com/v1/albums/${albumId}/tracks?market=JP&limit=50`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    if (!res.ok) throw new Error(`Spotify API error: ${res.status}`);
-
-    const data = await res.json();
-    const tracks = (data.items as { track_number: number; name: string; duration_ms: number }[]).map((t) => ({
+    const items = await fetchTracks(albumId);
+    const tracks = items.map((t) => ({
       trackNumber: t.track_number,
       name: t.name,
       durationMs: t.duration_ms,
     }));
-
     return NextResponse.json(tracks);
   } catch (e) {
     console.error("Failed to fetch Spotify tracks:", e);
