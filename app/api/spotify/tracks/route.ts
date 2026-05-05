@@ -1,28 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAccessToken, clearTokenCache } from "@/lib/spotify";
 
 export const dynamic = "force-dynamic";
 
-async function fetchTracks(albumId: string): Promise<{ track_number: number; name: string; duration_ms: number }[]> {
-  const accessToken = await getAccessToken();
-  const res = await fetch(
-    `https://api.spotify.com/v1/albums/${albumId}/tracks?market=JP&limit=50`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  if (res.status === 401) {
-    clearTokenCache();
-    const freshToken = await getAccessToken();
-    const retry = await fetch(
-      `https://api.spotify.com/v1/albums/${albumId}/tracks?market=JP&limit=50`,
-      { headers: { Authorization: `Bearer ${freshToken}` } }
-    );
-    if (!retry.ok) throw new Error(`Spotify API error: ${retry.status}`);
-    const data = await retry.json();
-    return data.items;
-  }
-  if (!res.ok) throw new Error(`Spotify API error: ${res.status}`);
+async function fetchFreshToken(): Promise<string> {
+  const clientId = process.env.SPOTIFY_CLIENT_ID;
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  if (!clientId || !clientSecret) throw new Error("Spotify credentials not set");
+
+  const res = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Token fetch failed: ${await res.text()}`);
   const data = await res.json();
-  return data.items;
+  return data.access_token;
 }
 
 export async function GET(req: NextRequest) {
@@ -39,8 +35,20 @@ export async function GET(req: NextRequest) {
   const albumId = match[1];
 
   try {
-    const items = await fetchTracks(albumId);
-    const tracks = items.map((t) => ({
+    const accessToken = await fetchFreshToken();
+    const res = await fetch(
+      `https://api.spotify.com/v1/albums/${albumId}/tracks?market=JP&limit=50`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+      }
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(`Spotify API error: ${res.status} ${JSON.stringify(body)}`);
+    }
+    const data = await res.json();
+    const tracks = (data.items ?? []).map((t: { track_number: number; name: string; duration_ms: number }) => ({
       trackNumber: t.track_number,
       name: t.name,
       durationMs: t.duration_ms,

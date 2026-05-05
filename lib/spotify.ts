@@ -32,6 +32,7 @@ export async function getAccessToken(): Promise<string> {
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: "grant_type=client_credentials",
+    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -63,6 +64,7 @@ export async function searchAlbums(query: string): Promise<SpotifyAlbum[]> {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
+    cache: "no-store",
   });
 
   if (!response.ok) {
