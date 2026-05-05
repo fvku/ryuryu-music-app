@@ -50,6 +50,9 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   const [assignPending, setAssignPending] = useState<string | null>(null);
   const [assignUpdating, setAssignUpdating] = useState(false);
 
+  // プロップ経由のURL（spotifyDataキャッシュ）を優先し、なければアルバムオブジェクトのURLを使う
+  const effectiveSpotifyUrl = spotifyUrl || album.spotifyUrl;
+
   useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
@@ -68,9 +71,9 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   }, []);
 
   useEffect(() => {
-    if (!album.spotifyUrl) return;
+    if (!effectiveSpotifyUrl) return;
     setLoadingTracks(true);
-    fetch(`/api/spotify/tracks?spotifyUrl=${encodeURIComponent(album.spotifyUrl)}`)
+    fetch(`/api/spotify/tracks?spotifyUrl=${encodeURIComponent(effectiveSpotifyUrl)}`)
       .then((r) => (r.ok ? r.json() : []))
       .then((data: SpotifyTrack[]) => {
         setTracks(data);
@@ -82,7 +85,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
       })
       .catch(() => {})
       .finally(() => setLoadingTracks(false));
-  }, [album.spotifyUrl, album.mjTrackNo, album.mjTrack]);
+  }, [effectiveSpotifyUrl, album.mjTrackNo, album.mjTrack]);
 
   async function confirmAssignUpdate() {
     if (assignPending === null) return;
@@ -144,7 +147,6 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
 
   const charCount = text.length;
   const isValid = (text.trim().length > 0 || selectedTrack !== null) && charCount <= 300;
-  const effectiveSpotifyUrl = spotifyUrl || album.spotifyUrl;
 
   if (!mounted) return null;
 
@@ -286,7 +288,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
                 <button type="button" onClick={() => setSelectedTrack(null)} className="text-xs px-1.5 py-0.5 rounded" style={{ color: "var(--text-secondary)" }}>外す</button>
               </div>
             )}
-            {!album.spotifyUrl ? (
+            {!effectiveSpotifyUrl ? (
               <p className="text-xs py-2" style={{ color: "var(--text-secondary)" }}>Spotifyリンクなし</p>
             ) : loadingTracks ? (
               <div className="flex items-center gap-2 py-2">
