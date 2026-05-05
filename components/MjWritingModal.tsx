@@ -33,7 +33,7 @@ function getMjStyle(value: string) {
   };
 }
 
-const ASSIGN_VALUES = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa", ""];
+const ASSIGN_VALUES = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa", "Kaede", ""];
 
 export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, onSaved }: Props) {
   const [mounted, setMounted] = useState(false);
