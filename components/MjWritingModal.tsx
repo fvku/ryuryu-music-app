@@ -43,6 +43,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   const [text, setText] = useState<string>(() => album.mjText?.trim() ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trackError, setTrackError] = useState<string | null>(null);
 
   // ASSIGN
   const [currentAssign, setCurrentAssign] = useState(album.mjAssign?.trim() ?? "");
@@ -73,8 +74,15 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   useEffect(() => {
     if (!effectiveSpotifyUrl) return;
     setLoadingTracks(true);
+    setTrackError(null);
     fetch(`/api/spotify/tracks?spotifyUrl=${encodeURIComponent(effectiveSpotifyUrl)}`)
-      .then((r) => (r.ok ? r.json() : []))
+      .then(async (r) => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.error || `HTTP ${r.status}`);
+        }
+        return r.json();
+      })
       .then((data: SpotifyTrack[]) => {
         setTracks(data);
         const trackNoNum = album.mjTrackNo ? parseInt(album.mjTrackNo.trim(), 10) : NaN;
@@ -83,7 +91,10 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
         const found = byName ?? byNo ?? null;
         if (found) setSelectedTrack(found);
       })
-      .catch(() => {})
+      .catch((e: Error) => {
+        setTrackError(e.message || "トラックを取得できませんでした");
+        setTracks([]);
+      })
       .finally(() => setLoadingTracks(false));
   }, [effectiveSpotifyUrl, album.mjTrackNo, album.mjTrack]);
 
@@ -295,6 +306,10 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
                 <div className="w-4 h-4 rounded-full border-2 animate-spin flex-shrink-0" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
                 <span className="text-xs" style={{ color: "var(--text-secondary)" }}>トラックを読み込み中...</span>
               </div>
+            ) : trackError ? (
+              <p className="text-xs py-2" style={{ color: "#ef4444" }}>トラック取得エラー: {trackError}</p>
+            ) : tracks.length === 0 ? (
+              <p className="text-xs py-2" style={{ color: "var(--text-secondary)" }}>トラックが見つかりません</p>
             ) : (
               <div className="rounded-xl border overflow-hidden max-h-44 overflow-y-auto" style={{ borderColor: "var(--border-subtle)" }}>
                 {tracks.map((track) => {
