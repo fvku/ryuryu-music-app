@@ -46,6 +46,11 @@ export default function AdminPage() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncForce, setSyncForce] = useState(false);
 
+  // test-spotify
+  const [spotifyTestLoading, setSpotifyTestLoading] = useState(false);
+  const [spotifyTestResult, setSpotifyTestResult] = useState<Record<string, unknown> | null>(null);
+  const [spotifyTestError, setSpotifyTestError] = useState<string | null>(null);
+
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault();
     if (!password.trim()) { setAuthError("パスワードを入力してください"); return; }
@@ -154,6 +159,26 @@ export default function AdminPage() {
     }
   }
 
+  async function handleSpotifyTest() {
+    setSpotifyTestLoading(true);
+    setSpotifyTestError(null);
+    setSpotifyTestResult(null);
+    try {
+      const res = await fetch("/api/admin/test-spotify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminPassword: password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "実行に失敗しました");
+      setSpotifyTestResult(data);
+    } catch (err) {
+      setSpotifyTestError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setSpotifyTestLoading(false);
+    }
+  }
+
   async function handleSyncScoresToRm() {
     setSyncLoading(true);
     setSyncError(null);
@@ -221,6 +246,25 @@ export default function AdminPage() {
       </div>
 
       <div className="flex flex-col gap-4">
+
+        {/* Spotify診断 */}
+        <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "rgba(29,185,84,0.3)" }}>
+          <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>Spotify 認証診断</h3>
+          <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+            SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET の設定確認と、実際のAPIアクセスをテストします。
+          </p>
+          {spotifyTestResult && (
+            <div className="rounded-xl p-3 mb-3 border text-xs font-mono" style={{ backgroundColor: "rgba(0,0,0,0.3)", borderColor: "var(--border-subtle)", color: "var(--text-secondary)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+              {JSON.stringify(spotifyTestResult, null, 2)}
+            </div>
+          )}
+          {spotifyTestError && <p className="text-red-400 text-xs mb-3">{spotifyTestError}</p>}
+          <button onClick={handleSpotifyTest} disabled={spotifyTestLoading}
+            className="px-4 py-2 rounded-xl text-sm font-medium border disabled:opacity-50"
+            style={{ borderColor: "#1DB954", color: "#1DB954" }}>
+            {spotifyTestLoading ? "テスト中..." : "診断を実行"}
+          </button>
+        </div>
 
         {/* Bulk import */}
         <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
