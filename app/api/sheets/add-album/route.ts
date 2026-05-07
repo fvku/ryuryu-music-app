@@ -9,6 +9,7 @@ interface AddAlbumBody {
   title: string;
   artist: string;
   albumType?: string;
+  waboku?: string;
   releaseDate: string;
   trackCount: number;
   totalDurationMs: number;
@@ -36,7 +37,7 @@ function formatDuration(ms: number): string {
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as AddAlbumBody;
-    const { title: rawTitle, artist, albumType, releaseDate, trackCount, totalDurationMs, coverUrl, spotifyUrl } = body;
+    const { title: rawTitle, artist, albumType, waboku, releaseDate, trackCount, totalDurationMs, coverUrl, spotifyUrl } = body;
     const isEp = albumType === "ep" || (albumType === "single" && trackCount >= 4);
     const title = isEp ? `[EP] ${rawTitle}` : rawTitle;
 
@@ -67,6 +68,7 @@ export async function POST(request: NextRequest) {
 
     // 書き込み対象列をヘッダー名で解決
     const timeColIdx    = col["Time"]               ?? 6;
+    const wabokuColIdx  = col["洋邦"]               ?? 5;   // F列
     const spotifyColIdx = col[SHEET_COL.SPOTIFY_URL] ?? -1;
     const coverColIdx   = col[SHEET_COL.COVER_URL]   ?? -1;
 
@@ -104,6 +106,7 @@ export async function POST(request: NextRequest) {
       [timeColIdx, trackInfo],
       [spotifyColIdx, spotifyUrl],
     ];
+    if (waboku) cellsToWrite.push([wabokuColIdx, waboku]);
     if (coverColIdx >= 0) cellsToWrite.push([coverColIdx, coverUrl]);
 
     await sheets.spreadsheets.values.batchUpdate({

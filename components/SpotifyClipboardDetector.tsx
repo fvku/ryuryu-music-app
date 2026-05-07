@@ -10,6 +10,7 @@ interface AlbumInfo {
   title: string;
   artist: string;
   albumType?: string;
+  waboku?: string;
   releaseDate: string;
   trackCount: number;
   totalDurationMs: number;
@@ -247,8 +248,13 @@ export default function SpotifyClipboardDetector() {
                   <p className="text-xs mt-0.5 truncate" style={{ color: "var(--text-secondary)" }}>
                     {popup.album.artist}
                   </p>
-                  <p className="text-xs mt-1" style={{ color: "var(--text-tertiary, #666)" }}>
+                  <p className="text-xs mt-1 flex items-center gap-1.5" style={{ color: "var(--text-tertiary, #666)" }}>
                     {popup.album.trackCount}曲
+                    {popup.album.waboku && (
+                      <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "var(--text-secondary)" }}>
+                        {popup.album.waboku}
+                      </span>
+                    )}
                   </p>
                 </div>
                 <button

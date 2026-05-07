@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
+function hasJapaneseChars(text: string): boolean {
+  return /[぀-ヿ一-鿿･-ﾟ]/.test(text);
+}
+
+const JP_GENRE_RE = /j[-.]?(pop|rock|indie|rap|metal|dance|r&b|soul|folk|hip.?hop)|^japanese\b|city.?pop|shibuya|visual.?kei/i;
+
+function detectWaboku(artistName: string, albumName: string, genres: string[]): "邦楽" | "洋楽" {
+  if (hasJapaneseChars(artistName) || hasJapaneseChars(albumName)) return "邦楽";
+  if (genres.some((g) => JP_GENRE_RE.test(g))) return "邦楽";
+  return "洋楽";
+}
+
 async function fetchFreshToken(): Promise<string> {
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
@@ -41,6 +53,23 @@ export async function GET(request: NextRequest) {
 
     const data = await response.json();
 
+    // アーティストジャンルを取得（邦楽/洋楽判定に使用）
+    const primaryArtistId: string | undefined = data.artists?.[0]?.id;
+    let artistGenres: string[] = [];
+    if (primaryArtistId) {
+      const artistRes = await fetch(`https://api.spotify.com/v1/artists/${primaryArtistId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+      });
+      if (artistRes.ok) {
+        const artistData = await artistRes.json();
+        artistGenres = artistData.genres ?? [];
+      }
+    }
+
+    const artistName = (data.artists ?? []).map((a: { name: string }) => a.name).join(", ");
+    const waboku = detectWaboku(artistName, data.name ?? "", artistGenres);
+
     const totalDurationMs: number = (data.tracks?.items ?? []).reduce(
       (sum: number, track: { duration_ms: number }) => sum + (track.duration_ms ?? 0),
       0
@@ -56,8 +85,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       id: data.id,
       title: data.name,
-      artist: (data.artists ?? []).map((a: { name: string }) => a.name).join(", "),
+      artist: artistName,
       albumType: (data.album_type ?? "album") as string,
+      waboku,
       releaseDate: data.release_date ?? "",
       trackCount: data.total_tracks ?? tracks.length,
       totalDurationMs,
