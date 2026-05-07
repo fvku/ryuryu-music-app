@@ -426,8 +426,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
                       type="button"
                       onClick={() => {
                         if (!isPaused) { togglePlay(); return; }
-                        // duration > 0 = すでに読み込み済みなのでtogglePlayで再開
-                        if (duration > 0) { togglePlay(); } else { playTrack(selectedTrack.uri); }
+                        if (duration > 0 || position > 0) { togglePlay(); } else { playTrack(selectedTrack.uri); }
                       }}
                       className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-opacity hover:opacity-80"
                       style={{ backgroundColor: "#1DB954", color: "white" }}
