@@ -65,18 +65,19 @@ export const SHEET_COL = {
   MJ_ADOPTION: "M/J採用",        // Q列
   MJ_ASSIGN:   "ASSIGN",         // R列
   MJ_TRACK_NO: "M Number",       // S列
-  MJ_TRACK:    "Track",          // T列
-  MJ_TEXT:     "M/J採用（220−300）",  // U列  ※要確認: 実際の列名と合わせてください
-  SPOTIFY_URL: "Spotify",        // AC列
-  COVER_URL:   "spotifyカバー",  // AD列
+  MJ_TRACK:    "Track",               // T列
+  START_TIME:  "Start Time",          // U列
+  MJ_TEXT:     "M/J採用（220−300）",  // V列  ※要確認: 実際の列名と合わせてください
+  SPOTIFY_URL: "Spotify",             // AD列
+  COVER_URL:   "spotifyカバー",       // AE列
 
   // --- メンバースコア列（書き込み対象） ---
-  KWISOO: "Kwisoo",  // W列
-  MERI:   "Meri",    // X列
-  KOHEI:  "Kohei",   // Y列
-  EDDIE:  "Eddie",   // Z列
-  HANAWA: "Hanawa",  // AA列
-  KAEDE:  "Kaede",   // AB列
+  KWISOO: "Kwisoo",  // X列
+  MERI:   "Meri",    // Y列
+  KOHEI:  "Kohei",   // Z列
+  EDDIE:  "Eddie",   // AA列
+  HANAWA: "Hanawa",  // AB列
+  KAEDE:  "Kaede",   // AC列
 } as const;
 
 /** 読み取り専用列のフォールバック（header名が不一致の場合に使う 0始まりインデックス） */

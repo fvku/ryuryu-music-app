@@ -19,7 +19,7 @@
   - `scores` シート: A=reviewId, B=memberName(email), C=score, D=comment, E=submittedAt, F=albumTitle, G=artistName
   - `recommendations` シート: A=id, B=recommenderId, C=albumNo, D=albumTitle, E=artistName, F=coverUrl, G=message, H=createdAt, I=mentionedEmails(カンマ区切り)
 - **Release Master**: `RELEASE_MASTER_SPREADSHEET_ID`
-  - A=No., B=Date, C=Title, D=Artist, E=Body, F=洋邦, G=Time, H=#, I=リスナー, Q=M/J採用, R=ASSIGN, S=M Number, T=Track, U=M/J採用（220-300）, W=Kwisoo, X=Meri, Y=Kohei, Z=Eddie, AA=Hanawa, AB=Kaede, AD=Spotify, AE=spotifyカバー
+  - A=No., B=Date, C=Title, D=Artist, E=Body, F=洋邦, G=Time, H=#, I=リスナー, Q=M/J採用, R=ASSIGN, S=M Number, T=Track, U=Start Time, V=M/J採用（220-300）, X=Kwisoo, Y=Meri, Z=Kohei, AA=Eddie, AB=Hanawa, AC=Kaede, AD=Spotify, AE=spotifyカバー
 
 ## 主要ファイル
 
