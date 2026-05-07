@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
       id: data.id,
       title: data.name,
       artist: (data.artists ?? []).map((a: { name: string }) => a.name).join(", "),
+      albumType: (data.album_type ?? "album") as string,
       releaseDate: data.release_date ?? "",
       trackCount: data.total_tracks ?? tracks.length,
       totalDurationMs,

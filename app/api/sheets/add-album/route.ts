@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 interface AddAlbumBody {
   title: string;
   artist: string;
+  albumType?: string;
   releaseDate: string;
   trackCount: number;
   totalDurationMs: number;
@@ -35,7 +36,8 @@ function formatDuration(ms: number): string {
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as AddAlbumBody;
-    const { title, artist, releaseDate, trackCount, totalDurationMs, coverUrl, spotifyUrl } = body;
+    const { title: rawTitle, artist, albumType, releaseDate, trackCount, totalDurationMs, coverUrl, spotifyUrl } = body;
+    const title = albumType === "ep" ? `[EP] ${rawTitle}` : rawTitle;
 
     if (!title || !artist || !spotifyUrl) {
       return NextResponse.json({ error: "title, artist, spotifyUrl are required" }, { status: 400 });

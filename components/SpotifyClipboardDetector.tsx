@@ -9,6 +9,7 @@ interface AlbumInfo {
   id: string;
   title: string;
   artist: string;
+  albumType?: string;
   releaseDate: string;
   trackCount: number;
   totalDurationMs: number;
@@ -237,7 +238,12 @@ export default function SpotifyClipboardDetector() {
                   />
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm leading-tight truncate">{popup.album.title}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-semibold text-sm leading-tight truncate">{popup.album.title}</p>
+                    {popup.album.albumType === "ep" && (
+                      <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded font-bold" style={{ backgroundColor: "rgba(29,185,84,0.2)", color: "#1DB954" }}>EP</span>
+                    )}
+                  </div>
                   <p className="text-xs mt-0.5 truncate" style={{ color: "var(--text-secondary)" }}>
                     {popup.album.artist}
                   </p>
