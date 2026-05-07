@@ -11,6 +11,13 @@ declare global {
   }
 }
 
+function toSpotifyUri(input: string): string {
+  // https://open.spotify.com/track/ID or /intl-xx/track/ID
+  const urlMatch = input.match(/open\.spotify\.com(?:\/intl-[a-z]+)?\/track\/([A-Za-z0-9]+)/);
+  if (urlMatch) return `spotify:track:${urlMatch[1]}`;
+  return input.trim();
+}
+
 function formatTime(ms: number) {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
@@ -27,7 +34,7 @@ export default function TestSpotifyPage() {
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [capturedTime, setCapturedTime] = useState<string>("");
-  const [trackUri, setTrackUri] = useState("spotify:track:4uLU6hMCjMI75M1A2tKUQC");
+  const [trackUri, setTrackUri] = useState("");
   const [error, setError] = useState<string>("");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -99,6 +106,7 @@ export default function TestSpotifyPage() {
   async function handlePlay() {
     if (!deviceId || !spotifyToken) return;
     setError("");
+    const uri = toSpotifyUri(trackUri);
     const res = await fetch(
       `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
       {
@@ -107,7 +115,7 @@ export default function TestSpotifyPage() {
           Authorization: `Bearer ${spotifyToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ uris: [trackUri] }),
+        body: JSON.stringify({ uris: [uri] }),
       }
     );
     if (!res.ok && res.status !== 204) {
@@ -173,7 +181,7 @@ export default function TestSpotifyPage() {
               value={trackUri}
               onChange={(e) => setTrackUri(e.target.value)}
               className="border px-2 py-1 w-full rounded text-sm"
-              placeholder="spotify:track:..."
+              placeholder="SpotifyのURLまたはURI（spotify:track:...）を貼り付け"
             />
           </div>
 
