@@ -71,10 +71,8 @@ export default function AdminPage() {
     ]).then(([settings, albums]: [Record<string, string>, Array<{ date: string }>]) => {
       if (settings.default_month) setDefaultMonth(settings.default_month);
       const months = Array.from(new Set(albums.map((a) => {
-        if (!a.date) return "";
-        const [y, m] = a.date.split("-");
-        if (!y || !m) return "";
-        return `${y}/${m.padStart(2, "0")}`;
+        const key = a.date?.substring(0, 7) ?? "";
+        return key.length === 7 ? key : "";
       }).filter(Boolean))).sort().reverse() as string[];
       setMonthOptions(["すべて", ...months]);
     });
