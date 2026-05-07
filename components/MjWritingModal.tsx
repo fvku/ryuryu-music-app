@@ -424,7 +424,11 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      onClick={() => isPaused ? playTrack(selectedTrack.uri) : togglePlay()}
+                      onClick={() => {
+                        if (!isPaused) { togglePlay(); return; }
+                        // duration > 0 = すでに読み込み済みなのでtogglePlayで再開
+                        if (duration > 0) { togglePlay(); } else { playTrack(selectedTrack.uri); }
+                      }}
                       className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-opacity hover:opacity-80"
                       style={{ backgroundColor: "#1DB954", color: "white" }}
                     >
