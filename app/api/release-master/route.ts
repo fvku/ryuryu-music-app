@@ -63,9 +63,10 @@ export async function GET() {
         genre:      (row[getCol(col, "GENRE")]       || "") as ReleaseMasterAlbum["genre"],
         mjAdoption: row[col[SHEET_COL.MJ_ADOPTION]] || "",
         mjAssign:   row[col[SHEET_COL.MJ_ASSIGN]]   || "",
-        mjTrackNo:  row[col[SHEET_COL.MJ_TRACK_NO]] || "",
-        mjTrack:    row[col[SHEET_COL.MJ_TRACK]]     || "",
-        mjText:     row[col[SHEET_COL.MJ_TEXT]]      || "",
+        mjTrackNo:   row[col[SHEET_COL.MJ_TRACK_NO]] || "",
+        mjTrack:     row[col[SHEET_COL.MJ_TRACK]]    || "",
+        mjStartTime: row[col[SHEET_COL.START_TIME]]  || "",
+        mjText:      row[col[SHEET_COL.MJ_TEXT]]     || "",
         legacyScores: LEGACY_MEMBERS
           .map((name) => ({
             name,
