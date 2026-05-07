@@ -21,12 +21,12 @@ export const LEGACY_NAME_TO_EMAIL: Record<string, string> = {
 
 // Column index (0-based from column A) for Release Master columns W–AA (shifted +1 by ASSIGN column at R)
 export const MEMBER_COLUMN_INDEX: Record<string, number> = {
-  "Kwisoo": 22, // W
-  "Meri": 23,   // X
-  "Kohei": 24,  // Y
-  "Eddie": 25,  // Z
-  "Hanawa": 26, // AA
-  "Kaede": 27,  // AB
+  "Kwisoo": 23, // X
+  "Meri": 24,   // Y
+  "Kohei": 25,  // Z
+  "Eddie": 26,  // AA
+  "Hanawa": 27, // AB
+  "Kaede": 28,  // AC
 };
 
 export function getMemberShortName(email: string | null | undefined): string | null {

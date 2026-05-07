@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
   if (!spreadsheetId) return NextResponse.json({ error: "RELEASE_MASTER_SPREADSHEET_ID is not set" }, { status: 500 });
 
   const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
-  const resp = await sheets.spreadsheets.values.get({ spreadsheetId, range: "'Release Master'!A1:AE" });
+  const resp = await sheets.spreadsheets.values.get({ spreadsheetId, range: "'Release Master'!A1:AZ" });
   const allRows = resp.data.values ?? [];
   if (allRows.length < 2) return NextResponse.json({ error: "データが見つかりません" }, { status: 404 });
 

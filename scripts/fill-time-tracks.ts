@@ -153,7 +153,7 @@ async function main() {
 
   const resp = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "'Release Master'!A1:AE",
+    range: "'Release Master'!A1:AZ",
   });
   const allRows = resp.data.values ?? [];
   if (allRows.length < 2) throw new Error("データが見つかりません");

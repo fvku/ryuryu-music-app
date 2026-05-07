@@ -102,7 +102,7 @@ async function main() {
   console.log("シートを読み込み中...");
   const resp = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "'Release Master'!A1:AD",
+    range: "'Release Master'!A1:AZ",
   });
 
   const allRows = resp.data.values ?? [];

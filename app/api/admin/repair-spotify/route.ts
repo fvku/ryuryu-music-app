@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
   // ヘッダー＋全データ取得
   const resp = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "'Release Master'!A1:AD",
+    range: "'Release Master'!A1:AZ",
   });
 
   const allRows = resp.data.values ?? [];

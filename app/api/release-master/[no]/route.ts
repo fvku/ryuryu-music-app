@@ -47,7 +47,7 @@ export async function GET(
     const sheets = google.sheets({ version: "v4", auth: getAuth() });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Release Master'!A1:AD",
+      range: "'Release Master'!A1:AZ",
     });
 
     const allRows = response.data.values;
