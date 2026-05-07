@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { ReleaseMasterAlbum } from "@/lib/types";
@@ -52,7 +52,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   // Spotify player
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
   const [connectingSpotify, setConnectingSpotify] = useState(false);
-  const isSeeking = useRef(false);
+  const [seekValue, setSeekValue] = useState<number | null>(null);
   const { isReady, isPaused, position, duration, sdkError, playTrack, togglePlay, commitSeek } =
     useSpotifyPlayer(spotifyToken);
 
@@ -441,13 +441,18 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
                       type="range"
                       min={0}
                       max={duration || 1}
-                      value={position}
-                      onChange={(e) => {
-                        isSeeking.current = true;
-                        // position update handled by commitSeek
+                      value={seekValue ?? position}
+                      onChange={(e) => setSeekValue(Number(e.target.value))}
+                      onMouseUp={(e) => {
+                        const ms = Number((e.target as HTMLInputElement).value);
+                        commitSeek(ms);
+                        setSeekValue(null);
                       }}
-                      onMouseUp={(e) => commitSeek(Number((e.target as HTMLInputElement).value))}
-                      onTouchEnd={(e) => commitSeek(Number((e.target as HTMLInputElement).value))}
+                      onTouchEnd={(e) => {
+                        const ms = Number((e.target as HTMLInputElement).value);
+                        commitSeek(ms);
+                        setSeekValue(null);
+                      }}
                       className="flex-1"
                       style={{ accentColor: "#1DB954" }}
                     />
