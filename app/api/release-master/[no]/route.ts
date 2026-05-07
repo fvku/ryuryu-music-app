@@ -75,9 +75,10 @@ export async function GET(
       genre:      (row[getCol(col, "GENRE")]       || "") as ReleaseMasterAlbum["genre"],
       mjAdoption: row[col[SHEET_COL.MJ_ADOPTION]] || "",
       mjAssign:   row[col[SHEET_COL.MJ_ASSIGN]]   || "",
-      mjTrackNo:  row[col[SHEET_COL.MJ_TRACK_NO]] || "",
-      mjTrack:    row[col[SHEET_COL.MJ_TRACK]]     || "",
-      mjText:     row[col[SHEET_COL.MJ_TEXT]]      || "",
+      mjTrackNo:   row[col[SHEET_COL.MJ_TRACK_NO]]  || "",
+      mjTrack:     row[col[SHEET_COL.MJ_TRACK]]     || "",
+      mjStartTime: row[col[SHEET_COL.START_TIME]]   || "",
+      mjText:      row[col[SHEET_COL.MJ_TEXT]]      || "",
       legacyScores: LEGACY_MEMBERS
         .map((name) => ({ name, value: row[col[name] ?? -1] || "" }))
         .filter((s) => s.value !== ""),
@@ -139,7 +140,7 @@ export async function PATCH(
 
     // ★ 書き込み前に必要列の存在チェック
     const requiredForMjAdoption = mjAdoption !== undefined ? [SHEET_COL.MJ_ADOPTION] : [];
-    const requiredForMjData     = mjData     !== undefined ? [SHEET_COL.MJ_TRACK_NO, SHEET_COL.MJ_TRACK, SHEET_COL.MJ_TEXT] : [];
+    const requiredForMjData     = mjData     !== undefined ? [SHEET_COL.MJ_TRACK_NO, SHEET_COL.MJ_TRACK, SHEET_COL.START_TIME, SHEET_COL.MJ_TEXT] : [];
     const requiredForMjAssign   = mjAssign   !== undefined ? [SHEET_COL.MJ_ASSIGN] : [];
     const missing = findMissingColumns(col, [...requiredForMjAdoption, ...requiredForMjData, ...requiredForMjAssign]);
 
@@ -161,22 +162,25 @@ export async function PATCH(
     }
 
     if (mjData !== undefined) {
-      const { trackNo, trackName, mjText } = mjData as {
+      const { trackNo, trackName, startTime, mjText } = mjData as {
         trackNo: string;
         trackName: string;
+        startTime: string;
         mjText: string;
       };
-      const cTrackNo  = indexToColumnLetter(col[SHEET_COL.MJ_TRACK_NO]);
-      const cTrack    = indexToColumnLetter(col[SHEET_COL.MJ_TRACK]);
-      const cMjText   = indexToColumnLetter(col[SHEET_COL.MJ_TEXT]);
+      const cTrackNo    = indexToColumnLetter(col[SHEET_COL.MJ_TRACK_NO]);
+      const cTrack      = indexToColumnLetter(col[SHEET_COL.MJ_TRACK]);
+      const cStartTime  = indexToColumnLetter(col[SHEET_COL.START_TIME]);
+      const cMjText     = indexToColumnLetter(col[SHEET_COL.MJ_TEXT]);
       await sheets.spreadsheets.values.batchUpdate({
         spreadsheetId,
         requestBody: {
           valueInputOption: "RAW",
           data: [
-            { range: `'Release Master'!${cTrackNo}${sheetRow}`,  values: [[trackNo   ?? ""]] },
-            { range: `'Release Master'!${cTrack}${sheetRow}`,    values: [[trackName ?? ""]] },
-            { range: `'Release Master'!${cMjText}${sheetRow}`,   values: [[mjText    ?? ""]] },
+            { range: `'Release Master'!${cTrackNo}${sheetRow}`,   values: [[trackNo    ?? ""]] },
+            { range: `'Release Master'!${cTrack}${sheetRow}`,     values: [[trackName  ?? ""]] },
+            { range: `'Release Master'!${cStartTime}${sheetRow}`, values: [[startTime  ?? ""]] },
+            { range: `'Release Master'!${cMjText}${sheetRow}`,    values: [[mjText     ?? ""]] },
           ],
         },
       });

@@ -40,6 +40,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   const [tracks, setTracks] = useState<SpotifyTrack[]>([]);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [selectedTrack, setSelectedTrack] = useState<SpotifyTrack | null>(null);
+  const [startTime, setStartTime] = useState<string>(() => album.mjStartTime?.trim() ?? "");
   const [text, setText] = useState<string>(() => album.mjText?.trim() ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +135,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
           mjData: {
             trackNo: selectedTrack ? String(selectedTrack.trackNumber) : "",
             trackName: selectedTrack ? selectedTrack.name : "",
+            startTime: startTime.trim(),
             mjText: text.trim(),
           },
         }),
@@ -144,9 +146,10 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
         throw new Error(errData.error || "保存に失敗しました");
       }
       onSaved({
-        mjTrackNo: selectedTrack ? String(selectedTrack.trackNumber) : "",
-        mjTrack: selectedTrack ? selectedTrack.name : "",
-        mjText: text.trim(),
+        mjTrackNo:   selectedTrack ? String(selectedTrack.trackNumber) : "",
+        mjTrack:     selectedTrack ? selectedTrack.name : "",
+        mjStartTime: startTime.trim(),
+        mjText:      text.trim(),
       });
       onClose();
     } catch (e) {
@@ -342,6 +345,30 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
               </div>
             )}
           </div>
+
+          {/* Start Time */}
+          {selectedTrack && (
+            <div>
+              <h3 className="text-xs font-bold mb-2.5" style={{ color: "var(--text-primary)" }}>再生開始位置</h3>
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  placeholder="例: 0:30"
+                  className="w-28 px-3 py-2 rounded-xl border text-sm focus:outline-none focus:border-violet-500/50"
+                  style={{
+                    backgroundColor: "#0d0d14",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                  {selectedTrack.name} の何秒目から再生するか
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Text editor */}
           <div>
