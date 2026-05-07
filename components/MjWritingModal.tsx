@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { reportColumnError } from "@/components/ColumnErrorIndicator";
+import { useSpotifyPlayer } from "@/hooks/useSpotifyPlayer";
+import { getSpotifyToken, saveSpotifyToken, openSpotifyAuthPopup } from "@/lib/spotify-token";
 
 interface SpotifyTrack {
   trackNumber: number;
   name: string;
   durationMs: number;
+  uri: string;
 }
 
 interface Props {
@@ -46,6 +49,13 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   const [error, setError] = useState<string | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
 
+  // Spotify player
+  const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
+  const [connectingSpotify, setConnectingSpotify] = useState(false);
+  const isSeeking = useRef(false);
+  const { isReady, isPaused, position, duration, sdkError, playTrack, togglePlay, commitSeek } =
+    useSpotifyPlayer(spotifyToken);
+
   // ASSIGN
   const [currentAssign, setCurrentAssign] = useState(album.mjAssign?.trim() ?? "");
   const [assignPicker, setAssignPicker] = useState(false);
@@ -55,7 +65,10 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   // プロップ経由のURL（spotifyDataキャッシュ）を優先し、なければアルバムオブジェクトのURLを使う
   const effectiveSpotifyUrl = spotifyUrl || album.spotifyUrl;
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    setMounted(true);
+    setSpotifyToken(getSpotifyToken());
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -321,7 +334,16 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
                     <button
                       key={track.trackNumber}
                       type="button"
-                      onClick={() => setSelectedTrack(isSelected ? null : track)}
+                      onClick={() => {
+                        if (isSelected) {
+                          setSelectedTrack(null);
+                          setStartTime("");
+                        } else {
+                          setSelectedTrack(track);
+                          setStartTime("");
+                          if (isReady && track.uri) playTrack(track.uri);
+                        }
+                      }}
                       className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-white/5"
                       style={{ backgroundColor: isSelected ? "rgba(139,92,246,0.15)" : "transparent" }}
                     >
@@ -350,23 +372,108 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
           {selectedTrack && (
             <div>
               <h3 className="text-xs font-bold mb-2.5" style={{ color: "var(--text-primary)" }}>再生開始位置</h3>
-              <div className="flex items-center gap-3">
-                <input
-                  type="text"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  placeholder="例: 0:30"
-                  className="w-28 px-3 py-2 rounded-xl border text-sm focus:outline-none focus:border-violet-500/50"
-                  style={{
-                    backgroundColor: "#0d0d14",
-                    borderColor: "var(--border-subtle)",
-                    color: "var(--text-primary)",
-                  }}
-                />
-                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                  {selectedTrack.name} の何秒目から再生するか
-                </p>
-              </div>
+
+              {!spotifyToken ? (
+                // Spotify未接続
+                <div className="rounded-2xl border p-4 flex flex-col items-center gap-2.5 text-center"
+                  style={{ borderColor: "var(--border-subtle)", backgroundColor: "rgba(255,255,255,0.03)" }}>
+                  <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                    曲を聴きながら開始位置を設定できます
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConnectingSpotify(true);
+                      openSpotifyAuthPopup(
+                        (token, expiresIn) => {
+                          saveSpotifyToken(token, expiresIn);
+                          setSpotifyToken(token);
+                          setConnectingSpotify(false);
+                        },
+                        () => setConnectingSpotify(false)
+                      );
+                    }}
+                    disabled={connectingSpotify}
+                    className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-full font-bold transition-opacity disabled:opacity-60"
+                    style={{ backgroundColor: "#1DB954", color: "white" }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
+                    </svg>
+                    {connectingSpotify ? "接続中..." : "Spotifyで接続して設定する"}
+                  </button>
+                  <p className="text-xs" style={{ color: "var(--text-secondary)", opacity: 0.6 }}>
+                    Spotify Premium が必要です
+                  </p>
+                </div>
+
+              ) : sdkError ? (
+                <p className="text-xs py-2" style={{ color: "#ef4444" }}>{sdkError}</p>
+
+              ) : !isReady ? (
+                <div className="flex items-center gap-2 py-2">
+                  <div className="w-4 h-4 rounded-full border-2 animate-spin flex-shrink-0"
+                    style={{ borderColor: "#1DB954", borderTopColor: "transparent" }} />
+                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Spotifyプレイヤー初期化中...</span>
+                </div>
+
+              ) : (
+                // SDKプレイヤー
+                <div className="rounded-2xl border p-4 space-y-3"
+                  style={{ backgroundColor: "rgba(29,185,84,0.04)", borderColor: "rgba(29,185,84,0.2)" }}>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => isPaused ? playTrack(selectedTrack.uri) : togglePlay()}
+                      className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-opacity hover:opacity-80"
+                      style={{ backgroundColor: "#1DB954", color: "white" }}
+                    >
+                      {isPaused ? (
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                      ) : (
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+                      )}
+                    </button>
+                    <span className="font-mono text-sm tabular-nums w-10 flex-shrink-0" style={{ color: "var(--text-primary)" }}>
+                      {formatDuration(position)}
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={duration || 1}
+                      value={position}
+                      onChange={(e) => {
+                        isSeeking.current = true;
+                        // position update handled by commitSeek
+                      }}
+                      onMouseUp={(e) => commitSeek(Number((e.target as HTMLInputElement).value))}
+                      onTouchEnd={(e) => commitSeek(Number((e.target as HTMLInputElement).value))}
+                      className="flex-1"
+                      style={{ accentColor: "#1DB954" }}
+                    />
+                    <span className="font-mono text-xs tabular-nums w-10 text-right flex-shrink-0" style={{ color: "var(--text-secondary)" }}>
+                      {formatDuration(duration)}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setStartTime(formatDuration(position))}
+                    className="w-full py-2.5 rounded-xl text-xs font-bold transition-opacity hover:opacity-80"
+                    style={{ backgroundColor: "rgba(29,185,84,0.18)", color: "#1DB954", border: "1px solid rgba(29,185,84,0.3)" }}
+                  >
+                    この位置をStart Timeとしてセット（{formatDuration(position)}）
+                  </button>
+
+                  {startTime && (
+                    <div className="flex items-center justify-between px-3 py-2 rounded-xl"
+                      style={{ backgroundColor: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.25)" }}>
+                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Start Time</span>
+                      <span className="font-mono text-sm font-bold" style={{ color: "var(--accent)" }}>{startTime}</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
