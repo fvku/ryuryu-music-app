@@ -48,10 +48,11 @@ export async function GET(req: NextRequest) {
       throw new Error(`Spotify API error: ${res.status} ${JSON.stringify(body)}`);
     }
     const data = await res.json();
-    const tracks = (data.items ?? []).map((t: { track_number: number; name: string; duration_ms: number }) => ({
+    const tracks = (data.items ?? []).map((t: { track_number: number; name: string; duration_ms: number; uri: string }) => ({
       trackNumber: t.track_number,
       name: t.name,
       durationMs: t.duration_ms,
+      uri: t.uri,
     }));
     return NextResponse.json(tracks);
   } catch (e) {
