@@ -240,7 +240,7 @@ export default function SpotifyClipboardDetector() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <p className="font-semibold text-sm leading-tight truncate">{popup.album.title}</p>
-                    {popup.album.albumType === "ep" && (
+                    {(popup.album.albumType === "ep" || (popup.album.albumType === "single" && popup.album.trackCount >= 4)) && (
                       <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded font-bold" style={{ backgroundColor: "rgba(29,185,84,0.2)", color: "#1DB954" }}>EP</span>
                     )}
                   </div>

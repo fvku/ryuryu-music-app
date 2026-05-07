@@ -37,7 +37,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as AddAlbumBody;
     const { title: rawTitle, artist, albumType, releaseDate, trackCount, totalDurationMs, coverUrl, spotifyUrl } = body;
-    const title = albumType === "ep" ? `[EP] ${rawTitle}` : rawTitle;
+    const isEp = albumType === "ep" || (albumType === "single" && trackCount >= 4);
+    const title = isEp ? `[EP] ${rawTitle}` : rawTitle;
 
     if (!title || !artist || !spotifyUrl) {
       return NextResponse.json({ error: "title, artist, spotifyUrl are required" }, { status: 400 });
