@@ -337,10 +337,8 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
                       onClick={() => {
                         if (isSelected) {
                           setSelectedTrack(null);
-                          setStartTime("");
                         } else {
                           setSelectedTrack(track);
-                          setStartTime("");
                           if (isReady && track.uri) playTrack(track.uri);
                         }
                       }}
@@ -370,11 +368,30 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
 
           {/* Start Time */}
           {selectedTrack && (
-            <div>
-              <h3 className="text-xs font-bold mb-2.5" style={{ color: "var(--text-primary)" }}>再生開始位置</h3>
+            <div className="flex flex-col gap-3">
+              <h3 className="text-xs font-bold" style={{ color: "var(--text-primary)" }}>再生開始位置</h3>
 
+              {/* 現在の設定値 — 常に表示・直接編集可 */}
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  placeholder="例: 0:30"
+                  className="w-28 px-3 py-2 rounded-xl border text-sm font-mono focus:outline-none focus:border-violet-500/50"
+                  style={{
+                    backgroundColor: "#0d0d14",
+                    borderColor: startTime ? "rgba(139,92,246,0.4)" : "var(--border-subtle)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                  {startTime ? "セット済み（直接編集可）" : "未設定"}
+                </p>
+              </div>
+
+              {/* Spotifyプレイヤー（接続済みの場合） */}
               {!spotifyToken ? (
-                // Spotify未接続
                 <div className="rounded-2xl border p-4 flex flex-col items-center gap-2.5 text-center"
                   style={{ borderColor: "var(--border-subtle)", backgroundColor: "rgba(255,255,255,0.03)" }}>
                   <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
@@ -408,10 +425,10 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
                 </div>
 
               ) : sdkError ? (
-                <p className="text-xs py-2" style={{ color: "#ef4444" }}>{sdkError}</p>
+                <p className="text-xs" style={{ color: "#ef4444" }}>{sdkError}</p>
 
               ) : !isReady ? (
-                <div className="flex items-center gap-2 py-2">
+                <div className="flex items-center gap-2">
                   <div className="w-4 h-4 rounded-full border-2 animate-spin flex-shrink-0"
                     style={{ borderColor: "#1DB954", borderTopColor: "transparent" }} />
                   <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Spotifyプレイヤー初期化中...</span>
@@ -472,14 +489,6 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
                   >
                     この位置をStart Timeとしてセット（{formatDuration(position)}）
                   </button>
-
-                  {startTime && (
-                    <div className="flex items-center justify-between px-3 py-2 rounded-xl"
-                      style={{ backgroundColor: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.25)" }}>
-                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Start Time</span>
-                      <span className="font-mono text-sm font-bold" style={{ color: "var(--accent)" }}>{startTime}</span>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
