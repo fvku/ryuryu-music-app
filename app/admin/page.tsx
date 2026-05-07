@@ -51,12 +51,33 @@ export default function AdminPage() {
   const [spotifyTestResult, setSpotifyTestResult] = useState<Record<string, unknown> | null>(null);
   const [spotifyTestError, setSpotifyTestError] = useState<string | null>(null);
 
+  // default-month setting
+  const [defaultMonth, setDefaultMonth] = useState<string>("");
+  const [monthOptions, setMonthOptions] = useState<string[]>([]);
+  const [defaultMonthSaving, setDefaultMonthSaving] = useState(false);
+  const [defaultMonthResult, setDefaultMonthResult] = useState<string | null>(null);
+  const [defaultMonthError, setDefaultMonthError] = useState<string | null>(null);
+
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault();
     if (!password.trim()) { setAuthError("パスワードを入力してください"); return; }
     setAuthLoading(true);
     setStep("main");
     setAuthLoading(false);
+    // 設定と月一覧を並行取得
+    Promise.all([
+      fetch("/api/admin/settings").then(r => r.json()).catch(() => ({})),
+      fetch("/api/release-master").then(r => r.json()).catch(() => []),
+    ]).then(([settings, albums]: [Record<string, string>, Array<{ date: string }>]) => {
+      if (settings.default_month) setDefaultMonth(settings.default_month);
+      const months = Array.from(new Set(albums.map((a) => {
+        if (!a.date) return "";
+        const [y, m] = a.date.split("-");
+        if (!y || !m) return "";
+        return `${y}/${m.padStart(2, "0")}`;
+      }).filter(Boolean))).sort().reverse() as string[];
+      setMonthOptions(["すべて", ...months]);
+    });
   }
 
   async function handleBulkImport() {
@@ -136,6 +157,26 @@ export default function AdminPage() {
       setCoversError(err instanceof Error ? err.message : "エラーが発生しました");
     } finally {
       setCoversLoading(false);
+    }
+  }
+
+  async function handleSaveDefaultMonth() {
+    setDefaultMonthSaving(true);
+    setDefaultMonthResult(null);
+    setDefaultMonthError(null);
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminPassword: password, key: "default_month", value: defaultMonth }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "保存に失敗しました");
+      setDefaultMonthResult("保存しました");
+    } catch (err) {
+      setDefaultMonthError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setDefaultMonthSaving(false);
     }
   }
 
@@ -246,6 +287,37 @@ export default function AdminPage() {
       </div>
 
       <div className="flex flex-col gap-4">
+
+        {/* デフォルト月フィルター */}
+        <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "rgba(139,92,246,0.3)" }}>
+          <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>ホームのデフォルト月フィルター</h3>
+          <p className="text-xs mb-4" style={{ color: "var(--text-secondary)" }}>
+            ユーザーが初めてアクセスしたとき（または月フィルターを保存していない場合）に表示する月を設定します。
+          </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <select
+              value={defaultMonth}
+              onChange={(e) => setDefaultMonth(e.target.value)}
+              className="px-3 py-2 rounded-xl border text-sm focus:outline-none"
+              style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)", minWidth: "140px" }}
+            >
+              {monthOptions.length === 0 && <option value="">読み込み中...</option>}
+              {monthOptions.map((m) => (
+                <option key={m} value={m}>{m === "すべて" ? "すべて" : m.replace("/", "年").replace(/^(\d+年)0?(\d+)$/, "$1$2月")}</option>
+              ))}
+            </select>
+            <button
+              onClick={handleSaveDefaultMonth}
+              disabled={defaultMonthSaving || !defaultMonth}
+              className="px-4 py-2 rounded-xl text-sm font-medium border disabled:opacity-50"
+              style={{ borderColor: "var(--accent)", color: "var(--accent)" }}
+            >
+              {defaultMonthSaving ? "保存中..." : "保存"}
+            </button>
+          </div>
+          {defaultMonthResult && <p className="text-xs mt-2" style={{ color: "#4ade80" }}>{defaultMonthResult}</p>}
+          {defaultMonthError && <p className="text-xs mt-2 text-red-400">{defaultMonthError}</p>}
+        </div>
 
         {/* Spotify診断 */}
         <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "rgba(29,185,84,0.3)" }}>

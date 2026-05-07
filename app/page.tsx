@@ -50,14 +50,21 @@ export default function HomePage() {
         const savedFilters = (() => { try { return JSON.parse(localStorage.getItem("ryuryu_home_filters") || "{}"); } catch { return {}; } })();
         if (savedFilters.genre) setGenreFilters(savedFilters.genre);
 
-        // 月の初期値：保存済みがあればそれを使い、なければ現在月
+        // 月の初期値：保存済みがあればそれを使い、なければ管理者設定→現在月の順にフォールバック
         const availableMonths = Array.from(new Set(data.map((a) => getMonthKey(a.date)).filter(Boolean))).sort().reverse();
         if (savedFilters.month) {
           setMonthFilter(savedFilters.month);
         } else {
-          const now = new Date();
-          const currentMonthKey = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}`;
-          const defaultMonth = availableMonths.includes(currentMonthKey) ? currentMonthKey : (availableMonths[0] ?? "すべて");
+          let defaultMonth = availableMonths[0] ?? "すべて";
+          try {
+            const settingsRes = await fetch("/api/admin/settings");
+            if (settingsRes.ok) {
+              const settings: Record<string, string> = await settingsRes.json();
+              if (settings.default_month && (settings.default_month === "すべて" || availableMonths.includes(settings.default_month))) {
+                defaultMonth = settings.default_month;
+              }
+            }
+          } catch { /* 失敗時はフォールバック */ }
           setMonthFilter(defaultMonth);
         }
 
