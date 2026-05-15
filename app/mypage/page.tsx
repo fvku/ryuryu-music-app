@@ -33,6 +33,7 @@ export default function MyPage() {
   const [savedFilter, setSavedFilter] = useState<ReviewFilter>("unreviewed");
   const [savedMonthFilter, setSavedMonthFilter] = useState<string>("すべて");
   const [forYouFilter, setForYouFilter] = useState<ReviewFilter>("unreviewed");
+  const [forYouMonthFilter, setForYouMonthFilter] = useState<string>("すべて");
   const [forYouMode, setForYouMode] = useState<"recommend" | "mj">("recommend");
   const [mjMonthFilter, setMjMonthFilter] = useState<string>("すべて");
   const [mjTypeFilter, setMjTypeFilter] = useState<"all" | "monthly" | "japan">("all");
@@ -53,9 +54,9 @@ export default function MyPage() {
   useEffect(() => {
     if (!filtersInitialized) return;
     try {
-      localStorage.setItem("ryuryu_mypage_filters", JSON.stringify({ tab, savedFilter, savedMonthFilter, forYouFilter, forYouMode, mjTypeFilter, mjMonthFilter }));
+      localStorage.setItem("ryuryu_mypage_filters", JSON.stringify({ tab, savedFilter, savedMonthFilter, forYouFilter, forYouMonthFilter, forYouMode, mjTypeFilter, mjMonthFilter }));
     } catch {}
-  }, [tab, savedFilter, savedMonthFilter, forYouFilter, forYouMode, mjTypeFilter, mjMonthFilter, filtersInitialized]);
+  }, [tab, savedFilter, savedMonthFilter, forYouFilter, forYouMonthFilter, forYouMode, mjTypeFilter, mjMonthFilter, filtersInitialized]);
 
   useEffect(() => {
     if (status === "unauthenticated") { setLoading(false); return; }
@@ -88,6 +89,7 @@ export default function MyPage() {
         if (savedF.savedFilter) setSavedFilter(savedF.savedFilter);
         if (savedF.savedMonthFilter) setSavedMonthFilter(savedF.savedMonthFilter);
         if (savedF.forYouFilter) setForYouFilter(savedF.forYouFilter);
+        if (savedF.forYouMonthFilter) setForYouMonthFilter(savedF.forYouMonthFilter);
         if (savedF.forYouMode) setForYouMode(savedF.forYouMode);
         if (savedF.mjTypeFilter) setMjTypeFilter(savedF.mjTypeFilter);
 
@@ -270,8 +272,13 @@ export default function MyPage() {
   const filteredSaved = applyReviewFilter(bookmarkedAlbums, savedFilter).filter((a) =>
     savedMonthFilter === "すべて" || a.date?.substring(0, 7) === savedMonthFilter
   );
+  const forYouMonths = ["すべて", ...Array.from(new Set(
+    forYou.map((rec) => albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName)?.date?.substring(0, 7)).filter(Boolean)
+  )).sort().reverse()];
+
   const filteredForYou = forYou.filter((rec) => {
     const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName);
+    if (forYouMonthFilter !== "すべて" && album?.date?.substring(0, 7) !== forYouMonthFilter) return false;
     if (!album) return forYouFilter === "all";
     if (forYouFilter === "reviewed") return myReviewedAlbumNos.has(album.no);
     if (forYouFilter === "unreviewed") return !myReviewedAlbumNos.has(album.no);
@@ -335,28 +342,7 @@ export default function MyPage() {
     { key: "reviewed", label: "REVIEWED", count: 0 },
   ];
 
-  function ReviewFilterButtons({ value, onChange }: { value: ReviewFilter; onChange: (v: ReviewFilter) => void }) {
-    return (
-      <div className="flex gap-2 mb-4">
-        {(["all", "unreviewed", "reviewed"] as ReviewFilter[]).map((f) => (
-          <button
-            key={f}
-            onClick={() => onChange(f)}
-            className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
-            style={{
-              backgroundColor: value === f ? "rgba(139,92,246,0.3)" : "var(--bg-card)",
-              color: value === f ? "white" : "var(--text-secondary)",
-              border: `1px solid ${value === f ? "var(--accent)" : "var(--border-subtle)"}`,
-            }}
-          >
-            {f === "all" ? "すべて" : f === "reviewed" ? "レビュー済み" : "未レビュー"}
-          </button>
-        ))}
-      </div>
-    );
-  }
-
-  function AlbumRow({ album, reviewedMode = false }: { album: ReleaseMasterAlbum; reviewedMode?: boolean }) {
+function AlbumRow({ album, reviewedMode = false }: { album: ReleaseMasterAlbum; reviewedMode?: boolean }) {
     const spotify = spotifyData[album.no];
     const score = getCombinedScore(album);
     const myScore = getMyScore(album);
@@ -534,7 +520,32 @@ export default function MyPage() {
           {/* レコメンドモード */}
           {forYouMode === "recommend" && (
             <>
-              <ReviewFilterButtons value={forYouFilter} onChange={setForYouFilter} />
+              <div className="flex items-center gap-2 flex-wrap mb-4">
+                <select
+                  value={forYouMonthFilter}
+                  onChange={(e) => setForYouMonthFilter(e.target.value)}
+                  className="px-3 py-1 rounded-xl border text-xs font-medium focus:outline-none flex-shrink-0"
+                  style={{ backgroundColor: "var(--bg-card)", borderColor: forYouMonthFilter !== "すべて" ? "var(--accent)" : "var(--border-subtle)", color: forYouMonthFilter !== "すべて" ? "white" : "var(--text-secondary)" }}
+                >
+                  {forYouMonths.map((m) => (
+                    <option key={m} value={m}>{m === "すべて" ? "すべて" : `${m!.split("/")[0]}年${parseInt(m!.split("/")[1])}月`}</option>
+                  ))}
+                </select>
+                {(["all", "unreviewed", "reviewed"] as ReviewFilter[]).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setForYouFilter(f)}
+                    className="px-3 py-1 rounded-full text-xs font-medium transition-colors flex-shrink-0"
+                    style={{
+                      backgroundColor: forYouFilter === f ? "rgba(139,92,246,0.3)" : "var(--bg-card)",
+                      color: forYouFilter === f ? "white" : "var(--text-secondary)",
+                      border: `1px solid ${forYouFilter === f ? "var(--accent)" : "var(--border-subtle)"}`,
+                    }}
+                  >
+                    {f === "all" ? "すべて" : f === "reviewed" ? "レビュー済み" : "未レビュー"}
+                  </button>
+                ))}
+              </div>
               {filteredForYou.length === 0 ? (
                 <div className="text-center py-16 rounded-2xl border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
                   <p className="text-4xl mb-4">✉️</p>
