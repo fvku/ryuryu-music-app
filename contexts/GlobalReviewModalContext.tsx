@@ -2,27 +2,33 @@
 
 import { createContext, useContext, useState } from "react";
 
+interface AlbumRef {
+  no: string;
+  title: string;
+  artist: string;
+}
+
 interface GlobalReviewModalContextValue {
-  albumNo: string | null;
-  openAlbum: (no: string) => void;
+  albumRef: AlbumRef | null;
+  openAlbum: (ref: AlbumRef) => void;
   closeAlbum: () => void;
 }
 
 const GlobalReviewModalContext = createContext<GlobalReviewModalContextValue>({
-  albumNo: null,
+  albumRef: null,
   openAlbum: () => {},
   closeAlbum: () => {},
 });
 
 export function GlobalReviewModalProvider({ children }: { children: React.ReactNode }) {
-  const [albumNo, setAlbumNo] = useState<string | null>(null);
+  const [albumRef, setAlbumRef] = useState<AlbumRef | null>(null);
 
   return (
     <GlobalReviewModalContext.Provider
       value={{
-        albumNo,
-        openAlbum: (no) => setAlbumNo(no),
-        closeAlbum: () => setAlbumNo(null),
+        albumRef,
+        openAlbum: (ref) => setAlbumRef(ref),
+        closeAlbum: () => setAlbumRef(null),
       }}
     >
       {children}

@@ -276,7 +276,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       const res = await fetch(`/api/release-master/${album.no}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mjAdoption: mjPending }),
+        body: JSON.stringify({ mjAdoption: mjPending, title: album.title, artist: album.artist }),
       });
       if (!res.ok) throw new Error((await res.json()).error || "更新失敗");
       setMjAdoption(mjPending);

@@ -35,7 +35,7 @@ function getAuth(write = false) {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { no: string } }
 ) {
   try {
@@ -43,6 +43,10 @@ export async function GET(
     if (!spreadsheetId) {
       return NextResponse.json({ error: "RELEASE_MASTER_SPREADSHEET_ID is not set" }, { status: 500 });
     }
+
+    const { searchParams } = new URL(request.url);
+    const titleParam = searchParams.get("title");
+    const artistParam = searchParams.get("artist");
 
     const sheets = google.sheets({ version: "v4", auth: getAuth() });
     const response = await sheets.spreadsheets.values.get({
@@ -58,10 +62,11 @@ export async function GET(
     const [headerRow, ...dataRows] = allRows;
     const col = buildHeaderMap(headerRow);
 
+    if (!titleParam || !artistParam) {
+      return NextResponse.json({ error: "title と artist が必要です" }, { status: 400 });
+    }
     const row = dataRows.find(
-      (r) => r[getCol(col, "NO")] === params.no &&
-             r[getCol(col, "TITLE")] &&
-             r[getCol(col, "ARTIST")]
+      (r) => r[getCol(col, "TITLE")] === titleParam && r[getCol(col, "ARTIST")] === artistParam
     );
     if (!row) {
       return NextResponse.json({ error: "アルバムが見つかりません" }, { status: 404 });
@@ -104,9 +109,12 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { mjAdoption, mjData, mjAssign } = body;
+    const { mjAdoption, mjData, mjAssign, title, artist } = body;
     if (mjAdoption === undefined && mjData === undefined && mjAssign === undefined) {
       return NextResponse.json({ error: "mjAdoption, mjData, または mjAssign が必要です" }, { status: 400 });
+    }
+    if (!title || !artist) {
+      return NextResponse.json({ error: "title と artist が必要です" }, { status: 400 });
     }
 
     const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
@@ -116,23 +124,21 @@ export async function PATCH(
 
     const sheets = google.sheets({ version: "v4", auth: getAuth(true) });
 
-    // ヘッダー行と No. 列を同時取得
-    const [headerRes, noColRes] = await Promise.all([
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: "'Release Master'!1:1",
-      }),
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: "'Release Master'!A2:A",
-      }),
-    ]);
+    // ヘッダー行+全データを取得してtitle+artistで行を特定
+    const fullRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Release Master'!A1:AZ",
+    });
+    const allRows = fullRes.data.values ?? [];
+    if (allRows.length < 2) {
+      return NextResponse.json({ error: "アルバムが見つかりません" }, { status: 404 });
+    }
+    const [headerRowData, ...dataRows] = allRows;
+    const col = buildHeaderMap(headerRowData);
 
-    const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
-
-    // 対象行番号を特定
-    const noRows = noColRes.data.values ?? [];
-    const rowIndex = noRows.findIndex((r) => r[0] === params.no);
+    const rowIndex = dataRows.findIndex(
+      (r) => r[getCol(col, "TITLE")] === title && r[getCol(col, "ARTIST")] === artist
+    );
     if (rowIndex === -1) {
       return NextResponse.json({ error: "アルバムが見つかりません" }, { status: 404 });
     }

@@ -6,21 +6,22 @@ import { useGlobalReviewModal } from "@/contexts/GlobalReviewModalContext";
 import { ReleaseMasterAlbum } from "@/lib/types";
 
 export default function GlobalReviewModal() {
-  const { albumNo, closeAlbum } = useGlobalReviewModal();
+  const { albumRef, closeAlbum } = useGlobalReviewModal();
   const [album, setAlbum] = useState<ReleaseMasterAlbum | null>(null);
 
   useEffect(() => {
-    if (!albumNo) {
+    if (!albumRef) {
       setAlbum(null);
       return;
     }
-    fetch(`/api/release-master/${albumNo}`)
+    const url = `/api/release-master/${albumRef.no}?title=${encodeURIComponent(albumRef.title)}&artist=${encodeURIComponent(albumRef.artist)}`;
+    fetch(url)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => setAlbum(data ?? null))
       .catch(() => setAlbum(null));
-  }, [albumNo]);
+  }, [albumRef]);
 
-  if (!albumNo || !album) return null;
+  if (!albumRef || !album) return null;
 
   return (
     <ReviewModal

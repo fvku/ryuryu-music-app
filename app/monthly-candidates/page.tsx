@@ -102,7 +102,7 @@ interface AlbumCardProps {
   album: AlbumCandidate;
   adding: boolean;
   addError: string | null;
-  onOpenReview: (no: string) => void;
+  onOpenReview: (ref: { no: string; title: string; artist: string }) => void;
   onAdd: () => void;
 }
 
@@ -182,7 +182,7 @@ function AlbumCard({ album, adding, addError, onOpenReview, onAdd }: AlbumCardPr
 
         {inRM && album.rmNo ? (
           <button
-            onClick={() => onOpenReview(album.rmNo!)}
+            onClick={() => onOpenReview({ no: album.rmNo!, title: album.title, artist: album.artist })}
             className="flex-1 py-2 rounded-xl text-xs font-semibold bg-violet-700/80 hover:bg-violet-600 text-white transition-colors"
           >
             レビューを開く

@@ -16,11 +16,13 @@ export async function POST(request: NextRequest) {
           const found = await searchAlbums(`${artist} ${title}`);
           return {
             no,
+            title,
+            artist,
             coverUrl: found[0]?.coverUrl ?? "",
             spotifyUrl: found[0]?.spotifyUrl ?? "",
           };
         } catch {
-          return { no, coverUrl: "", spotifyUrl: "" };
+          return { no, title, artist, coverUrl: "", spotifyUrl: "" };
         }
       })
     );

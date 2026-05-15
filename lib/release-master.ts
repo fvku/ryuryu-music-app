@@ -26,26 +26,23 @@ export function getWriteAuth() {
 }
 
 export async function writeSpotifyDataToSheet(
-  updates: { no: string; spotifyUrl: string; coverUrl: string }[]
+  updates: { title: string; artist: string; spotifyUrl: string; coverUrl: string }[]
 ): Promise<void> {
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
   if (!spreadsheetId || updates.length === 0) return;
 
   const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
 
-  // ヘッダー行と No. 列を同時取得
-  const [headerRes, noColRes] = await Promise.all([
-    sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "'Release Master'!1:1",
-    }),
-    sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "'Release Master'!A2:A",
-    }),
-  ]);
+  // ヘッダー行+全データを取得してtitle+artistで行を特定
+  const fullRes = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: "'Release Master'!A1:AZ",
+  });
 
-  const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
+  const allRows = fullRes.data.values ?? [];
+  if (allRows.length < 2) return;
+  const [headerRowData, ...dataRows] = allRows;
+  const col = buildHeaderMap(headerRowData);
 
   // ★ 書き込み列の存在チェック
   const missing = findMissingColumns(col, [SHEET_COL.SPOTIFY_URL, SHEET_COL.COVER_URL]);
@@ -56,15 +53,12 @@ export async function writeSpotifyDataToSheet(
   const cSpotify = indexToColumnLetter(col[SHEET_COL.SPOTIFY_URL]);
   const cCover   = indexToColumnLetter(col[SHEET_COL.COVER_URL]);
 
-  const noColumn = noColRes.data.values || [];
-  const noToRow: Record<string, number> = {};
-  noColumn.forEach((row, i) => {
-    if (row[0]) noToRow[row[0]] = i + 2;
-  });
-
-  const data = updates.flatMap(({ no, spotifyUrl, coverUrl }) => {
-    const rowNum = noToRow[no];
-    if (!rowNum) return [];
+  const data = updates.flatMap(({ title, artist, spotifyUrl, coverUrl }) => {
+    const rowIndex = dataRows.findIndex(
+      (r) => r[col[SHEET_COL.TITLE]] === title && r[col[SHEET_COL.ARTIST]] === artist
+    );
+    if (rowIndex === -1) return [];
+    const rowNum = rowIndex + 2;
     return [
       { range: `'Release Master'!${cSpotify}${rowNum}`, values: [[spotifyUrl]] },
       { range: `'Release Master'!${cCover}${rowNum}`,   values: [[coverUrl]] },
