@@ -56,6 +56,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   }
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -169,6 +170,8 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -187,12 +190,15 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "エラーが発生しました");
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
 
   async function handleUpdate(e: React.FormEvent) {
     e.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -209,6 +215,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "エラーが発生しました");
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }

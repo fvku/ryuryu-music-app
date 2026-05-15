@@ -69,6 +69,13 @@ export async function POST(
     }
 
     const trimmedComment = (comment || "").trim();
+
+    // 書き込み直前に再チェック（並行リクエストによる二重投稿を防ぐ）
+    const doubleCheck = await hasScore(albumTitle, artistName, memberName, altNames);
+    if (doubleCheck) {
+      return NextResponse.json({ error: "すでにレビューを投稿済みです" }, { status: 409 });
+    }
+
     const newScore = await addScore({
       reviewId: params.albumNo,
       memberName,
