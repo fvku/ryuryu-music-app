@@ -42,7 +42,8 @@
 | `migrate-kaede-email.ts` | メールアドレス移行（dry-run / --apply） |
 | `sync-scores-to-rm.ts` | scoresシート→Release Master スコア同期 |
 | `dedup-scores-normalized.ts` | scoresシートの重複除去 |
-| `repair-spotify.ts` | Spotify URL修復 |
+| `repair-spotify.ts` | Spotify URL修復（画像URLが誤入力されている行を修正） |
+| `refetch-spotify.ts` | Spotify URL空行の再取得（名前不一致はMISMATCHアラート） |
 
 ### fill-time-tracks.ts のオプション
 
