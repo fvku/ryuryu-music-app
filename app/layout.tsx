@@ -6,6 +6,7 @@ import BottomNav from "@/components/BottomNav";
 import HowToUseModal from "@/components/HowToUseModal";
 import ColumnErrorIndicator from "@/components/ColumnErrorIndicator";
 import SpotifyClipboardDetector from "@/components/SpotifyClipboardDetector";
+import SpotifyHeaderButton from "@/components/SpotifyHeaderButton";
 import GlobalReviewModal from "@/components/GlobalReviewModal";
 
 export const metadata: Metadata = {
@@ -48,12 +49,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             }}
           >
             <div className="max-w-6xl mx-auto px-4 py-2 flex items-center justify-between">
-              <ColumnErrorIndicator />
+              {/* 左: モバイル=使い方、PC=列エラー表示 */}
+              <div className="w-16 flex items-center">
+                <span className="sm:hidden"><HowToUseModal /></span>
+                <span className="hidden sm:block"><ColumnErrorIndicator /></span>
+              </div>
               <a href="/" className="hover:opacity-80 transition-opacity">
                 <Image src="/logo.png" alt="流流" width={180} height={48} className="h-11 w-auto object-contain my-0" />
               </a>
+              {/* 右: モバイル=SpotifyFAB、PC=使い方 */}
               <div className="w-16 flex justify-end">
-                <HowToUseModal />
+                <span className="sm:hidden"><SpotifyHeaderButton /></span>
+                <span className="hidden sm:block"><HowToUseModal /></span>
               </div>
             </div>
           </header>
