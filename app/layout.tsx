@@ -57,10 +57,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <a href="/" className="hover:opacity-80 transition-opacity">
                 <Image src="/logo.png" alt="流流" width={180} height={48} className="h-11 w-auto object-contain my-0" />
               </a>
-              {/* 右: モバイル=SpotifyFAB、PC=使い方 */}
-              <div className="w-16 flex justify-end">
-                <span className="sm:hidden"><SpotifyHeaderButton /></span>
+              {/* 右: モバイル=SpotifyFAB、PC=使い方+SpotifyFAB */}
+              <div className="flex justify-end items-center gap-2">
                 <span className="hidden sm:block"><HowToUseModal /></span>
+                <SpotifyHeaderButton />
               </div>
             </div>
           </header>
