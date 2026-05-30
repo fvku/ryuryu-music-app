@@ -35,7 +35,15 @@ export default function AdminPage() {
   const [coversError, setCoversError] = useState<string | null>(null);
   const [coversLimit, setCoversLimit] = useState(20);
 
-  // repair-spotify
+  // refetch-spotify（空URL一括取得）
+  type RefetchMismatch = { rowNum: number; sheetTitle: string; sheetArtist: string; spotifyTitle: string; spotifyArtist: string; spotifyUrl: string };
+  type RefetchResult = { written: number; mismatched: number; notFound: number; total: number; totalEmpty: number; mismatches: RefetchMismatch[]; message?: string };
+  const [refetchLoading, setRefetchLoading] = useState(false);
+  const [refetchResult, setRefetchResult] = useState<RefetchResult | null>(null);
+  const [refetchError, setRefetchError] = useState<string | null>(null);
+  const [refetchLimit, setRefetchLimit] = useState(30);
+
+  // repair-spotify（誤入力URL修復）
   const [repairLoading, setRepairLoading] = useState(false);
   const [repairResult, setRepairResult] = useState<{ total: number; fixed: number; failed: number; message?: string } | null>(null);
   const [repairError, setRepairError] = useState<string | null>(null);
@@ -178,6 +186,26 @@ export default function AdminPage() {
     }
   }
 
+  async function handleRefetchSpotify() {
+    setRefetchLoading(true);
+    setRefetchError(null);
+    setRefetchResult(null);
+    try {
+      const res = await fetch("/api/admin/refetch-spotify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminPassword: password, limit: refetchLimit }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "実行に失敗しました");
+      setRefetchResult(data);
+    } catch (err) {
+      setRefetchError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setRefetchLoading(false);
+    }
+  }
+
   async function handleRepairSpotify() {
     setRepairLoading(true);
     setRepairError(null);
@@ -317,6 +345,59 @@ export default function AdminPage() {
           {defaultMonthError && <p className="text-xs mt-2 text-red-400">{defaultMonthError}</p>}
         </div>
 
+        {/* Spotify URL一括取得 */}
+        <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "rgba(29,185,84,0.3)" }}>
+          <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>Spotify URL 一括取得</h3>
+          <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+            Spotify URLが空の行をSpotify APIで検索して書き込みます。アルバム名・アーティスト名が一致しない行はMISMATCHとして表示しスキップします。
+          </p>
+          <div className="mb-3">
+            <label className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+              最大
+              <select value={refetchLimit} onChange={e => setRefetchLimit(Number(e.target.value))}
+                className="px-2 py-1 rounded-lg border text-sm"
+                style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>
+                {[10, 20, 30, 50].map(n => <option key={n} value={n}>{n}件</option>)}
+              </select>
+              件処理
+            </label>
+          </div>
+          {refetchResult && (
+            <div className="rounded-xl p-3 mb-3 border text-xs" style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}>
+              {refetchResult.message ? (
+                <p style={{ color: "#4ade80" }}>{refetchResult.message}</p>
+              ) : (
+                <>
+                  <p style={{ color: "#4ade80" }}>
+                    完了 — 書き込み: {refetchResult.written}件 / MISMATCH: {refetchResult.mismatched}件 / 見つからず: {refetchResult.notFound}件
+                    {refetchResult.totalEmpty > refetchResult.total && (
+                      <span style={{ color: "var(--text-secondary)" }}>　（残り空URL: {refetchResult.totalEmpty - refetchResult.total}件）</span>
+                    )}
+                  </p>
+                  {refetchResult.mismatches.length > 0 && (
+                    <div className="mt-2 flex flex-col gap-1.5">
+                      <p className="font-semibold" style={{ color: "#fbbf24" }}>⚠ MISMATCH（手動確認が必要）</p>
+                      {refetchResult.mismatches.map((m) => (
+                        <div key={m.rowNum} className="rounded-lg p-2" style={{ backgroundColor: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)" }}>
+                          <p style={{ color: "var(--text-primary)" }}>行{m.rowNum}: <span className="font-medium">{m.sheetArtist}</span> / <span className="font-medium">{m.sheetTitle}</span></p>
+                          <p style={{ color: "var(--text-secondary)" }}>→ Spotify: {m.spotifyArtist} / {m.spotifyTitle}</p>
+                          <a href={m.spotifyUrl} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: "#1DB954" }}>{m.spotifyUrl}</a>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          {refetchError && <p className="text-red-400 text-xs mb-3">{refetchError}</p>}
+          <button onClick={handleRefetchSpotify} disabled={refetchLoading}
+            className="px-4 py-2 rounded-xl text-sm font-medium border disabled:opacity-50"
+            style={{ borderColor: "#1DB954", color: "#1DB954" }}>
+            {refetchLoading ? "取得中..." : "実行"}
+          </button>
+        </div>
+
         {/* Spotify診断 */}
         <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "rgba(29,185,84,0.3)" }}>
           <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>Spotify 認証診断</h3>
@@ -445,7 +526,7 @@ export default function AdminPage() {
 
         {/* repair-spotify */}
         <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
-          <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>Spotify URL修復</h3>
+          <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>Spotify 誤入力URL修復</h3>
           <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
             Spotify URL列に誤ってカバー画像URL（i.scdn.co/...）が入っている行を検出し、正しいアルバムURLに修復します。
           </p>
