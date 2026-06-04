@@ -307,8 +307,8 @@ export default function MyPage() {
       // 1. 採用 → 掲載
       const adoptDiff = mjAdoptionOrder(a.mjAdoption) - mjAdoptionOrder(b.mjAdoption);
       if (adoptDiff !== 0) return adoptDiff;
-      // 2. リリース日（新しい順）
-      const dateDiff = (b.date ?? "").localeCompare(a.date ?? "");
+      // 2. リリース日（古い順）
+      const dateDiff = (a.date ?? "").localeCompare(b.date ?? "");
       if (dateDiff !== 0) return dateDiff;
       // 3. アーティスト名アルファベット順
       return (a.artist ?? "").localeCompare(b.artist ?? "");
