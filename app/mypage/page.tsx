@@ -293,12 +293,25 @@ export default function MyPage() {
   // M/J 文章モード用
   const mjAlbums = albums.filter((a) => ["採用", "J採用", "掲載", "J掲載"].includes(a.mjAdoption ?? ""));
   const mjMonths = ["すべて", ...Array.from(new Set(mjAlbums.map((a) => a.date?.substring(0, 7)).filter(Boolean))).sort().reverse()];
+  const mjAdoptionOrder = (v: string | undefined) =>
+    (v === "採用" || v === "J採用") ? 0 : 1; // 採用→掲載
+
   const filteredMjAlbums = mjAlbums
     .filter((a) => mjMonthFilter === "すべて" || a.date?.substring(0, 7) === mjMonthFilter)
     .filter((a) => {
       if (mjTypeFilter === "monthly") return a.mjAdoption === "採用" || a.mjAdoption === "掲載";
       if (mjTypeFilter === "japan") return a.mjAdoption === "J採用" || a.mjAdoption === "J掲載";
       return true;
+    })
+    .sort((a, b) => {
+      // 1. 採用 → 掲載
+      const adoptDiff = mjAdoptionOrder(a.mjAdoption) - mjAdoptionOrder(b.mjAdoption);
+      if (adoptDiff !== 0) return adoptDiff;
+      // 2. リリース日（新しい順）
+      const dateDiff = (b.date ?? "").localeCompare(a.date ?? "");
+      if (dateDiff !== 0) return dateDiff;
+      // 3. アーティスト名アルファベット順
+      return (a.artist ?? "").localeCompare(b.artist ?? "");
     });
 
   // ASSIGN列（R=17）の値から担当者名を解析
