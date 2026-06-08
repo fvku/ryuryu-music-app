@@ -13,6 +13,8 @@ export interface ReleaseMasterAlbum {
   title: string;
   artist: string;
   genre: "邦楽" | "洋楽" | "";
+  genreMemo: string;  // genre/memo column (K)
+  country: string;    // 国 column (L)
   mjAdoption: string; // M/J採用 column (Q=16)
   mjAssign: string;   // ASSIGN column (R=17)
   mjTrackNo:   string;  // M Number column (S=18)

@@ -38,6 +38,35 @@ function getMjStyle(value: string) {
 
 const ASSIGN_VALUES = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa", "Kaede", ""];
 
+// 国名バリデーション用リスト（英語表記）
+const COUNTRY_NAMES = new Set([
+  "Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria",
+  "Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan",
+  "Bolivia","Bosnia and Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cabo Verde","Cambodia",
+  "Cameroon","Canada","Central African Republic","Chad","Chile","China","Colombia","Comoros","Congo","Costa Rica",
+  "Croatia","Cuba","Cyprus","Czech Republic","Denmark","Djibouti","Dominica","Dominican Republic","Ecuador","Egypt",
+  "El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia","Fiji","Finland","France","Gabon",
+  "Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea","Guinea-Bissau","Guyana",
+  "Haiti","Honduras","Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland","Israel",
+  "Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kosovo","Kuwait","Kyrgyzstan",
+  "Laos","Latvia","Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg","Madagascar",
+  "Malawi","Malaysia","Maldives","Mali","Malta","Marshall Islands","Mauritania","Mauritius","Mexico","Micronesia",
+  "Moldova","Monaco","Mongolia","Montenegro","Morocco","Mozambique","Myanmar","Namibia","Nauru","Nepal",
+  "Netherlands","New Zealand","Nicaragua","Niger","Nigeria","North Korea","North Macedonia","Norway","Oman","Pakistan",
+  "Palau","Palestine","Panama","Papua New Guinea","Paraguay","Peru","Philippines","Poland","Portugal","Qatar",
+  "Romania","Russia","Rwanda","Saint Kitts and Nevis","Saint Lucia","Saint Vincent and the Grenadines","Samoa","San Marino","Sao Tome and Principe","Saudi Arabia",
+  "Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia","Solomon Islands","Somalia","South Africa",
+  "South Korea","South Sudan","Spain","Sri Lanka","Sudan","Suriname","Sweden","Switzerland","Syria","Taiwan",
+  "Tajikistan","Tanzania","Thailand","Timor-Leste","Togo","Tonga","Trinidad and Tobago","Tunisia","Turkey","Turkmenistan",
+  "Tuvalu","Uganda","Ukraine","United Arab Emirates","United Kingdom","United States","Uruguay","Uzbekistan","Vanuatu","Vatican City",
+  "Venezuela","Vietnam","Yemen","Zambia","Zimbabwe","UK","USA","US",
+].map((c) => c.toLowerCase()));
+
+function isValidCountry(name: string): boolean {
+  if (!name.trim()) return true; // 空は検証しない
+  return COUNTRY_NAMES.has(name.trim().toLowerCase());
+}
+
 export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, onSaved }: Props) {
   const [mounted, setMounted] = useState(false);
   const [tracks, setTracks] = useState<SpotifyTrack[]>([]);
@@ -45,6 +74,9 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   const [selectedTrack, setSelectedTrack] = useState<SpotifyTrack | null>(null);
   const [startTime, setStartTime] = useState<string>(() => album.mjStartTime?.trim() ?? "");
   const [text, setText] = useState<string>(() => album.mjText?.trim() ?? "");
+  const [genreMemo, setGenreMemo] = useState<string>(() => album.genreMemo?.trim() ?? "");
+  const [country, setCountry] = useState<string>(() => album.country?.trim() ?? "");
+  const [countryError, setCountryError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
@@ -138,6 +170,12 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   }
 
   async function handleSave() {
+    // 国名バリデーション
+    if (country.trim() && !isValidCountry(country)) {
+      setCountryError("国名のスペルが正しくありません。英語表記で入力してください（例: Japan, United States）");
+      return;
+    }
+    setCountryError(null);
     setSaving(true);
     setError(null);
     try {
@@ -153,6 +191,10 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
             startTime: startTime.trim(),
             mjText: text.trim(),
           },
+          albumMeta: {
+            genreMemo: genreMemo.trim(),
+            country: country.trim(),
+          },
         }),
       });
       if (!res.ok) {
@@ -165,6 +207,8 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
         mjTrack:     selectedTrack ? selectedTrack.name : "",
         mjStartTime: startTime.trim(),
         mjText:      text.trim(),
+        genreMemo:   genreMemo.trim(),
+        country:     country.trim(),
       });
       onClose();
     } catch (e) {
@@ -495,6 +539,53 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
               )}
             </div>
           )}
+
+          {/* Genre memo / 国 */}
+          <div className="flex flex-col gap-4">
+            <div>
+              <h3 className="text-xs font-bold mb-2" style={{ color: "var(--text-primary)" }}>ジャンル / メモ（K列）</h3>
+              <input
+                type="text"
+                value={genreMemo}
+                onChange={(e) => setGenreMemo(e.target.value)}
+                placeholder="例: indie rock, jazz, city pop..."
+                className="w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:border-violet-500/50"
+                style={{
+                  backgroundColor: "#0d0d14",
+                  borderColor: genreMemo ? "rgba(139,92,246,0.4)" : "var(--border-subtle)",
+                  color: "var(--text-primary)",
+                }}
+              />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold mb-2" style={{ color: "var(--text-primary)" }}>国（L列）</h3>
+              <input
+                type="text"
+                value={country}
+                onChange={(e) => {
+                  setCountry(e.target.value);
+                  if (countryError) setCountryError(null);
+                }}
+                onBlur={() => {
+                  if (country.trim() && !isValidCountry(country)) {
+                    setCountryError("国名のスペルが正しくありません（例: Japan, United States, United Kingdom）");
+                  } else {
+                    setCountryError(null);
+                  }
+                }}
+                placeholder="例: Japan, United States, United Kingdom..."
+                className="w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:border-violet-500/50"
+                style={{
+                  backgroundColor: "#0d0d14",
+                  borderColor: countryError ? "rgba(239,68,68,0.5)" : country && isValidCountry(country) ? "rgba(139,92,246,0.4)" : "var(--border-subtle)",
+                  color: "var(--text-primary)",
+                }}
+              />
+              {countryError && (
+                <p className="text-xs mt-1.5 px-1" style={{ color: "#ef4444" }}>{countryError}</p>
+              )}
+            </div>
+          </div>
 
           {/* Text editor */}
           <div>

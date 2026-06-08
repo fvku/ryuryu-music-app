@@ -43,6 +43,7 @@ function getMjStyle(value: string) {
 
 const INITIAL_ALBUM: ReleaseMasterAlbum = {
   no: "TEST", date: "", title: "読み込み中...", artist: "", genre: "",
+  genreMemo: "", country: "",
   mjAdoption: "M/J採用", mjAssign: "", mjTrackNo: "", mjTrack: "",
   mjStartTime: "", mjText: "", legacyScores: [],
   spotifyUrl: TEST_SPOTIFY_URL, coverUrl: "",

@@ -61,6 +61,8 @@ export async function GET() {
         title:      row[getCol(col, "TITLE")]        || "",
         artist:     row[getCol(col, "ARTIST")]       || "",
         genre:      (row[getCol(col, "GENRE")]       || "") as ReleaseMasterAlbum["genre"],
+        genreMemo:  row[col[SHEET_COL.GENRE_MEMO]]  || "",
+        country:    row[col[SHEET_COL.COUNTRY]]     || "",
         mjAdoption: row[col[SHEET_COL.MJ_ADOPTION]] || "",
         mjAssign:   row[col[SHEET_COL.MJ_ASSIGN]]   || "",
         mjTrackNo:   row[col[SHEET_COL.MJ_TRACK_NO]] || "",

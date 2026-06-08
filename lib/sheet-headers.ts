@@ -59,9 +59,11 @@ export const SHEET_COL = {
   DATE:        "日付",           // B列  ※要確認
   TITLE:       "アルバム名",     // C列  ※要確認
   ARTIST:      "アーティスト",   // D列  ※要確認
-  GENRE:       "ジャンル",       // F列  ※要確認
+  GENRE:       "ジャンル",       // F列  ※要確認（洋邦）
 
   // --- 書き込み対象 ---
+  GENRE_MEMO:  "genre/memo",     // K列
+  COUNTRY:     "国",             // L列
   MJ_ADOPTION: "M/J採用",        // Q列
   MJ_ASSIGN:   "ASSIGN",         // R列
   MJ_TRACK_NO: "M Number",       // S列

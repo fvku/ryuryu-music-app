@@ -3,7 +3,7 @@ import { google } from "googleapis";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { ReleaseMasterAlbum } from "@/lib/types";
-import { buildHeaderMap, findMissingColumns, getCol, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
+import { buildHeaderMap, findMissingColumns, getCol, getWriteCol, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +78,8 @@ export async function GET(
       title:      row[getCol(col, "TITLE")]        || "",
       artist:     row[getCol(col, "ARTIST")]       || "",
       genre:      (row[getCol(col, "GENRE")]       || "") as ReleaseMasterAlbum["genre"],
+      genreMemo:  row[col[SHEET_COL.GENRE_MEMO]]  || "",
+      country:    row[col[SHEET_COL.COUNTRY]]     || "",
       mjAdoption: row[col[SHEET_COL.MJ_ADOPTION]] || "",
       mjAssign:   row[col[SHEET_COL.MJ_ASSIGN]]   || "",
       mjTrackNo:   row[col[SHEET_COL.MJ_TRACK_NO]]  || "",
@@ -109,9 +111,9 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { mjAdoption, mjData, mjAssign, title, artist } = body;
-    if (mjAdoption === undefined && mjData === undefined && mjAssign === undefined) {
-      return NextResponse.json({ error: "mjAdoption, mjData, または mjAssign が必要です" }, { status: 400 });
+    const { mjAdoption, mjData, mjAssign, albumMeta, title, artist } = body;
+    if (mjAdoption === undefined && mjData === undefined && mjAssign === undefined && albumMeta === undefined) {
+      return NextResponse.json({ error: "mjAdoption, mjData, mjAssign, または albumMeta が必要です" }, { status: 400 });
     }
     if (!title || !artist) {
       return NextResponse.json({ error: "title と artist が必要です" }, { status: 400 });
@@ -149,6 +151,7 @@ export async function PATCH(
     const requiredForMjData     = mjData     !== undefined ? [SHEET_COL.MJ_TRACK_NO, SHEET_COL.MJ_TRACK, SHEET_COL.START_TIME, SHEET_COL.MJ_TEXT] : [];
     const requiredForMjAssign   = mjAssign   !== undefined ? [SHEET_COL.MJ_ASSIGN] : [];
     const missing = findMissingColumns(col, [...requiredForMjAdoption, ...requiredForMjData, ...requiredForMjAssign]);
+    // albumMeta列はオプション（見つからなければスキップ）
 
     if (missing.length > 0) {
       return NextResponse.json(
@@ -200,6 +203,25 @@ export async function PATCH(
         valueInputOption: "RAW",
         requestBody: { values: [[mjAssign]] },
       });
+    }
+
+    if (albumMeta !== undefined) {
+      const { genreMemo, country } = albumMeta as { genreMemo?: string; country?: string };
+      const metaData: { range: string; values: string[][] }[] = [];
+      const genreMemoIdx = getWriteCol(col, SHEET_COL.GENRE_MEMO);
+      const countryIdx   = getWriteCol(col, SHEET_COL.COUNTRY);
+      if (genreMemo !== undefined && genreMemoIdx >= 0) {
+        metaData.push({ range: `'Release Master'!${indexToColumnLetter(genreMemoIdx)}${sheetRow}`, values: [[genreMemo]] });
+      }
+      if (country !== undefined && countryIdx >= 0) {
+        metaData.push({ range: `'Release Master'!${indexToColumnLetter(countryIdx)}${sheetRow}`, values: [[country]] });
+      }
+      if (metaData.length > 0) {
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          requestBody: { valueInputOption: "RAW", data: metaData },
+        });
+      }
     }
 
     return NextResponse.json({ ok: true });
