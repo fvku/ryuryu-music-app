@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { ReleaseMasterAlbum } from "@/lib/types";
+import { MJ_ADOPTION_VALUES } from "@/lib/sheet-headers";
 import { reportColumnError } from "@/components/ColumnErrorIndicator";
 import { useSpotifyPlayer } from "@/hooks/useSpotifyPlayer";
 import { getSpotifyToken, saveSpotifyToken, openSpotifyAuthPopup } from "@/lib/spotify-token";
@@ -64,6 +65,12 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   const [assignPicker, setAssignPicker] = useState(false);
   const [assignPending, setAssignPending] = useState<string | null>(null);
   const [assignUpdating, setAssignUpdating] = useState(false);
+
+  // M/J採用
+  const [currentMjAdoption, setCurrentMjAdoption] = useState(album.mjAdoption ?? "");
+  const [mjPicker, setMjPicker] = useState(false);
+  const [mjPending, setMjPending] = useState<string | null>(null);
+  const [mjUpdating, setMjUpdating] = useState(false);
 
   // プロップ経由のURL（spotifyDataキャッシュ）を優先し、なければアルバムオブジェクトのURLを使う
   const effectiveSpotifyUrl = spotifyUrl || album.spotifyUrl;
@@ -137,6 +144,31 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
       setAssignUpdating(false);
       setAssignPending(null);
       setAssignPicker(false);
+    }
+  }
+
+  async function confirmMjUpdate() {
+    if (mjPending === null) return;
+    setMjUpdating(true);
+    try {
+      const res = await fetch(`/api/release-master/${album.no}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mjAdoption: mjPending, title: album.title, artist: album.artist }),
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        if (errData.errorCode === "COLUMN_NOT_FOUND") reportColumnError(errData.missing ?? []);
+        throw new Error(errData.error || "更新失敗");
+      }
+      setCurrentMjAdoption(mjPending);
+      onSaved({ mjAdoption: mjPending });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "更新に失敗しました");
+    } finally {
+      setMjUpdating(false);
+      setMjPending(null);
+      setMjPicker(false);
     }
   }
 
@@ -218,49 +250,53 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
         </div>
 
         <div className="px-5 py-5 flex flex-col gap-6">
-          {/* Album info — AlbumCard スタイル */}
-          <div className="flex items-center gap-4 p-4 rounded-2xl border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
-            <div className="relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0" style={{ backgroundColor: "#2a2a3a" }}>
+          {/* Album info — ReviewModal準拠 */}
+          <div className="flex gap-4 items-start">
+            <div className="relative w-20 h-20 rounded-xl overflow-hidden flex-shrink-0" style={{ backgroundColor: "#2a2a3a" }}>
               {coverUrl ? (
-                <Image src={coverUrl} alt={album.title} fill sizes="56px" className="object-cover" />
+                <Image src={coverUrl} alt={album.title} fill sizes="80px" className="object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#6b7280" }}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#6b7280" }}>
                     <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
                   </svg>
                 </div>
               )}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-bold text-sm truncate" style={{ color: "var(--text-primary)" }}>{album.title}</p>
-              <p className="text-xs truncate mt-0.5" style={{ color: "var(--accent)" }}>{album.artist}</p>
-              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              <p className="font-bold text-base truncate" style={{ color: "var(--text-primary)" }}>{album.title}</p>
+              <p className="text-sm mt-0.5 truncate" style={{ color: "var(--accent)" }}>{album.artist}</p>
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{album.date}</span>
                 {album.genre && (
-                  <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "var(--text-secondary)" }}>
+                  <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "var(--text-secondary)" }}>
                     {album.genre}
                   </span>
                 )}
-                {album.mjAdoption && (
-                  <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={getMjStyle(album.mjAdoption)}>
-                    {album.mjAdoption}
-                  </span>
-                )}
-                {effectiveSpotifyUrl && (
-                  <a
-                    href={effectiveSpotifyUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
-                    style={{ color: "#1DB954" }}
-                  >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
-                    </svg>
-                    Spotify
-                  </a>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setMjPicker((v) => !v)}
+                  className="text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1 transition-opacity hover:opacity-80"
+                  style={getMjStyle(currentMjAdoption)}
+                >
+                  {currentMjAdoption || "空欄"}
+                  <span style={{ fontSize: "10px", opacity: 0.6 }}>✎</span>
+                </button>
               </div>
+              {effectiveSpotifyUrl && (
+                <a
+                  href={effectiveSpotifyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-full text-xs font-medium hover:opacity-80 transition-opacity"
+                  style={{ backgroundColor: "#1db954", color: "white" }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
+                  </svg>
+                  Spotifyで聴く
+                </a>
+              )}
             </div>
           </div>
 
@@ -587,6 +623,74 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
           </button>
         </div>
       </div>
+
+      {/* M/J採用 ピッカー */}
+      {mjPicker && (
+        <div
+          className="fixed inset-0 z-[111] flex items-center justify-center p-6"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={() => setMjPicker(false)}
+        >
+          <div
+            className="rounded-2xl border p-4 w-full max-w-xs"
+            style={{ backgroundColor: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-xs font-bold mb-3" style={{ color: "var(--text-secondary)" }}>M/J採用を選択</p>
+            <div className="flex flex-wrap gap-2">
+              {MJ_ADOPTION_VALUES.map((v) => (
+                <button
+                  key={v || "__empty__"}
+                  type="button"
+                  onClick={() => { setMjPending(v); setMjPicker(false); }}
+                  className="text-xs px-3 py-1.5 rounded-full font-medium transition-colors"
+                  style={{
+                    backgroundColor: v === currentMjAdoption ? "rgba(139,92,246,0.3)" : "rgba(255,255,255,0.08)",
+                    color: v === currentMjAdoption ? "white" : "var(--text-secondary)",
+                    border: `1px solid ${v === currentMjAdoption ? "var(--accent)" : "var(--border-subtle)"}`,
+                  }}
+                >
+                  {v === "" ? "空欄（なし）" : v}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* M/J採用 確認ダイアログ */}
+      {mjPending !== null && (
+        <div
+          className="fixed inset-0 z-[111] flex items-center justify-center p-6"
+          style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+        >
+          <div className="rounded-2xl p-6 w-full max-w-xs border" style={{ backgroundColor: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
+            <p className="font-bold text-sm mb-1" style={{ color: "var(--text-primary)" }}>M/J採用を変更しますか？</p>
+            <p className="text-xs mb-5" style={{ color: "var(--text-secondary)" }}>
+              <span style={{ color: "var(--text-primary)" }}>{currentMjAdoption || "空欄"}</span>
+              {" → "}
+              <span style={{ color: "var(--accent)", fontWeight: 600 }}>{mjPending === "" ? "空欄" : mjPending}</span>
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setMjPending(null)}
+                className="flex-1 py-2.5 rounded-xl text-sm border"
+                style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={confirmMjUpdate}
+                disabled={mjUpdating}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
+                style={{ backgroundColor: "var(--accent)", color: "white" }}
+              >
+                {mjUpdating ? "更新中..." : "変更する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ASSIGN 確認ダイアログ */}
       {assignPending !== null && (

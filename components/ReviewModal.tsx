@@ -7,6 +7,7 @@ import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import { Recommendation } from "@/lib/sheets";
 import ScoreBar from "@/components/ScoreBar";
 import { EMAIL_TO_SHORT_NAME, LEGACY_NAME_TO_EMAIL, getDisplayName, parseLegacyScoreNum } from "@/lib/members";
+import { MJ_ADOPTION_VALUES } from "@/lib/sheet-headers";
 
 const ALL_MEMBERS: { email: string; name: string }[] = Object.entries(EMAIL_TO_SHORT_NAME).map(([email, name]) => ({ email, name }));
 
@@ -274,7 +275,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     }
   }
 
-  const MJ_VALUES = ["J採用", "J掲載", "採用", "掲載", "検討", "不採用", ""];
+  const MJ_VALUES = MJ_ADOPTION_VALUES;
 
   async function confirmMjUpdate() {
     if (mjPending === null) return;

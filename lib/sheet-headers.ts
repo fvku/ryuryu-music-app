@@ -37,6 +37,9 @@ export function findMissingColumns(
   );
 }
 
+/** M/J採用列に入力できる値の一覧（ReviewModal / MjWritingModal で共通利用） */
+export const MJ_ADOPTION_VALUES = ["J採用", "J掲載", "採用", "掲載", "検討", "不採用", ""] as const;
+
 /** 0始まりインデックス → スプレッドシート列文字（A, B, ..., Z, AA, AB, ...） */
 export function indexToColumnLetter(index: number): string {
   if (index < 26) return String.fromCharCode(index + 65);
