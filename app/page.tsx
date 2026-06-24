@@ -20,7 +20,7 @@ function formatMonth(key: string): string {
 }
 
 export default function HomePage() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [albums, setAlbums] = useState<ReleaseMasterAlbum[]>([]);
   const [spotifyData, setSpotifyData] = useState<Record<string, { coverUrl: string; spotifyUrl: string }>>({});
   const [scoreSummary, setScoreSummary] = useState<Record<string, { avg: number; count: number; total: number; members: Set<string>; memberScores: Record<string, number> }>>({});
@@ -35,6 +35,8 @@ export default function HomePage() {
   const [upNext, setUpNext] = useState(false);
   const [savedMjFilters, setSavedMjFilters] = useState<string[] | null>(null);
   const [myReviewedAlbumNos, setMyReviewedAlbumNos] = useState<Set<string>>(new Set());
+  const [reviewFilter, setReviewFilter] = useState<"すべて" | "済み" | "未レビュー">("すべて");
+  const [reviewedLoaded, setReviewedLoaded] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<ReleaseMasterAlbum | null>(null);
 
   useEffect(() => {
@@ -79,6 +81,7 @@ export default function HomePage() {
           setUpNext(true);
           if (savedFilters.savedMj) setSavedMjFilters(savedFilters.savedMj);
         }
+        if (savedFilters.review) setReviewFilter(savedFilters.review);
 
         // Pre-populate spotifyData from sheet cache
         const cachedData: Record<string, { coverUrl: string; spotifyUrl: string }> = {};
@@ -143,9 +146,9 @@ export default function HomePage() {
   useEffect(() => {
     if (!mjInitialized) return;
     try {
-      localStorage.setItem("ryuryu_home_filters", JSON.stringify({ month: monthFilter, genre: genreFilters, mj: mjFilters, upNext, savedMj: savedMjFilters }));
+      localStorage.setItem("ryuryu_home_filters", JSON.stringify({ month: monthFilter, genre: genreFilters, mj: mjFilters, upNext, savedMj: savedMjFilters, review: reviewFilter }));
     } catch {}
-  }, [monthFilter, genreFilters, mjFilters, mjInitialized, upNext, savedMjFilters]);
+  }, [monthFilter, genreFilters, mjFilters, mjInitialized, upNext, savedMjFilters, reviewFilter]);
 
   // Up Next用：セッション・スコアが揃ったら自分のレビュー済みNoを計算
   useEffect(() => {
@@ -170,6 +173,7 @@ export default function HomePage() {
       }
     });
     setMyReviewedAlbumNos(reviewed);
+    setReviewedLoaded(true);
   }, [session, scoreSummary, albums]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function getCombinedScore(album: ReleaseMasterAlbum) {
@@ -227,17 +231,27 @@ export default function HomePage() {
 
   function toggleUpNext(currentMjValues: string[]) {
     if (!upNext) {
-      // ON: 現在のM/Jフィルタを保存し、Up Next条件の値だけ選択
       setSavedMjFilters(mjFilters);
       const upNextMjValues = currentMjValues.filter((v) => !UP_NEXT_MJ_EXCLUDE.includes(v));
       setMjFilters(upNextMjValues);
       setUpNext(true);
+      setReviewFilter("未レビュー");
     } else {
-      // OFF: 保存していたM/Jフィルタを復元
       setMjFilters(savedMjFilters ?? currentMjValues);
       setSavedMjFilters(null);
       setUpNext(false);
+      setReviewFilter("すべて");
     }
+  }
+
+  function handleReviewFilter(value: "すべて" | "済み" | "未レビュー") {
+    // 手動操作時は Up Next を OFF にする
+    if (upNext) {
+      setMjFilters(savedMjFilters ?? mjFilters);
+      setSavedMjFilters(null);
+      setUpNext(false);
+    }
+    setReviewFilter(value);
   }
 
   const filtered = albums.filter((a) => {
@@ -251,7 +265,8 @@ export default function HomePage() {
       const val = a.mjAdoption || "空欄";
       if (!mjFilters.includes(val)) return false;
     }
-    if (upNext && myReviewedAlbumNos.has(a.no)) return false;
+    if (reviewedLoaded && reviewFilter === "済み" && !myReviewedAlbumNos.has(a.no)) return false;
+    if (reviewedLoaded && reviewFilter === "未レビュー" && myReviewedAlbumNos.has(a.no)) return false;
     return true;
   });
 
@@ -371,6 +386,25 @@ export default function HomePage() {
             })}
           </div>
         </div>
+
+        {/* レビュー */}
+        {status === "authenticated" && (
+          <div className="grid grid-cols-[4rem_1fr] items-center gap-x-2">
+            <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>レビュー：</span>
+            <div className="flex flex-wrap gap-1.5">
+              {(["すべて", "済み", "未レビュー"] as const).map((v) => {
+                const active = reviewFilter === v;
+                return (
+                  <button key={v} onClick={() => handleReviewFilter(v)}
+                    className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
+                    style={{ backgroundColor: active ? "rgba(139,92,246,0.3)" : "var(--bg-card)", color: active ? "white" : "var(--text-secondary)", border: `1px solid ${active ? "var(--accent)" : "var(--border-subtle)"}` }}>
+                    {v}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* 件数 */}
         <p className="text-xs text-right" style={{ color: "var(--text-secondary)" }}>{filtered.length}枚のアルバム</p>
