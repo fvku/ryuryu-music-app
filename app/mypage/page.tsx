@@ -6,7 +6,8 @@ import { useSession, signIn } from "next-auth/react";
 import Link from "next/link";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import { Bookmark, Recommendation } from "@/lib/sheets";
-import { EMAIL_TO_SHORT_NAME, LEGACY_NAME_TO_EMAIL, parseLegacyScoreNum, getDisplayName } from "@/lib/members";
+import { EMAIL_TO_SHORT_NAME, parseLegacyScoreNum, getDisplayName } from "@/lib/members";
+import { buildScoreSummary, getCombinedScore, getMyReviewedAlbumNos, namesForUser, albumKey, ScoreSummary } from "@/lib/score-utils";
 import ReviewModal from "@/components/ReviewModal";
 import MjWritingModal from "@/components/MjWritingModal";
 import { useNotifications } from "@/contexts/NotificationsContext";
@@ -44,7 +45,7 @@ export default function MyPage() {
   const [myScores, setMyScores] = useState<Score[]>([]);
   const [albums, setAlbums] = useState<ReleaseMasterAlbum[]>([]);
   const [spotifyData, setSpotifyData] = useState<Record<string, { coverUrl: string; spotifyUrl: string }>>({});
-  const [scoreSummary, setScoreSummary] = useState<Record<string, { avg: number; count: number; total: number; members: Set<string>; memberScores: Record<string, number> }>>({});
+  const [scoreSummary, setScoreSummary] = useState<ScoreSummary>({});
   const [loading, setLoading] = useState(true);
   const [selectedAlbum, setSelectedAlbum] = useState<ReleaseMasterAlbum | null>(null);
   const [reviewedSearch, setReviewedSearch] = useState("");
@@ -65,7 +66,6 @@ export default function MyPage() {
     async function init() {
       try {
         const userEmail = session!.user!.email!.toLowerCase();
-        const userShortName = EMAIL_TO_SHORT_NAME[userEmail] ?? null;
 
         const [bmRes, albumRes, forYouRes, scoresRes] = await Promise.all([
           fetch("/api/bookmarks"),
@@ -105,29 +105,10 @@ export default function MyPage() {
 
         setForYou(forYouData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
 
-        // 自分がレビュー済みのアルバムNoセット（アプリスコア）
-        const myAppScores = allScores.filter((s) =>
-          s.memberName.toLowerCase() === userEmail ||
-          (userShortName && s.memberName.toLowerCase() === userShortName.toLowerCase())
-        );
-        setMyScores(myAppScores);
-        // albumTitle+artistName で現在のアルバムリストからNo.を引く（古いreviewIdは使わない）
-        const titleArtistToNo = new Map(albumData.map((a) => [`${a.title}::${a.artist}`, a.no]));
-        const reviewedNos = new Set<string>();
-        myAppScores.forEach((s) => {
-          const no = titleArtistToNo.get(`${s.albumTitle}::${s.artistName}`);
-          if (no) reviewedNos.add(no);
-        });
-        // legacyScores からも自分分を追加
-        albumData.forEach((a) => {
-          if (a.legacyScores.some((ls) =>
-            ls.name.toLowerCase() === userEmail ||
-            (userShortName && ls.name.toLowerCase() === userShortName.toLowerCase())
-          )) {
-            reviewedNos.add(a.no);
-          }
-        });
-        setMyReviewedAlbumNos(reviewedNos);
+        // 自分のアプリスコア一覧とレビュー済みアルバムNoセット
+        const myNames = namesForUser(userEmail);
+        setMyScores(allScores.filter((s) => myNames.has(s.memberName.trim().toLowerCase())));
+        setMyReviewedAlbumNos(getMyReviewedAlbumNos(albumData, allScores, userEmail));
 
         const cached: Record<string, { coverUrl: string; spotifyUrl: string }> = {};
         albumData.forEach((a) => {
@@ -149,29 +130,8 @@ export default function MyPage() {
               })
             : Promise.resolve(),
 
-          Promise.resolve(allScores).then((scores) => {
-            const summary: Record<string, { avg: number; count: number; total: number; members: Set<string>; memberScores: Record<string, number> }> = {};
-            // 同一アルバム×同一メンバーは最新エントリのみ残す
-            const latestMap = new Map<string, Score>();
-            for (const s of scores) {
-              const key = `${s.albumTitle}::${s.artistName}::${s.memberName.toLowerCase()}`;
-              const existing = latestMap.get(key);
-              if (!existing || s.submittedAt > existing.submittedAt) latestMap.set(key, s);
-            }
-            for (const s of Array.from(latestMap.values())) {
-              const key = `${s.albumTitle}::${s.artistName}`;
-              if (!summary[key]) summary[key] = { avg: 0, count: 0, total: 0, members: new Set(), memberScores: {} };
-              summary[key].members.add(s.memberName.toLowerCase());
-              if (s.score !== null) {
-                summary[key].total += s.score;
-                summary[key].count += 1;
-                summary[key].memberScores[s.memberName.toLowerCase()] = s.score;
-                summary[key].avg = Math.round((summary[key].total / summary[key].count) * 10) / 10;
-              }
-            }
-            setScoreSummary(summary);
-          }),
         ]);
+        setScoreSummary(buildScoreSummary(allScores));
       } finally {
         setLoading(false);
       }
@@ -232,38 +192,21 @@ export default function MyPage() {
     return list;
   }
 
-  function getCombinedScore(album: ReleaseMasterAlbum) {
-    const app = scoreSummary[`${album.title}::${album.artist}`];
-    const legacyCoveredIds = new Set<string>();
-    let legacyTotal = 0, legacyCount = 0;
-    for (const ls of album.legacyScores) {
-      const n = parseLegacyScoreNum(ls.value);
-      if (n !== null && n >= 0 && n <= 10) {
-        legacyTotal += n; legacyCount++;
-        const email = LEGACY_NAME_TO_EMAIL[ls.name.toLowerCase()];
-        if (email) legacyCoveredIds.add(email);
-        legacyCoveredIds.add(ls.name.toLowerCase());
-      }
-    }
-    let appOnlyTotal = 0, appOnlyCount = 0;
-    for (const [member, score] of Object.entries(app?.memberScores ?? {})) {
-      if (!legacyCoveredIds.has(member)) { appOnlyTotal += score; appOnlyCount++; }
-    }
-    const total = legacyTotal + appOnlyTotal;
-    const count = legacyCount + appOnlyCount;
-    if (count === 0) return null;
-    return { avg: Math.round((total / count) * 10) / 10, count };
+  function combinedScoreFor(album: ReleaseMasterAlbum): { avg: number; count: number } | null {
+    const r = getCombinedScore(album, scoreSummary[albumKey(album.title, album.artist)]?.memberScores);
+    return r.avg === null ? null : { avg: r.avg, count: r.count };
   }
 
   function getMyScore(album: ReleaseMasterAlbum): number | null {
-    const appScore = myScores.find((s) => s.albumTitle === album.title && s.artistName === album.artist);
-    if (appScore) return appScore.score;
+    // 同一アルバムに複数エントリがある場合は最新のものを使う
+    const matches = myScores.filter((s) => s.albumTitle === album.title && s.artistName === album.artist);
+    if (matches.length > 0) {
+      const latest = matches.reduce((a, b) => (b.submittedAt > a.submittedAt ? b : a));
+      return latest.score;
+    }
     const userEmail = session?.user?.email?.toLowerCase() ?? "";
-    const userShortName = EMAIL_TO_SHORT_NAME[userEmail] ?? null;
-    const legacy = album.legacyScores.find((ls) =>
-      ls.name.toLowerCase() === userEmail ||
-      (userShortName && ls.name.toLowerCase() === userShortName.toLowerCase())
-    );
+    const names = namesForUser(userEmail);
+    const legacy = album.legacyScores.find((ls) => names.has(ls.name.trim().toLowerCase()));
     if (legacy) return parseLegacyScoreNum(legacy.value);
     return null;
   }
@@ -357,7 +300,7 @@ export default function MyPage() {
 
 function AlbumRow({ album, reviewedMode = false }: { album: ReleaseMasterAlbum; reviewedMode?: boolean }) {
     const spotify = spotifyData[album.no];
-    const score = getCombinedScore(album);
+    const score = combinedScoreFor(album);
     const myScore = getMyScore(album);
     return (
       <div

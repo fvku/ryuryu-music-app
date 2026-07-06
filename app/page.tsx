@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import AlbumCard from "@/components/AlbumCard";
 import ReviewModal from "@/components/ReviewModal";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
-import { LEGACY_NAME_TO_EMAIL, parseLegacyScoreNum, EMAIL_TO_SHORT_NAME } from "@/lib/members";
+import { buildScoreSummary, getCombinedScore, getMyReviewedAlbumNos, albumKey, ScoreSummary } from "@/lib/score-utils";
 
 const GENRE_VALUES = ["邦楽", "洋楽"] as const;
 const UP_NEXT_MJ_EXCLUDE = ["J採用", "採用", "不採用"];
@@ -23,7 +23,8 @@ export default function HomePage() {
   const { data: session, status } = useSession();
   const [albums, setAlbums] = useState<ReleaseMasterAlbum[]>([]);
   const [spotifyData, setSpotifyData] = useState<Record<string, { coverUrl: string; spotifyUrl: string }>>({});
-  const [scoreSummary, setScoreSummary] = useState<Record<string, { avg: number; count: number; total: number; members: Set<string>; memberScores: Record<string, number> }>>({});
+  const [allScores, setAllScores] = useState<Score[]>([]);
+  const [scoreSummary, setScoreSummary] = useState<ScoreSummary>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -110,28 +111,8 @@ export default function HomePage() {
             : Promise.resolve(),
 
           fetch("/api/scores").then((r) => r.ok ? r.json() : []).then((scores: Score[]) => {
-            // albumTitle+artistName をキーに集計（同一メンバーは最新のみ）
-            type Entry = { avg: number; count: number; total: number; members: Set<string>; memberScores: Record<string, number> };
-            const summary: Record<string, Entry> = {};
-            // まず同一アルバム×同一メンバーは最新エントリのみ残す
-            const latestMap = new Map<string, Score>();
-            for (const s of scores) {
-              const key = `${s.albumTitle}::${s.artistName}::${s.memberName.toLowerCase()}`;
-              const existing = latestMap.get(key);
-              if (!existing || s.submittedAt > existing.submittedAt) latestMap.set(key, s);
-            }
-            for (const s of Array.from(latestMap.values())) {
-              const key = `${s.albumTitle}::${s.artistName}`;
-              if (!summary[key]) summary[key] = { avg: 0, count: 0, total: 0, members: new Set(), memberScores: {} };
-              summary[key].members.add(s.memberName.toLowerCase());
-              if (s.score !== null) {
-                summary[key].total += s.score;
-                summary[key].count += 1;
-                summary[key].memberScores[s.memberName.toLowerCase()] = s.score;
-                summary[key].avg = Math.round((summary[key].total / summary[key].count) * 10) / 10;
-              }
-            }
-            setScoreSummary(summary);
+            setAllScores(scores);
+            setScoreSummary(buildScoreSummary(scores));
           }),
         ]);
       } catch (err) {
@@ -153,52 +134,13 @@ export default function HomePage() {
   // Up Next用：セッション・スコアが揃ったら自分のレビュー済みNoを計算
   useEffect(() => {
     const userEmail = session?.user?.email?.toLowerCase();
-    if (!userEmail || Object.keys(scoreSummary).length === 0) return;
-    const shortName = EMAIL_TO_SHORT_NAME[userEmail] ?? null;
-    const reviewed = new Set<string>();
-    const titleArtistToNo = new Map(albums.map((a) => [`${a.title}::${a.artist}`, a.no]));
-    Object.entries(scoreSummary).forEach(([titleArtistKey, s]) => {
-      if (s.memberScores[userEmail] !== undefined || (shortName && s.memberScores[shortName.toLowerCase()] !== undefined)) {
-        const no = titleArtistToNo.get(titleArtistKey);
-        if (no) reviewed.add(no);
-      }
-    });
-    // legacyScores からも追加
-    albums.forEach((a) => {
-      if (a.legacyScores.some((ls) =>
-        ls.name.toLowerCase() === userEmail ||
-        (shortName && ls.name.toLowerCase() === shortName.toLowerCase())
-      )) {
-        reviewed.add(a.no);
-      }
-    });
-    setMyReviewedAlbumNos(reviewed);
+    if (!userEmail || allScores.length === 0) return;
+    setMyReviewedAlbumNos(getMyReviewedAlbumNos(albums, allScores, userEmail));
     setReviewedLoaded(true);
-  }, [session, scoreSummary, albums]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session, allScores, albums]);
 
-  function getCombinedScore(album: ReleaseMasterAlbum) {
-    const app = scoreSummary[`${album.title}::${album.artist}`];
-    // Release Master scores take priority: collect all valid legacy scores
-    const legacyCoveredIds = new Set<string>();
-    let legacyTotal = 0, legacyCount = 0;
-    for (const ls of album.legacyScores) {
-      const n = parseLegacyScoreNum(ls.value);
-      if (n !== null && n >= 0 && n <= 10) {
-        legacyTotal += n; legacyCount++;
-        const email = LEGACY_NAME_TO_EMAIL[ls.name.toLowerCase()];
-        if (email) legacyCoveredIds.add(email);
-        legacyCoveredIds.add(ls.name.toLowerCase());
-      }
-    }
-    // Only add app scores for members not covered by Release Master
-    let appOnlyTotal = 0, appOnlyCount = 0;
-    for (const [member, score] of Object.entries(app?.memberScores ?? {})) {
-      if (!legacyCoveredIds.has(member)) { appOnlyTotal += score; appOnlyCount++; }
-    }
-    const total = legacyTotal + appOnlyTotal;
-    const count = legacyCount + appOnlyCount;
-    if (count === 0) return { avg: null, count: 0 };
-    return { avg: Math.round((total / count) * 10) / 10, count };
+  function combinedScoreFor(album: ReleaseMasterAlbum) {
+    return getCombinedScore(album, scoreSummary[albumKey(album.title, album.artist)]?.memberScores);
   }
 
   const months = ["すべて", ...Array.from(new Set(albums.map((a) => getMonthKey(a.date)).filter(Boolean))).sort().reverse()];
@@ -422,8 +364,8 @@ export default function HomePage() {
               key={album.no}
               album={album}
               coverUrl={album.coverUrl || spotifyData[album.no]?.coverUrl}
-              averageScore={getCombinedScore(album).avg}
-              scoreCount={getCombinedScore(album).count}
+              averageScore={combinedScoreFor(album).avg}
+              scoreCount={combinedScoreFor(album).count}
               onClick={() => setSelectedAlbum(album)}
             />
           ))}

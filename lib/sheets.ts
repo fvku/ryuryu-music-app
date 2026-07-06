@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { Score } from "./types";
+import { dedupeLatestScores } from "./score-utils";
 
 function getAuth() {
   const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
@@ -95,16 +96,8 @@ export async function getScoresForAlbum(albumTitle: string, artistName: string):
       artistName: row[6] || "",
     }));
 
-  // 同一メンバーの重複エントリは最新のもののみ残す
-  const latestByMember = new Map<string, Score>();
-  for (const s of matched) {
-    const key = s.memberName.toLowerCase();
-    const existing = latestByMember.get(key);
-    if (!existing || s.submittedAt > existing.submittedAt) {
-      latestByMember.set(key, s);
-    }
-  }
-  return Array.from(latestByMember.values());
+  // 同一メンバーの重複エントリは最新のもののみ残す（単一アルバム内なのでメンバー単位で判定）
+  return dedupeLatestScores(matched, false);
 }
 
 export async function addScore(scoreData: Omit<Score, "submittedAt"> & { submittedAt?: string }): Promise<Score> {
