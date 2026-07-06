@@ -1,21 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
+import { getGoogleAuth } from "@/lib/google-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const SPOTIFY_ALBUM_RE = /open\.spotify\.com\/(?:[^/]+\/)?album\/([A-Za-z0-9]+)/;
-
-function getWriteAuth() {
-  const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
-  let credentials;
-  try { credentials = JSON.parse(Buffer.from(keyJson, "base64").toString("utf-8")); }
-  catch { credentials = JSON.parse(keyJson); }
-  if (credentials.private_key) credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
-  return new google.auth.GoogleAuth({ credentials, scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
-}
 
 function colLetter(i: number): string {
   return i < 26 ? String.fromCharCode(65 + i) : String.fromCharCode(64 + Math.floor(i / 26)) + String.fromCharCode(65 + (i % 26));
@@ -56,7 +47,7 @@ export async function POST(req: NextRequest) {
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
   if (!spreadsheetId) return NextResponse.json({ error: "RELEASE_MASTER_SPREADSHEET_ID is not set" }, { status: 500 });
 
-  const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
+  const sheets = google.sheets({ version: "v4", auth: getGoogleAuth(true) });
   const resp = await sheets.spreadsheets.values.get({ spreadsheetId, range: "'Release Master'!A1:AZ" });
   const allRows = resp.data.values ?? [];
   if (allRows.length < 2) return NextResponse.json({ error: "データが見つかりません" }, { status: 404 });

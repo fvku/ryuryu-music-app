@@ -5,35 +5,11 @@ import { authOptions } from "@/lib/auth";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { buildHeaderMap, findMissingColumns, getCol, getWriteCol, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
+import { getGoogleAuth } from "@/lib/google-auth";
 
 export const dynamic = "force-dynamic";
 
 const LEGACY_MEMBERS = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa"];
-
-function getAuth(write = false) {
-  const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
-  let credentials;
-  try {
-    const decoded = Buffer.from(keyJson, "base64").toString("utf-8");
-    credentials = JSON.parse(decoded);
-  } catch {
-    try {
-      credentials = JSON.parse(keyJson);
-    } catch {
-      credentials = JSON.parse(keyJson.replace(/\n/g, "\\n"));
-    }
-  }
-  if (credentials.private_key) {
-    credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
-  }
-  return new google.auth.GoogleAuth({
-    credentials,
-    scopes: write
-      ? ["https://www.googleapis.com/auth/spreadsheets"]
-      : ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-  });
-}
 
 export async function GET(
   request: NextRequest,
@@ -49,7 +25,7 @@ export async function GET(
     const titleParam = searchParams.get("title");
     const artistParam = searchParams.get("artist");
 
-    const sheets = google.sheets({ version: "v4", auth: getAuth() });
+    const sheets = google.sheets({ version: "v4", auth: getGoogleAuth() });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: "'Release Master'!A1:AZ",
@@ -125,7 +101,7 @@ export async function PATCH(
       return NextResponse.json({ error: "RELEASE_MASTER_SPREADSHEET_ID is not set" }, { status: 500 });
     }
 
-    const sheets = google.sheets({ version: "v4", auth: getAuth(true) });
+    const sheets = google.sheets({ version: "v4", auth: getGoogleAuth(true) });
 
     // ヘッダー行+全データを取得してtitle+artistで行を特定
     const fullRes = await sheets.spreadsheets.values.get({

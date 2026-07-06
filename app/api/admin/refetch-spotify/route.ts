@@ -3,19 +3,10 @@ import { google } from "googleapis";
 import { searchAlbums } from "@/lib/spotify";
 import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
+import { getGoogleAuth } from "@/lib/google-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-function getWriteAuth() {
-  const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
-  let credentials;
-  try { credentials = JSON.parse(Buffer.from(keyJson, "base64").toString("utf-8")); }
-  catch { credentials = JSON.parse(keyJson); }
-  if (credentials.private_key) credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
-  return new google.auth.GoogleAuth({ credentials, scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
-}
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -57,7 +48,7 @@ export async function POST(req: NextRequest) {
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
   if (!spreadsheetId) return NextResponse.json({ error: "RELEASE_MASTER_SPREADSHEET_ID is not set" }, { status: 500 });
 
-  const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
+  const sheets = google.sheets({ version: "v4", auth: getGoogleAuth(true) });
 
   const resp = await sheets.spreadsheets.values.get({ spreadsheetId, range: "'Release Master'!A1:AZ" });
   const allRows = resp.data.values ?? [];

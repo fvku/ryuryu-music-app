@@ -4,6 +4,7 @@ import { getAllScores, addScore, updateScore, initScoresSheet } from "@/lib/shee
 import { getReleaseMasterScoreRows } from "@/lib/release-master";
 import { LEGACY_NAME_TO_EMAIL, EMAIL_TO_SHORT_NAME } from "@/lib/members";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
+import { getGoogleAuth } from "@/lib/google-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -35,22 +36,7 @@ function normalizeToEmail(memberName: string): string {
 }
 
 function getSheetsClient() {
-  const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
-  let credentials;
-  try {
-    credentials = JSON.parse(Buffer.from(keyJson, "base64").toString("utf-8"));
-  } catch {
-    credentials = JSON.parse(keyJson);
-  }
-  if (credentials.private_key) {
-    credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
-  }
-  const auth = new google.auth.GoogleAuth({
-    credentials,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-  return google.sheets({ version: "v4", auth });
+  return google.sheets({ version: "v4", auth: getGoogleAuth(true) });
 }
 
 export async function GET() {

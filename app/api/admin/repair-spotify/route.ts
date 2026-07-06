@@ -3,34 +3,12 @@ import { google } from "googleapis";
 import { searchAlbums } from "@/lib/spotify";
 import { buildHeaderMap, findMissingColumns, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
+import { getGoogleAuth } from "@/lib/google-auth";
 
 export const dynamic = "force-dynamic";
 
 // Vercel のデフォルトタイムアウトを超える可能性があるため延長
 export const maxDuration = 60;
-
-function getWriteAuth() {
-  const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
-  let credentials;
-  try {
-    const decoded = Buffer.from(keyJson, "base64").toString("utf-8");
-    credentials = JSON.parse(decoded);
-  } catch {
-    try {
-      credentials = JSON.parse(keyJson);
-    } catch {
-      credentials = JSON.parse(keyJson.replace(/\n/g, "\\n"));
-    }
-  }
-  if (credentials.private_key) {
-    credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
-  }
-  return new google.auth.GoogleAuth({
-    credentials,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,7 +29,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "RELEASE_MASTER_SPREADSHEET_ID is not set" }, { status: 500 });
   }
 
-  const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
+  const sheets = google.sheets({ version: "v4", auth: getGoogleAuth(true) });
 
   // ヘッダー＋全データ取得
   const resp = await sheets.spreadsheets.values.get({

@@ -1,32 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { cached, invalidateCache, CACHE_KEY, CACHE_TTL } from "@/lib/api-cache";
+import { getGoogleAuth } from "@/lib/google-auth";
 
 export const dynamic = "force-dynamic";
 
 const SHEET_NAME = "settings";
-
-function getAuth(write = false) {
-  const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
-  let credentials;
-  try {
-    credentials = JSON.parse(Buffer.from(keyJson, "base64").toString("utf-8"));
-  } catch {
-    try {
-      credentials = JSON.parse(keyJson);
-    } catch {
-      credentials = JSON.parse(keyJson.replace(/\n/g, "\\n"));
-    }
-  }
-  if (credentials.private_key) credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
-  return new google.auth.GoogleAuth({
-    credentials,
-    scopes: write
-      ? ["https://www.googleapis.com/auth/spreadsheets"]
-      : ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-  });
-}
 
 async function ensureSettingsSheet(sheets: ReturnType<typeof google.sheets>, spreadsheetId: string) {
   const meta = await sheets.spreadsheets.get({ spreadsheetId });
@@ -48,7 +27,7 @@ async function ensureSettingsSheet(sheets: ReturnType<typeof google.sheets>, spr
 }
 
 async function readSettings(spreadsheetId: string): Promise<Record<string, string>> {
-  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const sheets = google.sheets({ version: "v4", auth: getGoogleAuth() });
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
@@ -86,7 +65,7 @@ export async function PATCH(req: NextRequest) {
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
     if (!spreadsheetId) return NextResponse.json({ error: "GOOGLE_SPREADSHEET_ID is not set" }, { status: 500 });
 
-    const sheets = google.sheets({ version: "v4", auth: getAuth(true) });
+    const sheets = google.sheets({ version: "v4", auth: getGoogleAuth(true) });
     await ensureSettingsSheet(sheets, spreadsheetId);
 
     // 既存の行を探して上書き、なければ末尾に追加
