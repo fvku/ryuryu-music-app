@@ -1,114 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
-import { searchAlbums } from "@/lib/spotify";
-import { buildHeaderMap, findMissingColumns, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
+import { repairSpotifyUrls } from "@/lib/ops/repair-spotify";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
-import { getGoogleAuth } from "@/lib/google-auth";
 import { checkAdminPassword } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
-
-// Vercel のデフォルトタイムアウトを超える可能性があるため延長
 export const maxDuration = 60;
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * AC列（Spotify URL列）に誤ってカバー画像URL（https://i.scdn.co/image/...）が
- * 書き込まれている行を検出し、Spotify APIから正しいアルバムURLを再取得して修復する。
- */
 export async function POST(req: NextRequest) {
   const { adminPassword } = await req.json();
   if (!checkAdminPassword(adminPassword)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
-  if (!spreadsheetId) {
-    return NextResponse.json({ error: "RELEASE_MASTER_SPREADSHEET_ID is not set" }, { status: 500 });
+  try {
+    const result = await repairSpotifyUrls();
+    if (result.fixed > 0) invalidateCache(CACHE_KEY.RELEASE_MASTER);
+    return NextResponse.json({
+      ...result,
+      ...(result.total === 0 ? { message: "修復対象なし" } : {}),
+    });
+  } catch (e) {
+    console.error("repair-spotify failed:", e);
+    return NextResponse.json({ error: String(e) }, { status: 500 });
   }
-
-  const sheets = google.sheets({ version: "v4", auth: getGoogleAuth(true) });
-
-  // ヘッダー＋全データ取得
-  const resp = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: "'Release Master'!A1:AZ",
-  });
-
-  const allRows = resp.data.values ?? [];
-  if (allRows.length < 2) {
-    return NextResponse.json({ error: "データが見つかりません" }, { status: 404 });
-  }
-
-  const [headerRow, ...dataRows] = allRows;
-  const col = buildHeaderMap(headerRow);
-
-  // 必要列の存在チェック
-  const missing = findMissingColumns(col, [SHEET_COL.SPOTIFY_URL]);
-  if (missing.length > 0) {
-    return NextResponse.json({ error: `列が見つかりません: ${missing.join(", ")}` }, { status: 422 });
-  }
-
-  const noIdx     = col["No."]          ?? 0;
-  const titleIdx  = col["アルバム名"]   ?? 2;
-  const artistIdx = col["アーティスト"] ?? 3;
-  const spotifyIdx = col[SHEET_COL.SPOTIFY_URL];
-  const cSpotify  = indexToColumnLetter(spotifyIdx);
-
-  // AC列がカバー画像URLになっている行を抽出
-  const targets: { rowNum: number; no: string; title: string; artist: string }[] = [];
-  dataRows.forEach((row, i) => {
-    const current = (row[spotifyIdx] ?? "").trim();
-    if (current.startsWith("https://i.scdn.co/image/")) {
-      targets.push({
-        rowNum: i + 2, // 1-based, +1 for header row
-        no:     row[noIdx]     ?? "",
-        title:  row[titleIdx]  ?? "",
-        artist: row[artistIdx] ?? "",
-      });
-    }
-  });
-
-  if (targets.length === 0) {
-    return NextResponse.json({ total: 0, fixed: 0, failed: 0, details: [], message: "修復対象なし" });
-  }
-
-  // 各行を順次修復
-  const details: { no: string; title: string; artist: string; newUrl: string }[] = [];
-  let fixed = 0;
-  let failed = 0;
-
-  for (const target of targets) {
-    try {
-      const results = await searchAlbums(`${target.artist} ${target.title}`);
-      const newUrl = results[0]?.spotifyUrl ?? "";
-
-      if (!newUrl || !newUrl.startsWith("https://open.spotify.com/")) {
-        failed++;
-        continue;
-      }
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `'Release Master'!${cSpotify}${target.rowNum}`,
-        valueInputOption: "RAW",
-        requestBody: { values: [[newUrl]] },
-      });
-
-      details.push({ no: target.no, title: target.title, artist: target.artist, newUrl });
-      fixed++;
-    } catch (e) {
-      console.error(`Failed to repair row ${target.rowNum} (${target.title}):`, e);
-      failed++;
-    }
-
-    // Spotify API レートリミット対策
-    await sleep(200);
-  }
-
-  invalidateCache(CACHE_KEY.RELEASE_MASTER);
-  return NextResponse.json({ total: targets.length, fixed, failed, details });
 }
