@@ -65,6 +65,7 @@ export const SHEET_COL = {
   GENRE:       "ジャンル",       // F列  ※要確認（洋邦）
 
   // --- 書き込み対象 ---
+  UID:         "UID",            // 安定ID列（改名に耐える行識別子。位置は任意）
   GENRE_MEMO:  "genre/memo",     // K列
   COUNTRY:     "国",             // L列
   MJ_ADOPTION: "M/J採用",        // Q列

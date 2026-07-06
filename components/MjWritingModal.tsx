@@ -129,7 +129,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
       const res = await fetch(`/api/release-master/${album.no}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mjAssign: assignPending, title: album.title, artist: album.artist }),
+        body: JSON.stringify({ mjAssign: assignPending, uid: album.uid, title: album.title, artist: album.artist }),
       });
       if (!res.ok) {
         const errData = await res.json();
@@ -154,7 +154,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
       const res = await fetch(`/api/release-master/${album.no}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mjAdoption: mjPending, title: album.title, artist: album.artist }),
+        body: JSON.stringify({ mjAdoption: mjPending, uid: album.uid, title: album.title, artist: album.artist }),
       });
       if (!res.ok) {
         const errData = await res.json();
@@ -180,6 +180,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          uid: album.uid,
           title: album.title,
           artist: album.artist,
           mjData: {

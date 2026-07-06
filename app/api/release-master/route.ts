@@ -33,6 +33,7 @@ async function fetchAlbums(): Promise<ReleaseMasterAlbum[]> {
     )
     .map((row) => ({
       no:         row[getCol(col, "NO")]          || "",
+      uid:        (row[col[SHEET_COL.UID]] || "").trim(),
       date:       row[getCol(col, "DATE")]         || "",
       title:      row[getCol(col, "TITLE")]        || "",
       artist:     row[getCol(col, "ARTIST")]       || "",

@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { getWriteAuth } from "@/lib/release-master";
 import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
+import { generateAlbumUid } from "@/lib/uid";
 
 export const dynamic = "force-dynamic";
 
@@ -109,6 +110,9 @@ export async function POST(request: NextRequest) {
     ];
     if (waboku) cellsToWrite.push([wabokuColIdx, waboku]);
     if (coverColIdx >= 0) cellsToWrite.push([coverColIdx, coverUrl]);
+    // UID列があれば安定IDを採番（なければ sync cron の自動採番に任せる）
+    const uidColIdx = col[SHEET_COL.UID] ?? -1;
+    if (uidColIdx >= 0) cellsToWrite.push([uidColIdx, generateAlbumUid()]);
 
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,

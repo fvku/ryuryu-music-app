@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getAllScores, addScore, updateScore, initScoresSheet } from "@/lib/sheets";
-import { getReleaseMasterScoreRows } from "@/lib/release-master";
+import { getReleaseMasterScoreRows, assignMissingUids } from "@/lib/release-master";
 import { LEGACY_NAME_TO_EMAIL, EMAIL_TO_SHORT_NAME } from "@/lib/members";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
@@ -221,8 +221,18 @@ export async function GET() {
     if (synced.length > 0) {
       invalidateCache(CACHE_KEY.SCORES);
     }
+
+    // 手動追加行への UID 自動採番（失敗しても同期自体は成功扱い）
+    let uidsAssigned = 0;
+    try {
+      uidsAssigned = await assignMissingUids();
+      if (uidsAssigned > 0) invalidateCache(CACHE_KEY.RELEASE_MASTER);
+    } catch (e) {
+      console.error("assignMissingUids failed:", e);
+    }
+
     lastRunAt = Date.now();
-    return NextResponse.json({ ok: true, synced, added });
+    return NextResponse.json({ ok: true, synced, added, uidsAssigned });
   } catch (error) {
     console.error("Sync cron failed:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });

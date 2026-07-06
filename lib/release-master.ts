@@ -2,6 +2,7 @@ import { google } from "googleapis";
 import { MEMBER_COLUMN_INDEX } from "./members";
 import { buildHeaderMap, findMissingColumns, indexToColumnLetter, SHEET_COL } from "./sheet-headers";
 import { getGoogleAuth } from "./google-auth";
+import { generateAlbumUid } from "./uid";
 
 export function getWriteAuth() {
   return getGoogleAuth(true);
@@ -105,6 +106,58 @@ export async function getReleaseMasterScoreRows(): Promise<ReleaseMasterScoreRow
         memberScores,
       };
     });
+}
+
+/**
+ * UIDが空の行（タイトルまたはアーティストあり）に安定IDを採番する。
+ * 手動でシートに追加された行への追従用（sync cron から呼ばれる）。
+ * UID列が存在しない場合は何もしない（scripts/assign-uids.ts で列を作成する）。
+ * @returns 採番した行数
+ */
+export async function assignMissingUids(): Promise<number> {
+  const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
+  if (!spreadsheetId) return 0;
+
+  const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
+  const resp = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: "'Release Master'!A1:AZ",
+  });
+
+  const allRows = resp.data.values ?? [];
+  if (allRows.length < 2) return 0;
+  const [headerRow, ...dataRows] = allRows;
+  const col = buildHeaderMap(headerRow);
+
+  const uidIdx = col[SHEET_COL.UID];
+  if (uidIdx === undefined) return 0;
+
+  const titleIdx  = col["Title"]  ?? col["アルバム名"]  ?? 2;
+  const artistIdx = col["Artist"] ?? col["アーティスト"] ?? 3;
+  const cUid = indexToColumnLetter(uidIdx);
+
+  const usedUids = new Set<string>(
+    dataRows.map((r) => (r[uidIdx] ?? "").trim()).filter(Boolean)
+  );
+
+  const data: { range: string; values: string[][] }[] = [];
+  dataRows.forEach((row, i) => {
+    if ((row[uidIdx] ?? "").trim()) return;
+    const hasContent = (row[titleIdx] ?? "").trim() || (row[artistIdx] ?? "").trim();
+    if (!hasContent) return;
+    let uid = generateAlbumUid();
+    while (usedUids.has(uid)) uid = generateAlbumUid();
+    usedUids.add(uid);
+    data.push({ range: `'Release Master'!${cUid}${i + 2}`, values: [[uid]] });
+  });
+
+  if (data.length === 0) return 0;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: "RAW", data },
+  });
+  return data.length;
 }
 
 export async function writeScoreToReleaseMaster(

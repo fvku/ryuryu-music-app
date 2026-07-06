@@ -22,6 +22,7 @@ export async function GET(
     }
 
     const { searchParams } = new URL(request.url);
+    const uidParam = searchParams.get("uid");
     const titleParam = searchParams.get("title");
     const artistParam = searchParams.get("artist");
 
@@ -39,18 +40,26 @@ export async function GET(
     const [headerRow, ...dataRows] = allRows;
     const col = buildHeaderMap(headerRow);
 
-    if (!titleParam || !artistParam) {
-      return NextResponse.json({ error: "title と artist が必要です" }, { status: 400 });
+    if (!uidParam && (!titleParam || !artistParam)) {
+      return NextResponse.json({ error: "uid または title+artist が必要です" }, { status: 400 });
     }
-    const row = dataRows.find(
-      (r) => r[getCol(col, "TITLE")] === titleParam && r[getCol(col, "ARTIST")] === artistParam
-    );
+    // UID優先で行を特定し、見つからなければ title+artist にフォールバック
+    const uidIdx = col[SHEET_COL.UID];
+    let row = uidParam && uidIdx !== undefined
+      ? dataRows.find((r) => (r[uidIdx] || "").trim() === uidParam)
+      : undefined;
+    if (!row && titleParam && artistParam) {
+      row = dataRows.find(
+        (r) => r[getCol(col, "TITLE")] === titleParam && r[getCol(col, "ARTIST")] === artistParam
+      );
+    }
     if (!row) {
       return NextResponse.json({ error: "アルバムが見つかりません" }, { status: 404 });
     }
 
     const album: ReleaseMasterAlbum = {
       no:         row[getCol(col, "NO")]          || "",
+      uid:        (uidIdx !== undefined ? row[uidIdx] || "" : "").trim(),
       date:       row[getCol(col, "DATE")]         || "",
       title:      row[getCol(col, "TITLE")]        || "",
       artist:     row[getCol(col, "ARTIST")]       || "",
@@ -88,12 +97,12 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { mjAdoption, mjData, mjAssign, albumMeta, title, artist } = body;
+    const { mjAdoption, mjData, mjAssign, albumMeta, uid, title, artist } = body;
     if (mjAdoption === undefined && mjData === undefined && mjAssign === undefined && albumMeta === undefined) {
       return NextResponse.json({ error: "mjAdoption, mjData, mjAssign, または albumMeta が必要です" }, { status: 400 });
     }
-    if (!title || !artist) {
-      return NextResponse.json({ error: "title と artist が必要です" }, { status: 400 });
+    if (!uid && (!title || !artist)) {
+      return NextResponse.json({ error: "uid または title+artist が必要です" }, { status: 400 });
     }
 
     const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
@@ -115,9 +124,17 @@ export async function PATCH(
     const [headerRowData, ...dataRows] = allRows;
     const col = buildHeaderMap(headerRowData);
 
-    const rowIndex = dataRows.findIndex(
-      (r) => r[getCol(col, "TITLE")] === title && r[getCol(col, "ARTIST")] === artist
-    );
+    // UID優先で行を特定し、見つからなければ title+artist にフォールバック
+    const uidIdx = col[SHEET_COL.UID];
+    let rowIndex = -1;
+    if (uid && uidIdx !== undefined) {
+      rowIndex = dataRows.findIndex((r) => (r[uidIdx] || "").trim() === uid);
+    }
+    if (rowIndex === -1 && title && artist) {
+      rowIndex = dataRows.findIndex(
+        (r) => r[getCol(col, "TITLE")] === title && r[getCol(col, "ARTIST")] === artist
+      );
+    }
     if (rowIndex === -1) {
       return NextResponse.json({ error: "アルバムが見つかりません" }, { status: 404 });
     }

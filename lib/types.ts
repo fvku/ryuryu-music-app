@@ -9,6 +9,7 @@ export interface SpotifyAlbum {
 
 export interface ReleaseMasterAlbum {
   no: string;
+  uid: string;        // UID column — 改名に耐える安定ID（空の行もありうる）
   date: string;
   title: string;
   artist: string;
