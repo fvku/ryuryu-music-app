@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { cached, invalidateCache, CACHE_KEY, CACHE_TTL } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
+import { checkAdminPassword } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +58,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   try {
     const { adminPassword, key, value } = await req.json() as { adminPassword: string; key: string; value: string };
-    if (adminPassword !== process.env.ADMIN_PASSWORD) {
+    if (!checkAdminPassword(adminPassword)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (!key) return NextResponse.json({ error: "key is required" }, { status: 400 });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAllScores, addScore, getAllSyncPending, removeSyncPending } from "@/lib/sheets";
 import { getReleaseMasterScoreRows } from "@/lib/release-master";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
+import { checkAdminPassword } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ function parseCellScore(value: string): { score: number | null; comment: string 
 
 export async function POST(req: NextRequest) {
   const { adminPassword } = await req.json();
-  if (adminPassword !== process.env.ADMIN_PASSWORD) {
+  if (!checkAdminPassword(adminPassword)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -4,6 +4,7 @@ import { searchAlbums } from "@/lib/spotify";
 import { buildHeaderMap, findMissingColumns, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
+import { checkAdminPassword } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ function sleep(ms: number) {
  */
 export async function POST(req: NextRequest) {
   const { adminPassword } = await req.json();
-  if (adminPassword !== process.env.ADMIN_PASSWORD) {
+  if (!checkAdminPassword(adminPassword)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

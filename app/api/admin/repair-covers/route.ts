@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
+import { checkAdminPassword } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -40,7 +41,7 @@ function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 export async function POST(req: NextRequest) {
   const { adminPassword, limit = 20 } = await req.json();
-  if (adminPassword !== process.env.ADMIN_PASSWORD) {
+  if (!checkAdminPassword(adminPassword)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
