@@ -27,6 +27,10 @@
 - `lib/sheets.ts` — Sheets API ラッパー（scores/recommendations CRUD）
 - `lib/release-master.ts` — Release Master への書き込み
 - `lib/sheet-headers.ts` — 列名定数（`SHEET_COL`）と動的ヘッダー解決ユーティリティ
+- `lib/score-utils.ts` — スコア集計の共通ロジック（最新絞り込み・legacy優先マージ・レビュー済み判定）
+- `lib/api-cache.ts` — GET APIのin-memoryキャッシュ（書き込みルートで `invalidateCache` を呼ぶこと）
+- `lib/uid.ts` / UID列 — アルバムの安定ID（改名に耐える行識別子。`scripts/assign-uids.ts` で採番）
+- `lib/ops/` — メンテ処理のコアロジック（scripts/ と app/api/admin/ の両方から呼ばれる共通実装）
 - `lib/spotify.ts` — Spotify API クライアント
 - `app/page.tsx` — ホーム（アルバム一覧、フィルター）
 - `app/recommend/page.tsx` — タイムライン（レコメンド＋レビュー）
