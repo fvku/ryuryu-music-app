@@ -1,6 +1,7 @@
 import { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import SpotifyProvider from "next-auth/providers/spotify";
+import { EMAIL_TO_SHORT_NAME } from "./members";
 
 const SPOTIFY_SCOPES = "streaming user-read-email user-read-private";
 
@@ -18,8 +19,8 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async signIn({ user }) {
-      const allowed = process.env.ALLOWED_MEMBER_EMAILS?.split(",").map((e) => e.trim()).filter(Boolean) ?? [];
-      if (allowed.length === 0) return true;
+      const envAllowed = process.env.ALLOWED_MEMBER_EMAILS?.split(",").map((e) => e.trim()).filter(Boolean) ?? [];
+      const allowed = envAllowed.length > 0 ? envAllowed : Object.keys(EMAIL_TO_SHORT_NAME);
       return allowed.includes(user.email ?? "");
     },
     async jwt({ token, account }) {
