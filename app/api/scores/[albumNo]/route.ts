@@ -5,6 +5,7 @@ import { getScoresForAlbum, addScore, hasScore, initScoresSheet, updateScore } f
 import { getMemberShortName } from "@/lib/members";
 import { writeScoreToReleaseMaster } from "@/lib/release-master";
 import { LEGACY_NAME_TO_EMAIL } from "@/lib/members";
+import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,8 @@ export async function POST(
       albumTitle: albumTitle || "",
       artistName: artistName || "",
     });
+    // scoresシートとRelease Master（メンバースコア列）の両方が変わる
+    invalidateCache(CACHE_KEY.SCORES, CACHE_KEY.RELEASE_MASTER);
 
     if (shortName && score !== null && score !== undefined) {
       try {
@@ -135,6 +138,7 @@ export async function PUT(
     if (!updated) {
       return NextResponse.json({ error: "レビューが見つかりません" }, { status: 404 });
     }
+    invalidateCache(CACHE_KEY.SCORES, CACHE_KEY.RELEASE_MASTER);
 
     if (shortName && score !== null && score !== undefined) {
       try {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
+import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -139,5 +140,6 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  invalidateCache(CACHE_KEY.RELEASE_MASTER);
   return NextResponse.json({ written: toWrite.length, notFound, skipped });
 }

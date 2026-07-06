@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { buildHeaderMap, findMissingColumns, getCol, getWriteCol, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
+import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -224,6 +225,7 @@ export async function PATCH(
       }
     }
 
+    invalidateCache(CACHE_KEY.RELEASE_MASTER);
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Failed to update Release Master:", error);

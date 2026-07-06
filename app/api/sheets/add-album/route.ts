@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getWriteAuth } from "@/lib/release-master";
 import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
+import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -120,6 +121,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    invalidateCache(CACHE_KEY.RELEASE_MASTER);
     return NextResponse.json({ ok: true, no });
   } catch (error) {
     console.error("add-album failed:", error);

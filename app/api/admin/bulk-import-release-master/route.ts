@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllScores, addScore, getAllSyncPending, removeSyncPending } from "@/lib/sheets";
 import { getReleaseMasterScoreRows } from "@/lib/release-master";
+import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +67,7 @@ export async function POST(req: NextRequest) {
       await removeSyncPending(p.albumNo, p.memberEmail);
     }
 
+    invalidateCache(CACHE_KEY.SCORES);
     return NextResponse.json({
       ok: true,
       imported: imported.length,

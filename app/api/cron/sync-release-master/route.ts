@@ -3,11 +3,18 @@ import { google } from "googleapis";
 import { getAllScores, addScore, updateScore, initScoresSheet } from "@/lib/sheets";
 import { getReleaseMasterScoreRows } from "@/lib/release-master";
 import { LEGACY_NAME_TO_EMAIL, EMAIL_TO_SHORT_NAME } from "@/lib/members";
+import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const SYNC_DELAY_MS = 2 * 60 * 1000; // 2 minutes
+const THROTTLE_MS = 5 * 60 * 1000;   // 実行間隔の下限（5分）
+
+// 同一インスタンス内でのスロットル・並走防止
+// （ページ訪問ごとに fire-and-forget されるため、頻発と同時実行を抑える）
+let lastRunAt = 0;
+let running = false;
 
 function parseCellScore(value: string): { score: number | null; comment: string } {
   const trimmed = value.trim();
@@ -47,6 +54,13 @@ function getSheetsClient() {
 }
 
 export async function GET() {
+  if (running) {
+    return NextResponse.json({ ok: true, skipped: "already-running" });
+  }
+  if (Date.now() - lastRunAt < THROTTLE_MS) {
+    return NextResponse.json({ ok: true, skipped: "throttled" });
+  }
+  running = true;
   try {
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
     if (!spreadsheetId) throw new Error("GOOGLE_SPREADSHEET_ID is not set");
@@ -218,9 +232,15 @@ export async function GET() {
       });
     }
 
+    if (synced.length > 0) {
+      invalidateCache(CACHE_KEY.SCORES);
+    }
+    lastRunAt = Date.now();
     return NextResponse.json({ ok: true, synced, added });
   } catch (error) {
     console.error("Sync cron failed:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
+  } finally {
+    running = false;
   }
 }

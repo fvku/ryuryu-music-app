@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
+import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -90,5 +91,6 @@ export async function POST(req: NextRequest) {
     await sheets.spreadsheets.values.batchClear({ spreadsheetId, requestBody: { ranges: clearRanges } });
   }
 
+  invalidateCache(CACHE_KEY.SCORES);
   return NextResponse.json({ total: rows.length, kept: keepRows.size, cleared: clearRanges.length });
 }

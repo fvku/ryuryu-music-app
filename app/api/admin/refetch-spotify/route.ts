@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { searchAlbums } from "@/lib/spotify";
 import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
+import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -141,5 +142,6 @@ export async function POST(req: NextRequest) {
     await sleep(300);
   }
 
+  invalidateCache(CACHE_KEY.RELEASE_MASTER);
   return NextResponse.json({ written, mismatched, notFound, total: targets.length, totalEmpty, mismatches });
 }

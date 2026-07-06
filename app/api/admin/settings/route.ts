@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
+import { cached, invalidateCache, CACHE_KEY, CACHE_TTL } from "@/lib/api-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -65,7 +66,7 @@ export async function GET() {
   try {
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
     if (!spreadsheetId) return NextResponse.json({ error: "GOOGLE_SPREADSHEET_ID is not set" }, { status: 500 });
-    const settings = await readSettings(spreadsheetId);
+    const settings = await cached(CACHE_KEY.SETTINGS, CACHE_TTL.SETTINGS, () => readSettings(spreadsheetId));
     return NextResponse.json(settings);
   } catch (e) {
     console.error("Failed to read settings:", e);
@@ -113,6 +114,7 @@ export async function PATCH(req: NextRequest) {
       });
     }
 
+    invalidateCache(CACHE_KEY.SETTINGS);
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("Failed to update settings:", e);
