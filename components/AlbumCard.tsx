@@ -26,6 +26,7 @@ function getMjStyle(value: string) {
 }
 
 export default function AlbumCard({ album, coverUrl, averageScore, scoreCount = 0, onClick }: AlbumCardProps) {
+  const hasValidCover = !!coverUrl && coverUrl.includes("i.scdn.co");
   return (
     <div
       onClick={onClick}
@@ -35,8 +36,8 @@ export default function AlbumCard({ album, coverUrl, averageScore, scoreCount = 
       <div className="flex items-center gap-4">
         {/* Cover */}
         <div className="relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0" style={{ backgroundColor: "#2a2a3a" }}>
-          {coverUrl ? (
-            <Image src={coverUrl} alt={`${album.title} by ${album.artist}`} fill sizes="56px" className="object-cover" />
+          {hasValidCover ? (
+            <Image src={coverUrl!} alt={`${album.title} by ${album.artist}`} fill sizes="56px" className="object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#6b7280" }}>

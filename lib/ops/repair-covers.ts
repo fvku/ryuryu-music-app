@@ -1,5 +1,5 @@
 /**
- * spotifyカバー列が空（または --all で全行）の行に対して、
+ * spotifyカバー列が空・または画像URL（i.scdn.co）以外の不正な値の行（または --all で全行）に対して、
  * Spotify URL からカバー画像URLを取得して補完するコアロジック。
  * scripts/repair-covers.ts（CLI）と app/api/admin/repair-covers（管理画面）の共通実装。
  */
@@ -86,14 +86,16 @@ export async function repairCovers(options: RepairCoversOptions = {}): Promise<R
     }))
     .filter((r) => {
       if (!r.spotifyUrl || !SPOTIFY_ALBUM_RE.test(r.spotifyUrl)) return false;
-      return forceAll || !r.currentCover;
+      // カバー列に画像URL以外（例: Spotifyのアルバムページurl）が誤登録されている場合も修復対象にする
+      const isInvalidCover = !!r.currentCover && !r.currentCover.includes("i.scdn.co");
+      return forceAll || !r.currentCover || isInvalidCover;
     });
 
   const targets = limit !== undefined ? allTargets.slice(0, limit) : allTargets;
 
   const result: RepairCoversResult = { total: targets.length, fixed: 0, failed: 0, noChange: 0 };
 
-  log(`対象行数: ${targets.length}${forceAll ? " (--all)" : " (coverUrl が空の行のみ)"}`);
+  log(`対象行数: ${targets.length}${forceAll ? " (--all)" : " (coverUrl が空 or 不正な行)"}`);
   if (targets.length === 0) {
     log("補完対象なし。");
     return result;
