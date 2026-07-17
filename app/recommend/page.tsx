@@ -142,9 +142,13 @@ export default function RecommendPage() {
   }
 
   const albumByTitleArtist = new Map(albums.map((a) => [`${a.title}::${a.artist}`, a]));
+  const albumByUid = new Map(albums.filter((a) => a.uid).map((a) => [a.uid, a]));
 
   function getAlbumForItem(item: TimelineItem): ReleaseMasterAlbum | undefined {
-    return albumByTitleArtist.get(`${item.data.albumTitle}::${item.data.artistName}`);
+    // UID優先（アルバム改名後もタイムラインが正しいアルバムに紐づく）
+    const uid = item.data.albumUid;
+    return (uid ? albumByUid.get(uid) : undefined)
+      ?? albumByTitleArtist.get(`${item.data.albumTitle}::${item.data.artistName}`);
   }
 
   function getItemMember(item: TimelineItem): string {

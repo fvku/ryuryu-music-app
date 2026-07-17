@@ -19,10 +19,14 @@ export async function GET(request: NextRequest) {
 
     const albumTitle = searchParams.get("albumTitle");
     const artistName = searchParams.get("artistName");
+    const albumUid = searchParams.get("albumUid");
     const recommendations = await getAllRecommendations();
-    if (albumTitle && artistName) {
-      return NextResponse.json(recommendations.filter(
-        (r) => r.albumTitle === albumTitle && r.artistName === artistName
+    if (albumUid || (albumTitle && artistName)) {
+      // UID優先: 行と検索条件の両方にUIDがあればUIDで判定、なければtitle+artist
+      return NextResponse.json(recommendations.filter((r) =>
+        r.albumUid && albumUid
+          ? r.albumUid === albumUid
+          : r.albumTitle === albumTitle && r.artistName === artistName
       ));
     }
     return NextResponse.json(recommendations);
@@ -40,13 +44,14 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { albumNo, albumTitle, artistName, coverUrl, message, mentionedEmails } = body as {
+    const { albumNo, albumTitle, artistName, coverUrl, message, mentionedEmails, albumUid } = body as {
       albumNo: string;
       albumTitle: string;
       artistName: string;
       coverUrl: string;
       message: string;
       mentionedEmails: string[];
+      albumUid?: string;
     };
 
     if (!albumTitle) {
@@ -63,6 +68,7 @@ export async function POST(request: NextRequest) {
       coverUrl: coverUrl || "",
       message: message || "",
       mentionedEmails: Array.isArray(mentionedEmails) ? mentionedEmails.map((e) => e.toLowerCase()) : [],
+      albumUid: albumUid || "",
     });
 
     return NextResponse.json(rec, { status: 201 });

@@ -69,13 +69,13 @@ function normalizeToEmail(memberName: string): string {
 async function main() {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "scores!A2:G",
+    range: "scores!A2:H",
   });
 
   const rows = res.data.values ?? [];
   console.log(`Total rows: ${rows.length}`);
 
-  // key: albumTitle::artistName::normalizedEmail → 残すべき行インデックス
+  // key: アルバム部（albumUid優先、なければalbumTitle::artistName）::normalizedEmail
   // value: { rowIndex, submittedAt, score, comment }
   const groupMap = new Map<string, { rowIndex: number; submittedAt: string; score: string; comment: string }[]>();
 
@@ -87,11 +87,13 @@ async function main() {
     const submittedAt = (row[4] ?? "").trim();
     const score       = (row[2] ?? "").trim();
     const comment     = (row[3] ?? "").trim();
+    const albumUid    = (row[7] ?? "").trim();
 
     if (!albumTitle && !artistName) continue;
 
     const normalizedEmail = normalizeToEmail(memberName);
-    const key = `${albumTitle}::${artistName}::${normalizedEmail}`;
+    const albumPart = albumUid ? `uid::${albumUid}` : `${albumTitle}::${artistName}`;
+    const key = `${albumPart}::${normalizedEmail}`;
 
     if (!groupMap.has(key)) groupMap.set(key, []);
     groupMap.get(key)!.push({ rowIndex: i, submittedAt, score, comment });
@@ -136,7 +138,7 @@ async function main() {
 
     if (!keepRows.has(i)) {
       const sheetRow = i + 2;
-      clearRequests.push({ range: `scores!A${sheetRow}:G${sheetRow}` });
+      clearRequests.push({ range: `scores!A${sheetRow}:H${sheetRow}` });
     }
   }
 

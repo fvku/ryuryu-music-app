@@ -165,9 +165,10 @@ export async function writeScoreToReleaseMaster(
   artistName: string,
   memberName: string,
   score: number,
-  comment: string
+  comment: string,
+  albumUid?: string
 ): Promise<void> {
-  if (!albumTitle || !artistName) return;
+  if (!albumUid && (!albumTitle || !artistName)) return;
 
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
   if (!spreadsheetId) return;
@@ -194,13 +195,30 @@ export async function writeScoreToReleaseMaster(
     throw new Error(`COLUMN_NOT_FOUND: ${missing.join(", ")}`);
   }
 
-  // 対象行を探す
-  const rows = titleColRes.data.values || [];
+  // 対象行を探す: UID優先（改名直後の投稿も正しい行に届く）、なければtitle+artist
   let rowNum: number | null = null;
-  for (let i = 0; i < rows.length; i++) {
-    if ((rows[i][0] || "").trim() === albumTitle.trim() && (rows[i][1] || "").trim() === artistName.trim()) {
-      rowNum = i + 2;
-      break;
+  const uidIdx = col[SHEET_COL.UID];
+  if (albumUid && uidIdx !== undefined) {
+    const cUid = indexToColumnLetter(uidIdx);
+    const uidColRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `'Release Master'!${cUid}2:${cUid}`,
+    });
+    const uidRows = uidColRes.data.values || [];
+    for (let i = 0; i < uidRows.length; i++) {
+      if ((uidRows[i][0] || "").trim() === albumUid) {
+        rowNum = i + 2;
+        break;
+      }
+    }
+  }
+  if (rowNum === null) {
+    const rows = titleColRes.data.values || [];
+    for (let i = 0; i < rows.length; i++) {
+      if ((rows[i][0] || "").trim() === albumTitle.trim() && (rows[i][1] || "").trim() === artistName.trim()) {
+        rowNum = i + 2;
+        break;
+      }
     }
   }
   if (rowNum === null) return;

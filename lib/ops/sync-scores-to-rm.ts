@@ -41,7 +41,7 @@ export async function syncScoresToRm(options: SyncScoresToRmOptions = {}): Promi
   const sheets = google.sheets({ version: "v4", auth: getGoogleAuth(true) });
 
   const [scoresRes, rmRes] = await Promise.all([
-    sheets.spreadsheets.values.get({ spreadsheetId: appSpreadsheetId, range: "scores!A2:G" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: appSpreadsheetId, range: "scores!A2:H" }),
     sheets.spreadsheets.values.get({ spreadsheetId: rmSpreadsheetId, range: "'Release Master'!A1:AZ" }),
   ]);
 
@@ -52,7 +52,8 @@ export async function syncScoresToRm(options: SyncScoresToRmOptions = {}): Promi
   log(`scores シート: ${scoreRows.length} 行`);
 
   // 同一アルバム×同一メンバーは最新 submittedAt のみ残す
-  type ScoreEntry = { score: string; comment: string; submittedAt: string };
+  // （アルバムの同一性はUID優先、UIDのない旧行はtitle+artist）
+  type ScoreEntry = { score: string; comment: string; submittedAt: string; albumTitle: string; artistName: string; albumUid: string; email: string };
   const latestMap = new Map<string, ScoreEntry>();
   for (const row of scoreRows) {
     const memberName  = (row[1] ?? "").trim();
@@ -61,13 +62,14 @@ export async function syncScoresToRm(options: SyncScoresToRmOptions = {}): Promi
     const submittedAt = (row[4] ?? "").trim();
     const albumTitle  = (row[5] ?? "").trim();
     const artistName  = (row[6] ?? "").trim();
-    if (!albumTitle || !artistName || !score) continue;
+    const albumUid    = (row[7] ?? "").trim();
+    if ((!albumUid && (!albumTitle || !artistName)) || !score) continue;
     const email = normalizeEmail(memberName);
     if (!email) continue;
-    const key = `${albumTitle}::${artistName}::${email}`;
+    const key = albumUid ? `uid::${albumUid}::${email}` : `${albumTitle}::${artistName}::${email}`;
     const existing = latestMap.get(key);
     if (!existing || submittedAt > existing.submittedAt) {
-      latestMap.set(key, { score, comment, submittedAt });
+      latestMap.set(key, { score, comment, submittedAt, albumTitle, artistName, albumUid, email });
     }
   }
   log(`重複除去後: ${latestMap.size} エントリ`);
@@ -79,27 +81,33 @@ export async function syncScoresToRm(options: SyncScoresToRmOptions = {}): Promi
 
   const titleIdx  = colMap["Title"]  ?? colMap["アルバム名"]   ?? 2;
   const artistIdx = colMap["Artist"] ?? colMap["アーティスト"] ?? 3;
+  const uidIdx    = colMap["UID"];
 
-  const rmRowMap = new Map<string, { rowNum: number; row: string[] }>();
+  const rmRowMap  = new Map<string, { rowNum: number; row: string[] }>();
+  const rmUidMap  = new Map<string, { rowNum: number; row: string[] }>();
   for (let i = 0; i < dataRows.length; i++) {
     const t = (dataRows[i][titleIdx]  ?? "").trim();
     const a = (dataRows[i][artistIdx] ?? "").trim();
-    if (t && a) rmRowMap.set(`${t}::${a}`, { rowNum: i + 2, row: dataRows[i] });
+    if (t && a && !rmRowMap.has(`${t}::${a}`)) rmRowMap.set(`${t}::${a}`, { rowNum: i + 2, row: dataRows[i] });
+    if (uidIdx !== undefined) {
+      const u = (dataRows[i][uidIdx] ?? "").trim();
+      if (u && !rmUidMap.has(u)) rmUidMap.set(u, { rowNum: i + 2, row: dataRows[i] });
+    }
   }
 
   // 書き込むセルを収集
   const toWrite: { range: string; values: string[][]; label: string }[] = [];
   const result: SyncScoresToRmResult = { written: 0, notFound: 0, skipped: 0, notFoundList: [] };
 
-  for (const [key, entry] of Array.from(latestMap.entries())) {
-    const [albumTitle, artistName, email] = key.split("::");
+  for (const entry of Array.from(latestMap.values())) {
+    const { albumTitle, artistName, albumUid, email } = entry;
     const colName = EMAIL_TO_SHORT_NAME[email];
     if (!colName) continue;
 
     const colIdx = colMap[colName];
     if (colIdx === undefined) { log(`列が見つかりません: ${colName}`); continue; }
 
-    const rmEntry = rmRowMap.get(`${albumTitle}::${artistName}`);
+    const rmEntry = (albumUid ? rmUidMap.get(albumUid) : undefined) ?? rmRowMap.get(`${albumTitle}::${artistName}`);
     if (!rmEntry) {
       result.notFound++;
       result.notFoundList.push(`${albumTitle} / ${artistName} (${colName})`);

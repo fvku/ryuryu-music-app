@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   if (!spreadsheetId) return NextResponse.json({ error: "GOOGLE_SPREADSHEET_ID is not set" }, { status: 500 });
 
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "scores!A2:G" });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "scores!A2:H" });
   const rows = res.data.values ?? [];
 
   type Entry = { rowIndex: number; submittedAt: string; score: string; comment: string };
@@ -56,8 +56,11 @@ export async function POST(req: NextRequest) {
     const submittedAt = (row[4] ?? "").trim();
     const score       = (row[2] ?? "").trim();
     const comment     = (row[3] ?? "").trim();
+    const albumUid    = (row[7] ?? "").trim();
     if (!albumTitle && !artistName) continue;
-    const key = `${albumTitle}::${artistName}::${normalizeToEmail(memberName)}`;
+    // アルバムの同一性はUID優先（改名でtitleが食い違っても同一アルバムとして重複判定）
+    const albumPart = albumUid ? `uid::${albumUid}` : `${albumTitle}::${artistName}`;
+    const key = `${albumPart}::${normalizeToEmail(memberName)}`;
     if (!groupMap.has(key)) groupMap.set(key, []);
     groupMap.get(key)!.push({ rowIndex: i, submittedAt, score, comment });
   }
@@ -79,7 +82,7 @@ export async function POST(req: NextRequest) {
     const albumTitle = (row[5] ?? "").trim();
     const artistName = (row[6] ?? "").trim();
     if (!albumTitle && !artistName) continue;
-    if (!keepRows.has(i)) clearRanges.push(`scores!A${i + 2}:G${i + 2}`);
+    if (!keepRows.has(i)) clearRanges.push(`scores!A${i + 2}:H${i + 2}`);
   }
 
   if (clearRanges.length > 0) {

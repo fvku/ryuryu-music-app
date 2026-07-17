@@ -20,6 +20,14 @@ export function albumKey(title: string, artist: string): string {
 }
 
 /**
+ * スコア行のアルバム特定キー。albumUid があればUID（改名に耐える）、
+ * なければ従来の title+artist。
+ */
+export function scoreAlbumKey(s: Pick<Score, "albumUid" | "albumTitle" | "artistName">): string {
+  return s.albumUid ? `uid::${s.albumUid}` : albumKey(s.albumTitle ?? "", s.artistName ?? "");
+}
+
+/**
  * 同一メンバーの重複エントリは最新のもののみ残す。
  * @param byAlbum true（既定）: アルバム×メンバー単位で重複判定。
  *                false: メンバー単位のみ（単一アルバムのスコア一覧向け）。
@@ -28,7 +36,7 @@ export function dedupeLatestScores(scores: Score[], byAlbum = true): Score[] {
   const latest = new Map<string, Score>();
   for (const s of scores) {
     const key = byAlbum
-      ? `${s.albumTitle}::${s.artistName}::${s.memberName.toLowerCase()}`
+      ? `${scoreAlbumKey(s)}::${s.memberName.toLowerCase()}`
       : s.memberName.toLowerCase();
     const existing = latest.get(key);
     if (!existing || s.submittedAt > existing.submittedAt) latest.set(key, s);
@@ -48,11 +56,15 @@ export interface ScoreSummaryEntry {
 
 export type ScoreSummary = Record<string, ScoreSummaryEntry>;
 
-/** 全スコアから title::artist キーの集計マップを構築（メンバーごと最新のみ） */
+/**
+ * 全スコアから集計マップを構築（メンバーごと最新のみ）。
+ * キーは albumUid があれば "uid::<uid>"、なければ "title::artist"。
+ * 参照側は getSummaryEntry() を使うこと。
+ */
 export function buildScoreSummary(scores: Score[]): ScoreSummary {
   const summary: ScoreSummary = {};
   for (const s of dedupeLatestScores(scores)) {
-    const key = albumKey(s.albumTitle ?? "", s.artistName ?? "");
+    const key = scoreAlbumKey(s);
     if (!summary[key]) summary[key] = { avg: 0, count: 0, total: 0, members: new Set(), memberScores: {} };
     summary[key].members.add(s.memberName.toLowerCase());
     if (s.score !== null) {
@@ -63,6 +75,27 @@ export function buildScoreSummary(scores: Score[]): ScoreSummary {
     }
   }
   return summary;
+}
+
+/**
+ * アルバムと scores/bookmarks/recommendations 行の一致判定（UID優先）。
+ * 両方にUIDがあればUIDのみで判定し、どちらかが欠けていれば title+artist 完全一致。
+ */
+export function isSameAlbum(
+  album: Pick<ReleaseMasterAlbum, "uid" | "title" | "artist">,
+  row: { albumUid?: string; albumTitle?: string; artistName?: string }
+): boolean {
+  return album.uid && row.albumUid
+    ? album.uid === row.albumUid
+    : album.title === (row.albumTitle ?? "") && album.artist === (row.artistName ?? "");
+}
+
+/** アルバムに対応する集計エントリを取得（UIDキー優先、なければtitle+artistキー） */
+export function getSummaryEntry(
+  summary: ScoreSummary,
+  album: Pick<ReleaseMasterAlbum, "uid" | "title" | "artist">
+): ScoreSummaryEntry | undefined {
+  return (album.uid ? summary[`uid::${album.uid}`] : undefined) ?? summary[albumKey(album.title, album.artist)];
 }
 
 /** そのユーザーを指しうる名前の集合（email・短縮名・レガシー名、すべて lower-case） */
@@ -133,9 +166,12 @@ export function getMyReviewedAlbumNos(
   const names = namesForUser(userEmail);
   const reviewed = new Set<string>();
   const titleArtistToNo = new Map(albums.map((a) => [albumKey(a.title, a.artist), a.no]));
+  const uidToNo = new Map(albums.filter((a) => a.uid).map((a) => [a.uid, a.no]));
   for (const s of scores) {
     if (!names.has(s.memberName.trim().toLowerCase())) continue;
-    const no = titleArtistToNo.get(albumKey(s.albumTitle ?? "", s.artistName ?? ""));
+    const no =
+      (s.albumUid ? uidToNo.get(s.albumUid) : undefined) ??
+      titleArtistToNo.get(albumKey(s.albumTitle ?? "", s.artistName ?? ""));
     if (no) reviewed.add(no);
   }
   for (const a of albums) {

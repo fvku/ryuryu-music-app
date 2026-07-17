@@ -37,13 +37,13 @@ const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID!;
 async function main() {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "scores!A2:G",
+    range: "scores!A2:H",
   });
 
   const rows = res.data.values ?? [];
   console.log(`Total rows: ${rows.length}`);
 
-  // key: albumTitle::artistName::memberName → { rowIndex (0-based from A2), submittedAt }
+  // key: アルバム部（albumUid優先）::memberName → { rowIndex (0-based from A2), submittedAt }
   const latestByKey = new Map<string, { rowIndex: number; submittedAt: string }>();
 
   for (let i = 0; i < rows.length; i++) {
@@ -52,10 +52,12 @@ async function main() {
     const artistName  = (row[6] ?? "").trim();
     const memberName  = (row[1] ?? "").trim().toLowerCase();
     const submittedAt = (row[4] ?? "").trim();
+    const albumUid    = (row[7] ?? "").trim();
 
     if (!albumTitle && !artistName) continue; // 空行はスキップ
 
-    const key = `${albumTitle}::${artistName}::${memberName}`;
+    const albumPart = albumUid ? `uid::${albumUid}` : `${albumTitle}::${artistName}`;
+    const key = `${albumPart}::${memberName}`;
     const existing = latestByKey.get(key);
 
     if (!existing || submittedAt > existing.submittedAt) {
@@ -76,7 +78,7 @@ async function main() {
 
     if (!keepRows.has(i)) {
       const sheetRow = i + 2; // ヘッダーが1行目
-      clearRequests.push({ range: `scores!A${sheetRow}:G${sheetRow}` });
+      clearRequests.push({ range: `scores!A${sheetRow}:H${sheetRow}` });
     }
   }
 

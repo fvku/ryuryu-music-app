@@ -16,8 +16,10 @@
 ## データソース
 
 - **Google Sheets（アプリ用）**: `GOOGLE_SPREADSHEET_ID`
-  - `scores` シート: A=reviewId, B=memberName(email), C=score, D=comment, E=submittedAt, F=albumTitle, G=artistName
-  - `recommendations` シート: A=id, B=recommenderId, C=albumNo, D=albumTitle, E=artistName, F=coverUrl, G=message, H=createdAt, I=mentionedEmails(カンマ区切り)
+  - `scores` シート: A=reviewId, B=memberName(email), C=score, D=comment, E=submittedAt, F=albumTitle, G=artistName, H=albumUid
+  - `recommendations` シート: A=id, B=recommenderId, C=albumNo, D=albumTitle, E=artistName, F=coverUrl, G=message, H=createdAt, I=mentionedEmails(カンマ区切り), J=albumUid
+  - `bookmarks` シート: A=memberName(email), B=albumTitle, C=artistName, D=savedAt, E=albumUid
+  - アルバム紐付けは **albumUid（Release MasterのUID）優先、title+artistフォールバック**（2026-07-18〜）。albumUidが空の行は移行前の孤児データか手動追加行 → `scripts/backfill-album-uids.ts` の再実行で埋められる（冪等）
 - **Release Master**: `RELEASE_MASTER_SPREADSHEET_ID`
   - A=No., B=Date, C=Title, D=Artist, E=Body, F=洋邦, G=Time, H=#, I=リスナー, Q=M/J採用, R=ASSIGN, S=M Number, T=Track, U=Start Time, V=M/J採用（220-300）, X=Kwisoo, Y=Meri, Z=Kohei, AA=Eddie, AB=Hanawa, AC=Kaede, AD=Spotify, AE=spotifyカバー
 
@@ -48,6 +50,8 @@
 | `dedup-scores-normalized.ts` | scoresシートの重複除去 |
 | `repair-spotify.ts` | Spotify URL修復（画像URLが誤入力されている行を修正） |
 | `refetch-spotify.ts` | Spotify URL空行の再取得（名前不一致はMISMATCHアラート） |
+| `assign-uids.ts` | Release Master のUID列採番（dry-run / --apply、冪等） |
+| `backfill-album-uids.ts` | scores/bookmarks/recommendations にRMのUIDを紐付け（dry-run / --apply、冪等） |
 
 ### fill-time-tracks.ts のオプション
 

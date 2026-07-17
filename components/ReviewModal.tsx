@@ -7,7 +7,7 @@ import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import { Recommendation } from "@/lib/sheets";
 import ScoreBar from "@/components/ScoreBar";
 import { EMAIL_TO_SHORT_NAME, LEGACY_NAME_TO_EMAIL, getDisplayName, parseLegacyScoreNum } from "@/lib/members";
-import { getCombinedScore, toMemberScores } from "@/lib/score-utils";
+import { getCombinedScore, toMemberScores, isSameAlbum } from "@/lib/score-utils";
 import { MJ_ADOPTION_VALUES } from "@/lib/sheet-headers";
 
 const ALL_MEMBERS: { email: string; name: string }[] = Object.entries(EMAIL_TO_SHORT_NAME).map(([email, name]) => ({ email, name }));
@@ -103,27 +103,27 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
   }
 
   useEffect(() => {
-    fetch(`/api/recommendations?albumTitle=${encodeURIComponent(album.title)}&artistName=${encodeURIComponent(album.artist)}`)
+    fetch(`/api/recommendations?albumTitle=${encodeURIComponent(album.title)}&artistName=${encodeURIComponent(album.artist)}&albumUid=${encodeURIComponent(album.uid)}`)
       .then((r) => r.ok ? r.json() : [])
       .then((recs: Recommendation[]) =>
         setAlbumRecs(recs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
       );
-  }, [album.title, album.artist]);
+  }, [album.title, album.artist, album.uid]);
 
   useEffect(() => {
     if (status === "authenticated") {
       fetch("/api/bookmarks")
         .then((r) => r.ok ? r.json() : [])
-        .then((bms: { albumTitle: string; artistName: string }[]) =>
-          setBookmarked(bms.some((b) => b.albumTitle === album.title && b.artistName === album.artist))
+        .then((bms: { albumTitle: string; artistName: string; albumUid?: string }[]) =>
+          setBookmarked(bms.some((b) => isSameAlbum(album, b)))
         );
     }
-  }, [status, album.title, album.artist]);
+  }, [status, album]);
 
   async function toggleBookmark() {
     setBookmarkLoading(true);
     try {
-      const body = JSON.stringify({ albumTitle: album.title, artistName: album.artist });
+      const body = JSON.stringify({ albumTitle: album.title, artistName: album.artist, albumUid: album.uid });
       if (bookmarked) {
         await fetch("/api/bookmarks", { method: "DELETE", headers: { "Content-Type": "application/json" }, body });
         setBookmarked(false);
@@ -138,7 +138,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
 
   const fetchScores = useCallback(async () => {
     try {
-      const res = await fetch(`/api/scores/${album.no}?title=${encodeURIComponent(album.title)}&artist=${encodeURIComponent(album.artist)}`);
+      const res = await fetch(`/api/scores/${album.no}?title=${encodeURIComponent(album.title)}&artist=${encodeURIComponent(album.artist)}&uid=${encodeURIComponent(album.uid)}`);
       if (res.ok) {
         const data = await res.json();
         setScores(data.scores || []);
@@ -147,7 +147,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     } finally {
       setLoadingScores(false);
     }
-  }, [album.no]);
+  }, [album.no, album.title, album.artist, album.uid]);
 
   useEffect(() => {
     fetchScores();
@@ -180,7 +180,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       const res = await fetch(`/api/scores/${album.no}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist }),
+        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist, albumUid: album.uid }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "投稿に失敗しました");
@@ -207,7 +207,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       const res = await fetch(`/api/scores/${album.no}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist }),
+        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist, albumUid: album.uid }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "更新に失敗しました");
@@ -261,6 +261,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
           coverUrl: coverUrl || "",
           message: recommendMessage.trim(),
           mentionedEmails,
+          albumUid: album.uid,
         }),
       });
       const data = await res.json();

@@ -17,7 +17,8 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const albumTitle = searchParams.get("title") ?? "";
     const artistName = searchParams.get("artist") ?? "";
-    const scores = await getScoresForAlbum(albumTitle, artistName);
+    const albumUid = searchParams.get("uid") ?? undefined;
+    const scores = await getScoresForAlbum(albumTitle, artistName, albumUid);
     const scoredScores = scores.filter((s) => s.score !== null);
     const averageScore =
       scoredScores.length > 0
@@ -49,7 +50,7 @@ export async function POST(
       .map(([name]) => name);
 
     const body = await request.json();
-    const { score, comment, albumTitle: _albumTitle, artistName: _artistName } = body as { score: number | null; comment: string; albumTitle?: string; artistName?: string };
+    const { score, comment, albumTitle: _albumTitle, artistName: _artistName, albumUid } = body as { score: number | null; comment: string; albumTitle?: string; artistName?: string; albumUid?: string };
     const albumTitle = _albumTitle ?? "";
     const artistName = _artistName ?? "";
 
@@ -64,7 +65,7 @@ export async function POST(
 
     await initScoresSheet();
 
-    const alreadyScored = await hasScore(albumTitle, artistName, memberName, altNames);
+    const alreadyScored = await hasScore(albumTitle, artistName, memberName, altNames, albumUid);
     if (alreadyScored) {
       return NextResponse.json({ error: "すでにレビューを投稿済みです" }, { status: 409 });
     }
@@ -72,7 +73,7 @@ export async function POST(
     const trimmedComment = (comment || "").trim();
 
     // 書き込み直前に再チェック（並行リクエストによる二重投稿を防ぐ）
-    const doubleCheck = await hasScore(albumTitle, artistName, memberName, altNames);
+    const doubleCheck = await hasScore(albumTitle, artistName, memberName, altNames, albumUid);
     if (doubleCheck) {
       return NextResponse.json({ error: "すでにレビューを投稿済みです" }, { status: 409 });
     }
@@ -84,13 +85,14 @@ export async function POST(
       comment: trimmedComment,
       albumTitle: albumTitle || "",
       artistName: artistName || "",
+      albumUid: albumUid || "",
     });
     // scoresシートとRelease Master（メンバースコア列）の両方が変わる
     invalidateCache(CACHE_KEY.SCORES, CACHE_KEY.RELEASE_MASTER);
 
     if (shortName && score !== null && score !== undefined) {
       try {
-        await writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment);
+        await writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment, albumUid);
       } catch (e) {
         console.error("Failed to write score to Release Master:", e);
         // scoresシートへの保存は成功しているため処理は続行するが警告を付与
@@ -122,7 +124,7 @@ export async function PUT(
       .map(([name]) => name);
 
     const body = await request.json();
-    const { score, comment, albumTitle, artistName } = body as { score: number | null; comment: string; albumTitle?: string; artistName?: string };
+    const { score, comment, albumTitle, artistName, albumUid } = body as { score: number | null; comment: string; albumTitle?: string; artistName?: string; albumUid?: string };
 
     if (score !== null && score !== undefined) {
       if (typeof score !== "number" || score < 0 || score > 10) {
@@ -134,7 +136,7 @@ export async function PUT(
     }
 
     const trimmedComment = (comment || "").trim();
-    const updated = await updateScore(albumTitle || "", artistName || "", memberName, score ?? null, trimmedComment, altNames);
+    const updated = await updateScore(albumTitle || "", artistName || "", memberName, score ?? null, trimmedComment, altNames, undefined, albumUid);
     if (!updated) {
       return NextResponse.json({ error: "レビューが見つかりません" }, { status: 404 });
     }
@@ -142,7 +144,7 @@ export async function PUT(
 
     if (shortName && score !== null && score !== undefined) {
       try {
-        await writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment);
+        await writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment, albumUid);
       } catch (e) {
         console.error("Failed to write score to Release Master:", e);
         return NextResponse.json({ ...updated, warning: "Release Masterへの反映に失敗しました" });

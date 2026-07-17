@@ -7,7 +7,7 @@ import Link from "next/link";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import { Bookmark, Recommendation } from "@/lib/sheets";
 import { EMAIL_TO_SHORT_NAME, parseLegacyScoreNum, getDisplayName } from "@/lib/members";
-import { buildScoreSummary, getCombinedScore, getMyReviewedAlbumNos, namesForUser, albumKey, ScoreSummary } from "@/lib/score-utils";
+import { buildScoreSummary, getCombinedScore, getMyReviewedAlbumNos, namesForUser, getSummaryEntry, isSameAlbum, ScoreSummary } from "@/lib/score-utils";
 import ReviewModal from "@/components/ReviewModal";
 import MjWritingModal from "@/components/MjWritingModal";
 import { useNotifications } from "@/contexts/NotificationsContext";
@@ -116,8 +116,7 @@ export default function MyPage() {
         });
         if (Object.keys(cached).length > 0) setSpotifyData(cached);
 
-        const bmKeys = new Set(bmData.map((b) => `${b.albumTitle}::${b.artistName}`));
-        const missing = albumData.filter((a) => bmKeys.has(`${a.title}::${a.artist}`) && (!a.spotifyUrl || !a.coverUrl));
+        const missing = albumData.filter((a) => bmData.some((b) => isSameAlbum(a, b)) && (!a.spotifyUrl || !a.coverUrl));
 
         Promise.all([
           missing.length > 0
@@ -178,7 +177,7 @@ export default function MyPage() {
   }
 
   const bookmarkedAlbums = bookmarks
-    .map((b) => albums.find((a) => a.title === b.albumTitle && a.artist === b.artistName))
+    .map((b) => albums.find((a) => isSameAlbum(a, b)))
     .filter(Boolean) as ReleaseMasterAlbum[];
 
   // REVIEWED: 自分がレビューしたアルバム（アプリ or legacy）、リリース日の新しい順
@@ -193,13 +192,13 @@ export default function MyPage() {
   }
 
   function combinedScoreFor(album: ReleaseMasterAlbum): { avg: number; count: number } | null {
-    const r = getCombinedScore(album, scoreSummary[albumKey(album.title, album.artist)]?.memberScores);
+    const r = getCombinedScore(album, getSummaryEntry(scoreSummary, album)?.memberScores);
     return r.avg === null ? null : { avg: r.avg, count: r.count };
   }
 
   function getMyScore(album: ReleaseMasterAlbum): number | null {
     // 同一アルバムに複数エントリがある場合は最新のものを使う
-    const matches = myScores.filter((s) => s.albumTitle === album.title && s.artistName === album.artist);
+    const matches = myScores.filter((s) => isSameAlbum(album, s));
     if (matches.length > 0) {
       const latest = matches.reduce((a, b) => (b.submittedAt > a.submittedAt ? b : a));
       return latest.score;
@@ -216,11 +215,11 @@ export default function MyPage() {
     savedMonthFilter === "すべて" || a.date?.substring(0, 7) === savedMonthFilter
   );
   const forYouMonths = ["すべて", ...Array.from(new Set(
-    forYou.map((rec) => albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName)?.date?.substring(0, 7)).filter(Boolean)
+    forYou.map((rec) => albums.find((a) => isSameAlbum(a, rec))?.date?.substring(0, 7)).filter(Boolean)
   )).sort().reverse()];
 
   const filteredForYou = forYou.filter((rec) => {
-    const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName);
+    const album = albums.find((a) => isSameAlbum(a, rec));
     if (forYouMonthFilter !== "すべて" && album?.date?.substring(0, 7) !== forYouMonthFilter) return false;
     if (!album) return forYouFilter === "all";
     if (forYouFilter === "reviewed") return myReviewedAlbumNos.has(album.no);
@@ -280,7 +279,7 @@ export default function MyPage() {
 
   // FOR YOU バッジ数: 未確認レコメンド + 自分にASSIGNされた未済みM/J
   const unreviewedRecCount = forYou.filter((rec) => {
-    const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName);
+    const album = albums.find((a) => isSameAlbum(a, rec));
     return !album || !myReviewedAlbumNos.has(album.no);
   }).length;
   const mjPendingCount = mjAlbums.filter((album) => {
@@ -512,7 +511,7 @@ function AlbumRow({ album, reviewedMode = false }: { album: ReleaseMasterAlbum; 
               ) : (
                 <div className="flex flex-col gap-3">
                   {filteredForYou.map((rec) => {
-                    const album = albums.find((a) => a.title === rec.albumTitle && a.artist === rec.artistName);
+                    const album = albums.find((a) => isSameAlbum(a, rec));
                     const coverUrl = album ? spotifyData[album.no]?.coverUrl || rec.coverUrl : rec.coverUrl;
                     const isReviewed = album ? myReviewedAlbumNos.has(album.no) : false;
                     return (

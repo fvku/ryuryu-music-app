@@ -35,6 +35,7 @@ export interface Score {
   submittedAt: string;
   albumTitle?: string;
   artistName?: string;
+  albumUid?: string; // Release MasterのUID。空の行（移行前の孤児等）はtitle+artistで照合
 }
 
 export interface AlbumWithScores extends ReleaseMasterAlbum {

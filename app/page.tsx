@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import AlbumCard from "@/components/AlbumCard";
 import ReviewModal from "@/components/ReviewModal";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
-import { buildScoreSummary, getCombinedScore, getMyReviewedAlbumNos, albumKey, ScoreSummary } from "@/lib/score-utils";
+import { buildScoreSummary, getCombinedScore, getMyReviewedAlbumNos, getSummaryEntry, ScoreSummary } from "@/lib/score-utils";
 
 const GENRE_VALUES = ["邦楽", "洋楽"] as const;
 const UP_NEXT_MJ_EXCLUDE = ["J採用", "採用", "不採用"];
@@ -140,7 +140,7 @@ export default function HomePage() {
   }, [session, allScores, albums]);
 
   function combinedScoreFor(album: ReleaseMasterAlbum) {
-    return getCombinedScore(album, scoreSummary[albumKey(album.title, album.artist)]?.memberScores);
+    return getCombinedScore(album, getSummaryEntry(scoreSummary, album)?.memberScores);
   }
 
   const months = ["すべて", ...Array.from(new Set(albums.map((a) => getMonthKey(a.date)).filter(Boolean))).sort().reverse()];

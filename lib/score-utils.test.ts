@@ -7,6 +7,9 @@ import {
   getCombinedScore,
   toMemberScores,
   getMyReviewedAlbumNos,
+  scoreAlbumKey,
+  isSameAlbum,
+  getSummaryEntry,
 } from "@/lib/score-utils";
 import { Score, ReleaseMasterAlbum } from "@/lib/types";
 
@@ -301,5 +304,85 @@ describe("getMyReviewedAlbumNos", () => {
     ];
     const result = getMyReviewedAlbumNos(albums, scores, "kohei.fuku0926@gmail.com");
     expect(result).toEqual(new Set());
+  });
+});
+
+// ── UIDフェーズ2: albumUid 優先マッチング ──────────────────────────────
+
+describe("scoreAlbumKey", () => {
+  it("uses uid:: key when albumUid is present", () => {
+    expect(scoreAlbumKey(makeScore({ albumUid: "abc123" }))).toBe("uid::abc123");
+  });
+
+  it("falls back to title::artist when albumUid is empty", () => {
+    expect(scoreAlbumKey(makeScore({ albumUid: "" }))).toBe("Album A::Artist A");
+    expect(scoreAlbumKey(makeScore())).toBe("Album A::Artist A");
+  });
+});
+
+describe("isSameAlbum", () => {
+  it("matches by uid when both sides have one, even if titles differ (rename)", () => {
+    const album = makeAlbum({ uid: "abc123", title: "New Title" });
+    expect(isSameAlbum(album, { albumUid: "abc123", albumTitle: "Old Title", artistName: "Artist A" })).toBe(true);
+  });
+
+  it("does not match different uids even if titles are identical", () => {
+    const album = makeAlbum({ uid: "abc123" });
+    expect(isSameAlbum(album, { albumUid: "zzz999", albumTitle: "Album A", artistName: "Artist A" })).toBe(false);
+  });
+
+  it("falls back to title+artist when the row has no uid", () => {
+    const album = makeAlbum({ uid: "abc123" });
+    expect(isSameAlbum(album, { albumTitle: "Album A", artistName: "Artist A" })).toBe(true);
+    expect(isSameAlbum(album, { albumUid: "", albumTitle: "Album A", artistName: "Artist A" })).toBe(true);
+    expect(isSameAlbum(album, { albumTitle: "Other", artistName: "Artist A" })).toBe(false);
+  });
+
+  it("falls back to title+artist when the album has no uid", () => {
+    const album = makeAlbum({ uid: "" });
+    expect(isSameAlbum(album, { albumUid: "abc123", albumTitle: "Album A", artistName: "Artist A" })).toBe(true);
+  });
+});
+
+describe("getSummaryEntry", () => {
+  it("finds the entry via uid key after the album was renamed", () => {
+    const scores = [makeScore({ albumUid: "abc123", albumTitle: "Old Title" })];
+    const summary = buildScoreSummary(scores);
+    const album = makeAlbum({ uid: "abc123", title: "New Title" });
+    expect(getSummaryEntry(summary, album)?.avg).toBe(8);
+  });
+
+  it("falls back to title::artist key for scores without uid", () => {
+    const scores = [makeScore({ albumUid: "" })];
+    const summary = buildScoreSummary(scores);
+    const album = makeAlbum({ uid: "abc123" });
+    expect(getSummaryEntry(summary, album)?.avg).toBe(8);
+  });
+
+  it("returns undefined when neither key matches", () => {
+    const summary = buildScoreSummary([makeScore({ albumUid: "other" })]);
+    const album = makeAlbum({ uid: "abc123", title: "X", artist: "Y" });
+    expect(getSummaryEntry(summary, album)).toBeUndefined();
+  });
+});
+
+describe("dedupeLatestScores with albumUid", () => {
+  it("treats rows with the same uid but different titles as the same album", () => {
+    const scores = [
+      makeScore({ albumUid: "abc123", albumTitle: "Old Title", score: 5, submittedAt: "2026-01-01T00:00:00.000Z" }),
+      makeScore({ albumUid: "abc123", albumTitle: "New Title", score: 9, submittedAt: "2026-01-02T00:00:00.000Z" }),
+    ];
+    const result = dedupeLatestScores(scores);
+    expect(result).toHaveLength(1);
+    expect(result[0].score).toBe(9);
+  });
+});
+
+describe("getMyReviewedAlbumNos with albumUid", () => {
+  it("resolves the album by uid even after a rename", () => {
+    const albums = [makeAlbum({ no: "1", uid: "abc123", title: "New Title" })];
+    const scores = [makeScore({ albumUid: "abc123", albumTitle: "Old Title" })];
+    const result = getMyReviewedAlbumNos(albums, scores, "kohei.fuku0926@gmail.com");
+    expect(result).toEqual(new Set(["1"]));
   });
 });

@@ -21,9 +21,9 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
-    const { albumTitle, artistName } = await request.json() as { albumTitle: string; artistName: string };
+    const { albumTitle, artistName, albumUid } = await request.json() as { albumTitle: string; artistName: string; albumUid?: string };
     if (!albumTitle || !artistName) return NextResponse.json({ error: "albumTitleとartistNameが必要です" }, { status: 400 });
-    await addBookmark(session.user.email.toLowerCase(), albumTitle, artistName);
+    await addBookmark(session.user.email.toLowerCase(), albumTitle, artistName, albumUid);
     return NextResponse.json({ ok: true }, { status: 201 });
   } catch (error) {
     console.error("Failed to add bookmark:", error);
@@ -35,9 +35,9 @@ export async function DELETE(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
-    const { albumTitle, artistName } = await request.json() as { albumTitle: string; artistName: string };
+    const { albumTitle, artistName, albumUid } = await request.json() as { albumTitle: string; artistName: string; albumUid?: string };
     if (!albumTitle || !artistName) return NextResponse.json({ error: "albumTitleとartistNameが必要です" }, { status: 400 });
-    await removeBookmark(session.user.email.toLowerCase(), albumTitle, artistName);
+    await removeBookmark(session.user.email.toLowerCase(), albumTitle, artistName, albumUid);
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Failed to remove bookmark:", error);
