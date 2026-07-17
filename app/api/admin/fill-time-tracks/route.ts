@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: result.ok,
       skipNotFound: result.skipNotFound,
-      skipDateMismatch: result.skipDateMismatch,
+      skipNoUrl: result.skipNoUrl,
       total: result.total,
       details: result.details,
       dryRun,

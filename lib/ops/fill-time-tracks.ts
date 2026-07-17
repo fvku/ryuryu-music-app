@@ -4,9 +4,8 @@
  *
  * 動作:
  *   1. Time が空の行を抽出（force なら既存値も上書き）
- *   2. Spotify列に URL があればそのアルバムIDを使用（日付検証なし）
- *   3. URL がなければ検索し、リリース日がシートの Date と一致する場合のみ採用
- *   4. トラック一覧から総再生時間と曲数を算出し "12songs, 46min 20sec" 形式で書き込む
+ *   2. Spotify列に URL がある行のみ対象（URLがない行は検索せずスキップ＝シングル/同名EP誤爆を防止）
+ *   3. トラック一覧から総再生時間と曲数を算出し "12songs, 46min 20sec" 形式で書き込む
  */
 
 import { google } from "googleapis";
@@ -39,34 +38,6 @@ async function getAccessToken(): Promise<string> {
 function extractAlbumId(spotifyUrl: string): string | null {
   const m = spotifyUrl.match(/album\/([A-Za-z0-9]+)/);
   return m ? m[1] : null;
-}
-
-interface SearchResult {
-  albumId: string;
-  spotifyUrl: string;
-  releaseDate: string; // "YYYY-MM-DD" | "YYYY-MM" | "YYYY"
-}
-
-async function searchAlbum(artist: string, title: string): Promise<SearchResult | null> {
-  const token = await getAccessToken();
-  const q = encodeURIComponent(`${artist} ${title}`);
-  const res = await fetch(`https://api.spotify.com/v1/search?q=${q}&type=album&limit=1&market=JP`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  const item = data.albums?.items?.[0];
-  if (!item) return null;
-  const albumId = extractAlbumId(item.external_urls.spotify);
-  if (!albumId) return null;
-  return { albumId, spotifyUrl: item.external_urls.spotify, releaseDate: item.release_date };
-}
-
-/** シートの日付（YYYY/MM/DD など）と Spotify のリリース日を前方一致で比較 */
-function datesMatch(sheetDate: string, spotifyDate: string): boolean {
-  if (!sheetDate || !spotifyDate) return false;
-  const normalized = sheetDate.replace(/\//g, "-");
-  return normalized.startsWith(spotifyDate) || spotifyDate.startsWith(normalized);
 }
 
 async function getAlbumInfo(albumId: string): Promise<{ totalTracks: number; totalDurationMs: number }> {
@@ -125,7 +96,7 @@ export interface FillTimeTracksDetail {
 export interface FillTimeTracksResult {
   ok: number;
   skipNotFound: number;
-  skipDateMismatch: number;
+  skipNoUrl: number;
   total: number;
   written: number;
   details: FillTimeTracksDetail[];
@@ -149,18 +120,15 @@ export async function fillTimeTracks(options: FillTimeTracksOptions): Promise<Fi
   const timeIdx    = col["Time"]    ?? 6;
   const spotifyIdx = col["Spotify"] ?? 29;
   const noIdx      = col["No."]     ?? 0;
-  const dateIdx    = col["Date"]    ?? 1;
   const titleIdx   = col["Title"]   ?? 2;
   const artistIdx  = col["Artist"]  ?? 3;
 
-  const cTime    = indexToColumnLetter(timeIdx);
-  const cSpotify = indexToColumnLetter(spotifyIdx);
+  const cTime = indexToColumnLetter(timeIdx);
 
-  const allTargets = dataRows
+  const candidates = dataRows
     .map((row, i) => ({
       rowNum:  i + 2,
       no:      (row[noIdx]      ?? "").trim(),
-      date:    (row[dateIdx]    ?? "").trim(),
       title:   (row[titleIdx]   ?? "").trim(),
       artist:  (row[artistIdx]  ?? "").trim(),
       time:    (row[timeIdx]    ?? "").trim(),
@@ -168,14 +136,17 @@ export async function fillTimeTracks(options: FillTimeTracksOptions): Promise<Fi
     }))
     .filter((r) => r.no && r.title && r.rowNum >= fromRow && (force || !r.time));
 
+  const skipNoUrl = candidates.filter((r) => !r.spotify.startsWith("https://open.spotify.com/album/")).length;
+  const allTargets = candidates.filter((r) => r.spotify.startsWith("https://open.spotify.com/album/"));
+
   const targets = limit !== undefined ? allTargets.slice(0, limit) : allTargets;
 
   const result: FillTimeTracksResult = {
-    ok: 0, skipNotFound: 0, skipDateMismatch: 0,
+    ok: 0, skipNotFound: 0, skipNoUrl,
     total: targets.length, written: 0, details: [],
   };
 
-  log(`Time が空の行: ${targets.length} 件`);
+  log(`Time が空でSpotify URLがある行: ${targets.length} 件（URLなしのため対象外: ${skipNoUrl} 件）`);
   if (targets.length === 0) return result;
 
   const writes: { range: string; values: string[][] }[] = [];
@@ -186,30 +157,7 @@ export async function fillTimeTracks(options: FillTimeTracksOptions): Promise<Fi
 
   for (const t of targets) {
     try {
-      let albumId: string | null = null;
-
-      if (t.spotify.startsWith("https://open.spotify.com/album/")) {
-        // 既存 URL がある場合はそのまま使用（日付検証なし）
-        albumId = extractAlbumId(t.spotify);
-      } else {
-        // 検索してリリース日が一致する場合のみ採用
-        const searched = await searchAlbum(t.artist, t.title);
-        await sleep(200);
-
-        if (!searched) {
-          pushDetail(t, "SKIP（Spotifyで見つからず）");
-          result.skipNotFound++;
-          continue;
-        }
-        if (t.date && !datesMatch(t.date, searched.releaseDate)) {
-          pushDetail(t, `SKIP（日付不一致: sheet=${t.date}, spotify=${searched.releaseDate}）`);
-          result.skipDateMismatch++;
-          continue;
-        }
-
-        albumId = searched.albumId;
-        writes.push({ range: `'Release Master'!${cSpotify}${t.rowNum}`, values: [[searched.spotifyUrl]] });
-      }
+      const albumId = extractAlbumId(t.spotify);
 
       if (!albumId) {
         pushDetail(t, "SKIP（アルバムID取得失敗）");

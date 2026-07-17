@@ -29,7 +29,7 @@ async function main() {
 
   const result = await fillTimeTracks({ apply, force, fromRow, log: console.log });
 
-  console.log(`\n結果: ${result.ok} 件取得, ${result.skipNotFound} 件スキップ（未掲載）, ${result.skipDateMismatch} 件スキップ（日付不一致）`);
+  console.log(`\n結果: ${result.ok} 件取得, ${result.skipNotFound} 件スキップ（取得失敗）, ${result.skipNoUrl} 件対象外（Spotify URLなし）`);
   if (!apply) {
     console.log("\n--- dry-run 完了。書き込むには --apply を付けて再実行してください。---");
   }

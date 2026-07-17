@@ -17,7 +17,7 @@ export default function AdminPage() {
 
   // fill-time-tracks
   type FillDetail = { row: number; artist: string; title: string; result: string };
-  type FillResult = { ok: number; skipNotFound: number; skipDateMismatch: number; total: number; details: FillDetail[]; dryRun: boolean };
+  type FillResult = { ok: number; skipNotFound: number; skipNoUrl: number; total: number; details: FillDetail[]; dryRun: boolean };
   const [fillLoading, setFillLoading] = useState(false);
   const [fillResult, setFillResult] = useState<FillResult | null>(null);
   const [fillError, setFillError] = useState<string | null>(null);
@@ -438,7 +438,7 @@ export default function AdminPage() {
         <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
           <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>Time・曲数補完</h3>
           <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-            Time列が空のアルバムをSpotifyから補完します。リリース日が一致したアルバムのみSpotify URLも書き込まれます。未発売アルバムは自動スキップ。
+            Time列が空でSpotify URLが既に登録済みのアルバムのみ、そのURLを正として時間・曲数を補完します。URLがない行は検索せず対象外（シングル/同名EPの誤登録防止）。
           </p>
           <div className="flex flex-wrap gap-4 mb-3 items-center">
             <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: "var(--text-secondary)" }}>
@@ -457,7 +457,7 @@ export default function AdminPage() {
           {fillResult && (
             <div className="rounded-xl p-3 mb-3 border text-xs" style={{ backgroundColor: fillResult.dryRun ? "rgba(99,102,241,0.1)" : "rgba(34,197,94,0.1)", borderColor: fillResult.dryRun ? "rgba(99,102,241,0.3)" : "rgba(34,197,94,0.3)" }}>
               <p className="font-medium mb-1" style={{ color: fillResult.dryRun ? "#a5b4fc" : "#4ade80" }}>
-                {fillResult.dryRun ? "Dry-run 完了" : "書き込み完了"} — {fillResult.total}件対象 / {fillResult.ok}件成功 / {fillResult.skipDateMismatch}件日付不一致 / {fillResult.skipNotFound}件未掲載
+                {fillResult.dryRun ? "Dry-run 完了" : "書き込み完了"} — {fillResult.total}件対象 / {fillResult.ok}件成功 / {fillResult.skipNotFound}件取得失敗 / {fillResult.skipNoUrl}件対象外（URLなし）
               </p>
               <div className="flex flex-col gap-0.5 max-h-32 overflow-y-auto mt-1">
                 {fillResult.details.map((d, i) => (
