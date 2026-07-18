@@ -12,7 +12,7 @@ const LEGACY_MEMBERS = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa"];
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { no: string } }
+  { params }: { params: Promise<{ no: string }> }
 ) {
   try {
     const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
@@ -87,7 +87,7 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { no: string } }
+  { params }: { params: Promise<{ no: string }> }
 ) {
   try {
     const session = await auth();
