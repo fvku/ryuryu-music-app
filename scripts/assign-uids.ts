@@ -16,30 +16,18 @@ import { fileURLToPath } from "url";
 import { google } from "googleapis";
 import { generateAlbumUid } from "../lib/uid";
 import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "../lib/sheet-headers";
+import { getGoogleAuth } from "../lib/google-auth";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 config({ path: path.resolve(__dirname, "../.env.local") });
 
 const APPLY = process.argv.includes("--apply");
 
-function getWriteAuth() {
-  const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  if (!keyJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is not set");
-  let credentials;
-  try { credentials = JSON.parse(Buffer.from(keyJson, "base64").toString("utf-8")); }
-  catch { credentials = JSON.parse(keyJson); }
-  if (credentials.private_key) credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
-  return new google.auth.GoogleAuth({
-    credentials,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-}
-
 async function main() {
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
   if (!spreadsheetId) throw new Error("RELEASE_MASTER_SPREADSHEET_ID is not set");
 
-  const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
+  const sheets = google.sheets({ version: "v4", auth: getGoogleAuth(true) });
 
   console.log("シートを読み込み中...");
   const resp = await sheets.spreadsheets.values.get({

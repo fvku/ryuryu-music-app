@@ -20,6 +20,7 @@ import { config } from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { google } from "googleapis";
+import { getGoogleAuth } from "../lib/google-auth";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 config({ path: path.resolve(__dirname, "../.env.local") });
@@ -29,22 +30,7 @@ const apply = process.argv.includes("--apply");
 const OLD_EMAIL = "kaede@placeholder.com";
 const NEW_EMAIL = "qururiquiqui@gmail.com";
 
-const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY!;
-let credentials;
-try {
-  credentials = JSON.parse(Buffer.from(keyJson, "base64").toString("utf-8"));
-} catch {
-  credentials = JSON.parse(keyJson);
-}
-if (credentials.private_key) {
-  credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
-}
-
-const auth = new google.auth.GoogleAuth({
-  credentials,
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-});
-const sheets = google.sheets({ version: "v4", auth });
+const sheets = google.sheets({ version: "v4", auth: getGoogleAuth(true) });
 const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID!;
 
 // ── scores シートの処理 ──────────────────────────────────────────────────────
