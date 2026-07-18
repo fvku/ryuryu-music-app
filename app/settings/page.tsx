@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { getSpotifyToken, saveSpotifyToken, clearSpotifyToken, openSpotifyAuthPopup } from "@/lib/spotify-token";
@@ -14,11 +14,13 @@ export default function SettingsPage() {
   const [connectingSpotify, setConnectingSpotify] = useState(false);
   const [spotifyError, setSpotifyError] = useState("");
 
-  if (status === "loading") return null;
-  if (!session) {
-    router.replace("/login");
-    return null;
-  }
+  useEffect(() => {
+    if (status !== "loading" && !session) {
+      router.replace("/login");
+    }
+  }, [status, session, router]);
+
+  if (status === "loading" || !session) return null;
 
   function handleConnectSpotify() {
     setConnectingSpotify(true);
