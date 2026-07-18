@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import AlbumCard from "@/components/AlbumCard";
 import ReviewModal from "@/components/ReviewModal";
@@ -35,9 +35,7 @@ export default function HomePage() {
   const [mjInitialized, setMjInitialized] = useState(false);
   const [upNext, setUpNext] = useState(false);
   const [savedMjFilters, setSavedMjFilters] = useState<string[] | null>(null);
-  const [myReviewedAlbumNos, setMyReviewedAlbumNos] = useState<Set<string>>(new Set());
   const [reviewFilter, setReviewFilter] = useState<"すべて" | "済み" | "未レビュー">("すべて");
-  const [reviewedLoaded, setReviewedLoaded] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<ReleaseMasterAlbum | null>(null);
 
   useEffect(() => {
@@ -132,12 +130,12 @@ export default function HomePage() {
   }, [monthFilter, genreFilters, mjFilters, mjInitialized, upNext, savedMjFilters, reviewFilter]);
 
   // Up Next用：セッション・スコアが揃ったら自分のレビュー済みNoを計算
-  useEffect(() => {
-    const userEmail = session?.user?.email?.toLowerCase();
-    if (!userEmail || allScores.length === 0) return;
-    setMyReviewedAlbumNos(getMyReviewedAlbumNos(albums, allScores, userEmail));
-    setReviewedLoaded(true);
-  }, [session, allScores, albums]);
+  const userEmail = session?.user?.email?.toLowerCase();
+  const reviewedLoaded = !!userEmail && allScores.length > 0;
+  const myReviewedAlbumNos = useMemo(
+    () => (userEmail && allScores.length > 0 ? getMyReviewedAlbumNos(albums, allScores, userEmail) : new Set<string>()),
+    [albums, allScores, userEmail]
+  );
 
   function combinedScoreFor(album: ReleaseMasterAlbum) {
     return getCombinedScore(album, getSummaryEntry(scoreSummary, album)?.memberScores);

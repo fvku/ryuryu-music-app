@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState } from "react";
 
-interface AlbumRef {
+export interface AlbumRef {
   no: string;
   title: string;
   artist: string;

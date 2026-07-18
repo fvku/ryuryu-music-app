@@ -32,7 +32,6 @@ interface Props {
  * 各セクションの内部状態は components/mj-writing-modal/ の子に閉じる。
  */
 export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, onSaved }: Props) {
-  const [mounted, setMounted] = useState(false);
   const [startTime, setStartTime] = useState<string>(() => album.mjStartTime?.trim() ?? "");
   const [text, setText] = useState<string>(() => album.mjText?.trim() ?? "");
   const [genreMemo, setGenreMemo] = useState<string>(() => album.genreMemo?.trim() ?? "");
@@ -46,18 +45,13 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   const { tracks, loadingTracks, trackError, selectedTrack, setSelectedTrack } = useMjTracks(effectiveSpotifyUrl, album);
 
   // Spotify player
-  const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
+  const [spotifyToken, setSpotifyToken] = useState<string | null>(() => getSpotifyToken());
   const [connectingSpotify, setConnectingSpotify] = useState(false);
   const [seekValue, setSeekValue] = useState<number | null>(null);
   const player = useSpotifyPlayer(spotifyToken);
 
   const assign = useInlineFieldUpdate(album, "mjAssign", album.mjAssign?.trim() ?? "", onSaved);
   const mj = useInlineFieldUpdate(album, "mjAdoption", album.mjAdoption ?? "", onSaved);
-
-  useEffect(() => {
-    setMounted(true);
-    setSpotifyToken(getSpotifyToken());
-  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -119,8 +113,6 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   }
 
   const isValid = text.trim().length > 0 || selectedTrack !== null;
-
-  if (!mounted) return null;
 
   return createPortal(
     <div

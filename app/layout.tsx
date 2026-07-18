@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Image from "next/image";
+import Link from "next/link";
 import Providers from "@/components/Providers";
 import BottomNav from "@/components/BottomNav";
 import HowToUseModal from "@/components/HowToUseModal";
@@ -54,9 +55,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <span className="sm:hidden"><HowToUseModal /></span>
                 <span className="hidden sm:block"><ColumnErrorIndicator /></span>
               </div>
-              <a href="/" className="hover:opacity-80 transition-opacity">
+              <Link href="/" className="hover:opacity-80 transition-opacity">
                 <Image src="/logo.png" alt="流流" width={180} height={48} className="h-11 w-auto object-contain my-0" />
-              </a>
+              </Link>
               {/* 右: モバイル=SpotifyFAB、PC=使い方+SpotifyFAB */}
               <div className="flex justify-end items-center gap-2">
                 <span className="hidden sm:block"><HowToUseModal /></span>

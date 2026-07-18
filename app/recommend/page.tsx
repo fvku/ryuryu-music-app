@@ -51,7 +51,16 @@ export default function RecommendPage() {
   const loadMore = useCallback(() => setDisplayCount((prev) => prev + 20), []);
 
   // フィルター変更時はリストを先頭に戻す
-  useEffect(() => { setDisplayCount(20); }, [monthFilter, memberFilter]);
+  const changeMonthFilter = (value: string) => {
+    if (value === monthFilter) return;
+    setMonthFilter(value);
+    setDisplayCount(20);
+  };
+  const changeMemberFilter = (value: string) => {
+    if (value === memberFilter) return;
+    setMemberFilter(value);
+    setDisplayCount(20);
+  };
   // 初期化完了後のみ保存
   useEffect(() => {
     if (!filtersInitialized) return;
@@ -189,7 +198,7 @@ export default function RecommendPage() {
           <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>月：</span>
           <select
             value={monthFilter}
-            onChange={(e) => setMonthFilter(e.target.value)}
+            onChange={(e) => changeMonthFilter(e.target.value)}
             className="px-3 py-1.5 rounded-xl border text-xs font-medium focus:outline-none w-fit"
             style={{
               backgroundColor: "var(--bg-card)",
@@ -209,7 +218,7 @@ export default function RecommendPage() {
           <span className="text-xs font-medium pt-1" style={{ color: "var(--text-secondary)" }}>メンバー：</span>
           <div className="flex flex-wrap gap-1.5">
             <button
-              onClick={() => setMemberFilter("すべて")}
+              onClick={() => changeMemberFilter("すべて")}
               className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
               style={{
                 backgroundColor: memberFilter === "すべて" ? "var(--accent)" : "var(--bg-card)",
@@ -224,7 +233,7 @@ export default function RecommendPage() {
               return (
                 <button
                   key={m}
-                  onClick={() => setMemberFilter(active ? "すべて" : m)}
+                  onClick={() => changeMemberFilter(active ? "すべて" : m)}
                   className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
                   style={{
                     backgroundColor: active ? "rgba(139,92,246,0.3)" : "var(--bg-card)",

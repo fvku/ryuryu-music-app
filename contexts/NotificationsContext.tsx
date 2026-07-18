@@ -21,7 +21,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const [hasNewForYou, setHasNewForYou] = useState(false);
 
   useEffect(() => {
-    if (!session?.user?.email) { setHasNewForYou(false); return; }
+    if (!session?.user?.email) return;
 
     async function checkNew() {
       try {
@@ -70,7 +70,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, []);
 
   return (
-    <NotificationsContext.Provider value={{ hasNewForYou, markForYouSeen }}>
+    // 未ログイン時は常にfalse（内部stateはリセットせず、値の側で吸収する）
+    <NotificationsContext.Provider value={{ hasNewForYou: session?.user?.email ? hasNewForYou : false, markForYouSeen }}>
       {children}
     </NotificationsContext.Provider>
   );

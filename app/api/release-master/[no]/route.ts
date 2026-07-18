@@ -10,10 +10,7 @@ export const dynamic = "force-dynamic";
 
 const LEGACY_MEMBERS = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa"];
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ no: string }> }
-) {
+export async function GET(request: NextRequest) {
   try {
     const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
     if (!spreadsheetId) {
@@ -85,10 +82,7 @@ export async function GET(
   }
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ no: string }> }
-) {
+export async function PATCH(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.email) {

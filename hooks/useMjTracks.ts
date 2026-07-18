@@ -21,8 +21,11 @@ export function useMjTracks(effectiveSpotifyUrl: string | undefined, album: Rele
 
   useEffect(() => {
     if (!effectiveSpotifyUrl) return;
+    // フェッチ開始と同時にローディング表示へ切り替えるための意図的な同期setState
+    /* eslint-disable react-hooks/set-state-in-effect */
     setLoadingTracks(true);
     setTrackError(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
     fetch(`/api/spotify/tracks?spotifyUrl=${encodeURIComponent(effectiveSpotifyUrl)}`)
       .then(async (r) => {
         if (!r.ok) {
