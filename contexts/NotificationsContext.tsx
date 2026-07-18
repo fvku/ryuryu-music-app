@@ -25,12 +25,34 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
     async function checkNew() {
       try {
-        const res = await fetch("/api/recommendations?forUser=me");
-        if (!res.ok) return;
-        const recs: Recommendation[] = await res.json();
+        const [recsRes, seenRes] = await Promise.all([
+          fetch("/api/recommendations?forUser=me"),
+          fetch("/api/notifications/seen"),
+        ]);
+        if (!recsRes.ok) return;
+        const recs: Recommendation[] = await recsRes.json();
         if (recs.length === 0) return;
 
-        const seenAt = localStorage.getItem(LS_KEY);
+        let seenAt: string | null = null;
+        if (seenRes.ok) {
+          seenAt = ((await seenRes.json()) as { seenAt: string | null }).seenAt;
+          if (!seenAt) {
+            // サーバー未登録 → localStorageに旧既読値があれば一度だけ移行
+            const legacy = localStorage.getItem(LS_KEY);
+            if (legacy) {
+              seenAt = legacy;
+              fetch("/api/notifications/seen", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ seenAt: legacy }),
+              }).catch(() => {});
+            }
+          }
+        } else {
+          // API失敗時のみlocalStorageにフォールバック
+          seenAt = localStorage.getItem(LS_KEY);
+        }
+
         if (!seenAt) { setHasNewForYou(true); return; }
         const seenTime = new Date(seenAt).getTime();
         setHasNewForYou(recs.some((r) => new Date(r.createdAt).getTime() > seenTime));
@@ -41,8 +63,10 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, [session]);
 
   const markForYouSeen = useCallback(() => {
-    localStorage.setItem(LS_KEY, new Date().toISOString());
+    const now = new Date().toISOString();
+    localStorage.setItem(LS_KEY, now);
     setHasNewForYou(false);
+    fetch("/api/notifications/seen", { method: "POST" }).catch(() => {});
   }, []);
 
   return (

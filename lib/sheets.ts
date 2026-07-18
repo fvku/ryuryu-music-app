@@ -379,6 +379,66 @@ export async function removeSyncPending(albumNo: string, memberEmail: string): P
   });
 }
 
+// ── Notification Seen ──────────────────────────────────────────────
+
+async function initNotificationSeenSheet(sheets: ReturnType<typeof getSheetsClient>, spreadsheetId: string): Promise<void> {
+  try {
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "notification_seen!A1:B1" });
+    if (!res.data.values || res.data.values.length === 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId, range: "notification_seen!A1:B1", valueInputOption: "RAW",
+        requestBody: { values: [["memberEmail", "foryouSeenAt"]] },
+      });
+    }
+  } catch {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title: "notification_seen" } } }] },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId, range: "notification_seen!A1:B1", valueInputOption: "RAW",
+      requestBody: { values: [["memberEmail", "foryouSeenAt"]] },
+    });
+  }
+}
+
+/** memberEmail(lowercase) → foryouSeenAt(ISO8601) の全件マップ */
+export async function getAllNotificationSeen(): Promise<Record<string, string>> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  await initNotificationSeenSheet(sheets, spreadsheetId);
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "notification_seen!A2:B" });
+  const rows = res.data.values;
+  if (!rows || rows.length === 0) return {};
+  return Object.fromEntries(
+    rows.filter((row) => row[0]).map((row) => [(row[0] as string).trim().toLowerCase(), (row[1] as string) || ""])
+  );
+}
+
+export async function setForYouSeenAt(memberEmail: string, seenAt: string): Promise<void> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  await initNotificationSeenSheet(sheets, spreadsheetId);
+  const email = memberEmail.trim().toLowerCase();
+
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "notification_seen!A2:A" });
+  const rows = res.data.values || [];
+  const rowIndex = rows.findIndex((row) => (row[0] || "").trim().toLowerCase() === email);
+
+  if (rowIndex >= 0) {
+    const sheetRow = rowIndex + 2;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId, range: `notification_seen!A${sheetRow}:B${sheetRow}`, valueInputOption: "RAW",
+      requestBody: { values: [[email, seenAt]] },
+    });
+  } else {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId, range: "notification_seen!A:B", valueInputOption: "RAW",
+      requestBody: { values: [[email, seenAt]] },
+    });
+  }
+}
+
 export async function removeBookmark(memberName: string, albumTitle: string, artistName: string, albumUid?: string): Promise<void> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();

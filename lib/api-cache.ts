@@ -19,12 +19,14 @@ export const CACHE_KEY = {
   RELEASE_MASTER: "release-master",
   SCORES: "scores",
   SETTINGS: "settings",
+  NOTIFICATION_SEEN: "notification-seen",
 } as const;
 
 export const CACHE_TTL = {
   RELEASE_MASTER: 60 * 1000,      // 60秒
   SCORES: 60 * 1000,              // 60秒
   SETTINGS: 5 * 60 * 1000,        // 5分
+  NOTIFICATION_SEEN: 30 * 1000,   // 30秒
 } as const;
 
 /**
