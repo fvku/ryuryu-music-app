@@ -8,10 +8,7 @@ import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ albumNo: string }> }
-) {
+export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const albumTitle = searchParams.get("title") ?? "";
@@ -106,10 +103,7 @@ export async function POST(
   }
 }
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ albumNo: string }> }
-) {
+export async function PUT(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.email) {

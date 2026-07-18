@@ -48,7 +48,6 @@ export function useMyPageData() {
   }, [tab, savedFilter, savedMonthFilter, forYouFilter, forYouMonthFilter, forYouMode, mjTypeFilter, mjMonthFilter, filtersInitialized]);
 
   useEffect(() => {
-    if (status === "unauthenticated") { setLoading(false); return; }
     if (status !== "authenticated") return;
 
     async function init() {
@@ -137,7 +136,8 @@ export function useMyPageData() {
   }
 
   return {
-    session, status, loading, hasNewForYou,
+    // 未認証時はデータ取得が走らないため、ローディング表示は不要
+    session, status, loading: status === "unauthenticated" ? false : loading, hasNewForYou,
     tab, handleTabChange,
     savedFilter, setSavedFilter, savedMonthFilter, setSavedMonthFilter,
     forYouFilter, setForYouFilter, forYouMonthFilter, setForYouMonthFilter,

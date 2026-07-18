@@ -5,9 +5,6 @@ import { createPortal } from "react-dom";
 
 export default function HowToUseModal() {
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -31,7 +28,7 @@ export default function HowToUseModal() {
         使い方
       </button>
 
-      {mounted && open && createPortal(
+      {open && createPortal(
         <div
           className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center"
           style={{ backgroundColor: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}

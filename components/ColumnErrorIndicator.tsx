@@ -18,16 +18,15 @@ export function reportColumnError(missing: string[]) {
 export default function ColumnErrorIndicator() {
   const [missing, setMissing] = useState<string[] | null>(null);
   const [showModal, setShowModal] = useState(false);
-  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
-
     // ページロード時にlocalStorageから読み込む
+    // （useStateの初期化で読むとSSRのHTMLと不一致になるため、effect内で読む必要がある）
     try {
       const stored = localStorage.getItem(COLUMN_ERROR_KEY);
       if (stored) {
         const data = JSON.parse(stored);
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         if (data.missing?.length > 0) setMissing(data.missing);
       }
     } catch {}
@@ -45,7 +44,7 @@ export default function ColumnErrorIndicator() {
     return () => window.removeEventListener(COLUMN_ERROR_EVENT, handler);
   }, []);
 
-  if (!mounted || !missing) {
+  if (!missing) {
     // エラーなし: 元のスペーサーと同じ幅を維持
     return <div className="w-16" />;
   }

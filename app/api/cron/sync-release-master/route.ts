@@ -88,7 +88,7 @@ export async function GET() {
       }
     }
     // 次に追加する行のインデックス（既存行数+1）
-    let nextPendingRow = rawPendingRows.length + 1;
+    const nextPendingRow = rawPendingRows.length + 1;
 
     // appScoreMap: "albumTitle::artistName::normalizedEmail" → Score
     // memberName を正規化して短縮名と email 混在に対応する

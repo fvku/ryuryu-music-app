@@ -106,6 +106,8 @@ export default function SpotifyClipboardDetector() {
 
   useEffect(() => {
     if (!session) return;
+    // setStateはclipboard読み取りのawait後にしか起きないが、ルールが保守的に検知するため無効化
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     tryClipboardSilently(); // マウント時に一度確認
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -122,12 +124,6 @@ export default function SpotifyClipboardDetector() {
       else setPopup({ type: "input" });
     });
   }, [detectedUrl, processUrl, register]);
-
-  const handleButtonClick = async () => {
-    if (detectedUrl) {
-      await processUrl(detectedUrl);
-    }
-  };
 
   const handleAdd = async (album: AlbumInfo) => {
     setPopup({ type: "loading" });
