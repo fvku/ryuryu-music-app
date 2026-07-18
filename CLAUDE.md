@@ -1,6 +1,6 @@
 # ryuryu-music
 
-音楽グループ（6人）のアルバムレビューアプリ。Next.js 14 + Google Sheets + Spotify API + Vercel。
+音楽グループ（6人）のアルバムレビューアプリ。Next.js 16 (Turbopack) + React 19 + next-auth v5 + Google Sheets + Spotify API + Vercel。
 
 ## メンバー
 
