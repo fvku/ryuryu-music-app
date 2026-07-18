@@ -145,6 +145,29 @@ export function getCombinedScore(
   return { avg: Math.round((total / count) * 10) / 10, count };
 }
 
+/**
+ * legacyScores とアプリスコアの値が食い違うエントリを除外する。
+ * 列追加前後で誤って取り込まれたデータの非表示ガード（ReviewModal 用）。
+ * legacyScore が無い・legacyに数値が無いメンバーはそのまま通す。
+ */
+export function filterMismatchedScores(
+  album: Pick<ReleaseMasterAlbum, "legacyScores">,
+  scores: Score[]
+): Score[] {
+  const legacyNumByEmail: Record<string, number | null> = {};
+  for (const ls of album.legacyScores) {
+    const email = LEGACY_NAME_TO_EMAIL[ls.name.toLowerCase()];
+    if (email) legacyNumByEmail[email] = parseLegacyScoreNum(ls.value);
+  }
+  return scores.filter((s) => {
+    const email = s.memberName.toLowerCase();
+    if (!(email in legacyNumByEmail)) return true;
+    const legacyNum = legacyNumByEmail[email];
+    if (legacyNum === null) return true;
+    return legacyNum === s.score;
+  });
+}
+
 /** Score[] → memberScores 形式（getCombinedScore に渡す用。score=null は除外） */
 export function toMemberScores(scores: Score[]): Record<string, number> {
   const map: Record<string, number> = {};

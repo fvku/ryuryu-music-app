@@ -6,6 +6,7 @@ import {
   namesForUser,
   getCombinedScore,
   toMemberScores,
+  filterMismatchedScores,
   getMyReviewedAlbumNos,
   scoreAlbumKey,
   isSameAlbum,
@@ -235,6 +236,35 @@ describe("getCombinedScore", () => {
       { "eddie": 4 }
     );
     expect(result).toEqual({ avg: 4, count: 1 });
+  });
+});
+
+describe("filterMismatchedScores", () => {
+  it("keeps scores for members without a legacy score", () => {
+    const album = makeAlbum({ legacyScores: [{ name: "Meri", value: "7" }] });
+    const scores = [makeScore({ memberName: "kohei.fuku0926@gmail.com", score: 8 })];
+    expect(filterMismatchedScores(album, scores)).toEqual(scores);
+  });
+
+  it("keeps scores when the legacy value has no parseable number", () => {
+    const album = makeAlbum({ legacyScores: [{ name: "Kohei", value: "コメントのみ" }] });
+    const scores = [makeScore({ memberName: "kohei.fuku0926@gmail.com", score: 8 })];
+    expect(filterMismatchedScores(album, scores)).toEqual(scores);
+  });
+
+  it("keeps scores matching the legacy number", () => {
+    const album = makeAlbum({ legacyScores: [{ name: "Kohei", value: "8 great" }] });
+    const scores = [makeScore({ memberName: "kohei.fuku0926@gmail.com", score: 8 })];
+    expect(filterMismatchedScores(album, scores)).toEqual(scores);
+  });
+
+  it("excludes scores that contradict the legacy number", () => {
+    const album = makeAlbum({ legacyScores: [{ name: "Kohei", value: "6" }] });
+    const scores = [
+      makeScore({ memberName: "kohei.fuku0926@gmail.com", score: 8 }),
+      makeScore({ memberName: "akyme68@gmail.com", score: 5 }),
+    ];
+    expect(filterMismatchedScores(album, scores)).toEqual([scores[1]]);
   });
 });
 
