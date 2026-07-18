@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { buildHeaderMap, findMissingColumns, getCol, getWriteCol, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
@@ -91,7 +90,7 @@ export async function PATCH(
   { params }: { params: { no: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }

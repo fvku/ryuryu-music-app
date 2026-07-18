@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { getAllRecommendations, getRecommendationsForUser, addRecommendation, initRecommendationsSheet } from "@/lib/sheets";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +10,7 @@ export async function GET(request: NextRequest) {
     const forUser = searchParams.get("forUser");
 
     if (forUser === "me") {
-      const session = await getServerSession(authOptions);
+      const session = await auth();
       if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
       const recs = await getRecommendationsForUser(session.user.email.toLowerCase());
       return NextResponse.json(recs);
@@ -38,7 +37,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }
