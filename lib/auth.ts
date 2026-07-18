@@ -1,17 +1,17 @@
-import { NextAuthOptions } from "next-auth";
-import GoogleProvider from "next-auth/providers/google";
-import SpotifyProvider from "next-auth/providers/spotify";
+import NextAuth from "next-auth";
+import Google from "next-auth/providers/google";
+import Spotify from "next-auth/providers/spotify";
 import { EMAIL_TO_SHORT_NAME } from "./members";
 
 const SPOTIFY_SCOPES = "streaming user-read-email user-read-private";
 
-export const authOptions: NextAuthOptions = {
+export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
-    GoogleProvider({
+    Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     }),
-    SpotifyProvider({
+    Spotify({
       clientId: process.env.SPOTIFY_CLIENT_ID!,
       clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
       authorization: `https://accounts.spotify.com/authorize?scope=${encodeURIComponent(SPOTIFY_SCOPES)}`,
@@ -40,4 +40,4 @@ export const authOptions: NextAuthOptions = {
     signIn: "/login",
     error: "/login",
   },
-};
+});

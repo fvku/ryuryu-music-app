@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { getScoresForAlbum, addScore, hasScore, initScoresSheet, updateScore } from "@/lib/sheets";
 import { getMemberShortName } from "@/lib/members";
 import { writeScoreToReleaseMaster } from "@/lib/release-master";
@@ -11,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { albumNo: string } }
+  { params }: { params: Promise<{ albumNo: string }> }
 ) {
   try {
     const { searchParams } = new URL(request.url);
@@ -34,10 +33,10 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { albumNo: string } }
+  { params }: { params: Promise<{ albumNo: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }
@@ -79,7 +78,7 @@ export async function POST(
     }
 
     const newScore = await addScore({
-      reviewId: params.albumNo,
+      reviewId: (await params).albumNo,
       memberName,
       score: score ?? null,
       comment: trimmedComment,
@@ -109,10 +108,10 @@ export async function POST(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { albumNo: string } }
+  { params }: { params: Promise<{ albumNo: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { buildHeaderMap, findMissingColumns, getCol, getWriteCol, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
@@ -13,7 +12,7 @@ const LEGACY_MEMBERS = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa"];
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { no: string } }
+  { params }: { params: Promise<{ no: string }> }
 ) {
   try {
     const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
@@ -88,10 +87,10 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { no: string } }
+  { params }: { params: Promise<{ no: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
     }
