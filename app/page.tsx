@@ -10,6 +10,15 @@ import { buildScoreSummary, getCombinedScore, getMyReviewedAlbumNos, getSummaryE
 const GENRE_VALUES = ["邦楽", "洋楽"] as const;
 const UP_NEXT_MJ_EXCLUDE = ["J採用", "採用", "不採用"];
 
+type SortKey = "date_asc" | "date_desc" | "score_desc" | "score_asc";
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "date_asc", label: "古い順" },
+  { value: "date_desc", label: "新しい順" },
+  { value: "score_desc", label: "点数が高い順" },
+  { value: "score_asc", label: "点数が低い順" },
+];
+const DEFAULT_SORT: SortKey = "date_asc";
+
 function getMonthKey(date: string): string {
   return date.substring(0, 7);
 }
@@ -36,6 +45,7 @@ export default function HomePage() {
   const [upNext, setUpNext] = useState(false);
   const [savedMjFilters, setSavedMjFilters] = useState<string[] | null>(null);
   const [reviewFilter, setReviewFilter] = useState<"すべて" | "済み" | "未レビュー">("すべて");
+  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT);
   const [selectedAlbum, setSelectedAlbum] = useState<ReleaseMasterAlbum | null>(null);
 
   useEffect(() => {
@@ -81,6 +91,7 @@ export default function HomePage() {
           if (savedFilters.savedMj) setSavedMjFilters(savedFilters.savedMj);
         }
         if (savedFilters.review) setReviewFilter(savedFilters.review);
+        if (SORT_OPTIONS.some((o) => o.value === savedFilters.sort)) setSortKey(savedFilters.sort);
 
         // Pre-populate spotifyData from sheet cache
         const cachedData: Record<string, { coverUrl: string; spotifyUrl: string }> = {};
@@ -125,9 +136,9 @@ export default function HomePage() {
   useEffect(() => {
     if (!mjInitialized) return;
     try {
-      localStorage.setItem("ryuryu_home_filters", JSON.stringify({ month: monthFilter, genre: genreFilters, mj: mjFilters, upNext, savedMj: savedMjFilters, review: reviewFilter }));
+      localStorage.setItem("ryuryu_home_filters", JSON.stringify({ month: monthFilter, genre: genreFilters, mj: mjFilters, upNext, savedMj: savedMjFilters, review: reviewFilter, sort: sortKey }));
     } catch {}
-  }, [monthFilter, genreFilters, mjFilters, mjInitialized, upNext, savedMjFilters, reviewFilter]);
+  }, [monthFilter, genreFilters, mjFilters, mjInitialized, upNext, savedMjFilters, reviewFilter, sortKey]);
 
   // Up Next用：セッション・スコアが揃ったら自分のレビュー済みNoを計算
   const userEmail = session?.user?.email?.toLowerCase();
@@ -208,6 +219,17 @@ export default function HomePage() {
     if (reviewedLoaded && reviewFilter === "済み" && !myReviewedAlbumNos.has(a.no)) return false;
     if (reviewedLoaded && reviewFilter === "未レビュー" && myReviewedAlbumNos.has(a.no)) return false;
     return true;
+  });
+
+  // 並び替え（Array.prototype.sort は安定なので、同値の行はシート順＝No昇順を保つ）
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortKey === "date_asc") return (a.date || "").localeCompare(b.date || "");
+    if (sortKey === "date_desc") return (b.date || "").localeCompare(a.date || "");
+    // 点数順：未採点（avg=null）は方向にかかわらず末尾へ
+    const sa = combinedScoreFor(a).avg;
+    const sb = combinedScoreFor(b).avg;
+    if (sa === null || sb === null) return sa === sb ? 0 : sa === null ? 1 : -1;
+    return sortKey === "score_desc" ? sb - sa : sa - sb;
   });
 
   if (loading) {
@@ -346,18 +368,35 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* 件数 */}
-        <p className="text-xs text-right" style={{ color: "var(--text-secondary)" }}>{filtered.length}枚のアルバム</p>
+        {/* 件数 + 並び替え */}
+        <div className="flex items-center justify-end gap-2">
+          <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{filtered.length}枚のアルバム</p>
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            aria-label="並び替え"
+            className="px-2.5 py-1 rounded-xl border text-xs font-medium focus:outline-none"
+            style={{
+              backgroundColor: "var(--bg-card)",
+              borderColor: sortKey !== DEFAULT_SORT ? "var(--accent)" : "var(--border-subtle)",
+              color: sortKey !== DEFAULT_SORT ? "white" : "var(--text-secondary)",
+            }}
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Album list */}
-      {filtered.length === 0 ? (
+      {sorted.length === 0 ? (
         <div className="text-center py-16">
           <p style={{ color: "var(--text-secondary)" }}>該当するアルバムはありません</p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {filtered.map((album) => (
+          {sorted.map((album) => (
             <AlbumCard
               key={album.no}
               album={album}
