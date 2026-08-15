@@ -81,6 +81,7 @@ export async function searchAlbums(query: string): Promise<SpotifyAlbum[]> {
       artists: { name: string }[];
       images: { url: string; width: number; height: number }[];
       release_date: string;
+      album_type: string;
       external_urls: { spotify: string };
     }) => {
       const coverUrl =
@@ -98,6 +99,8 @@ export async function searchAlbums(query: string): Promise<SpotifyAlbum[]> {
         artist: item.artists.map((a: { name: string }) => a.name).join(", "),
         coverUrl,
         releaseYear,
+        releaseDate: item.release_date ?? "",
+        albumType: item.album_type ?? "",
         spotifyUrl: item.external_urls.spotify,
       };
     }

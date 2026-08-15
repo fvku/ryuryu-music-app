@@ -40,6 +40,8 @@ export interface RefetchMismatch {
   rowNum: number;
   sheetTitle: string;
   sheetArtist: string;
+  sheetDate: string;
+  sheetGenre: string;
   spotifyTitle: string;
   spotifyArtist: string;
   spotifyUrl: string;
@@ -87,6 +89,8 @@ export async function refetchSpotifyUrls(options: RefetchSpotifyOptions): Promis
   const coverIdx   = col[SHEET_COL.COVER_URL];
   const titleIdx   = col["Title"]  ?? col["アルバム名"]   ?? 2;
   const artistIdx  = col["Artist"] ?? col["アーティスト"] ?? 3;
+  const dateIdx    = col["Date"]   ?? col["日付"]         ?? 1;
+  const genreIdx   = col[SHEET_COL.GENRE] ?? 5;
 
   if (spotifyIdx === undefined) throw new Error(`"${SHEET_COL.SPOTIFY_URL}" 列が見つかりません`);
 
@@ -133,6 +137,8 @@ export async function refetchSpotifyUrls(options: RefetchSpotifyOptions): Promis
   for (const { row, rowNum } of targets) {
     const sheetTitle  = (row[titleIdx]  ?? "").trim();
     const sheetArtist = (row[artistIdx] ?? "").trim();
+    const sheetDate   = (row[dateIdx]   ?? "").trim();
+    const sheetGenre  = (row[genreIdx]  ?? "").trim();
 
     try {
       const results = await searchAlbums(`${sheetArtist} ${sheetTitle}`);
@@ -151,7 +157,7 @@ export async function refetchSpotifyUrls(options: RefetchSpotifyOptions): Promis
       if (!tOk || !aOk) {
         log(`[行${rowNum}] ⚠ MISMATCH シート:"${sheetArtist}" / "${sheetTitle}" → Spotify:"${found.artist}" / "${found.name}"`);
         result.mismatches.push({
-          rowNum, sheetTitle, sheetArtist,
+          rowNum, sheetTitle, sheetArtist, sheetDate, sheetGenre,
           spotifyTitle: found.name, spotifyArtist: found.artist, spotifyUrl: found.spotifyUrl,
         });
         result.mismatched++;
@@ -178,4 +184,35 @@ export async function refetchSpotifyUrls(options: RefetchSpotifyOptions): Promis
   }
 
   return result;
+}
+
+/**
+ * MISMATCH行に対して、管理者が手動で選んだSpotify候補のURL・カバー画像を1行だけ書き込む。
+ * app/admin のMISMATCH手動補完UIから呼ばれる。
+ */
+export async function writeManualSpotifyMatch(rowNum: number, spotifyUrl: string, coverUrl: string): Promise<void> {
+  const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
+  if (!spreadsheetId) throw new Error("RELEASE_MASTER_SPREADSHEET_ID is not set");
+
+  const sheets = google.sheets({ version: "v4", auth: getGoogleAuth(true) });
+  const headerRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: "'Release Master'!1:1" });
+  const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
+
+  const spotifyIdx = col[SHEET_COL.SPOTIFY_URL];
+  const coverIdx = col[SHEET_COL.COVER_URL];
+  if (spotifyIdx === undefined) throw new Error(`"${SHEET_COL.SPOTIFY_URL}" 列が見つかりません`);
+
+  const cSpotify = indexToColumnLetter(spotifyIdx);
+  const cCover = coverIdx !== undefined ? indexToColumnLetter(coverIdx) : null;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: "RAW",
+      data: [
+        { range: `'Release Master'!${cSpotify}${rowNum}`, values: [[spotifyUrl]] },
+        ...(cCover && coverUrl ? [{ range: `'Release Master'!${cCover}${rowNum}`, values: [[coverUrl]] }] : []),
+      ],
+    },
+  });
 }

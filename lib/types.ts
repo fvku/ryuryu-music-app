@@ -4,6 +4,8 @@ export interface SpotifyAlbum {
   artist: string;
   coverUrl: string;
   releaseYear: string;
+  releaseDate: string;
+  albumType: string; // Spotify album_type: "album" | "single" | "compilation"
   spotifyUrl: string;
 }
 

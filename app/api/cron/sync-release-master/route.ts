@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getAllScores, addScore, updateScore, initScoresSheet } from "@/lib/sheets";
-import { getReleaseMasterScoreRows, assignMissingUids } from "@/lib/release-master";
+import { getReleaseMasterScoreRows } from "@/lib/release-master";
+import { assignUids } from "@/lib/ops/assign-uids";
+import { backfillAlbumUids } from "@/lib/ops/backfill-album-uids";
 import { LEGACY_NAME_TO_EMAIL, EMAIL_TO_SHORT_NAME } from "@/lib/members";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
@@ -222,17 +224,24 @@ export async function GET() {
       invalidateCache(CACHE_KEY.SCORES);
     }
 
-    // 手動追加行への UID 自動採番（失敗しても同期自体は成功扱い）
+    // UID自動採番＋紐付け（Spotify URLが確定した行のみ対象。失敗しても同期自体は成功扱い）
     let uidsAssigned = 0;
+    let uidError: string | null = null;
     try {
-      uidsAssigned = await assignMissingUids();
+      const assignResult = await assignUids({ apply: true });
+      uidsAssigned = assignResult.assigned;
       if (uidsAssigned > 0) invalidateCache(CACHE_KEY.RELEASE_MASTER);
+
+      const backfillResult = await backfillAlbumUids({ apply: true });
+      const scoresLinked = backfillResult.sheets.find((s) => s.sheet === "scores");
+      if (scoresLinked && scoresLinked.exactHit + scoresLinked.lowerHit > 0) invalidateCache(CACHE_KEY.SCORES);
     } catch (e) {
-      console.error("assignMissingUids failed:", e);
+      uidError = String(e);
+      console.error("UID assign/backfill failed:", e);
     }
 
     lastRunAt = Date.now();
-    return NextResponse.json({ ok: true, synced, added, uidsAssigned });
+    return NextResponse.json({ ok: true, synced, added, uidsAssigned, uidError });
   } catch (error) {
     console.error("Sync cron failed:", error);
     return NextResponse.json({ error: String(error) }, { status: 500 });

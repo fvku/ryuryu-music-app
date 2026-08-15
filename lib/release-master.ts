@@ -2,7 +2,6 @@ import { google } from "googleapis";
 import { MEMBER_COLUMN_INDEX } from "./members";
 import { buildHeaderMap, findMissingColumns, indexToColumnLetter, SHEET_COL } from "./sheet-headers";
 import { getGoogleAuth } from "./google-auth";
-import { generateAlbumUid } from "./uid";
 
 export function getWriteAuth() {
   return getGoogleAuth(true);
@@ -108,58 +107,6 @@ export async function getReleaseMasterScoreRows(): Promise<ReleaseMasterScoreRow
     });
 }
 
-/**
- * UIDが空の行（タイトルまたはアーティストあり）に安定IDを採番する。
- * 手動でシートに追加された行への追従用（sync cron から呼ばれる）。
- * UID列が存在しない場合は何もしない（scripts/assign-uids.ts で列を作成する）。
- * @returns 採番した行数
- */
-export async function assignMissingUids(): Promise<number> {
-  const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
-  if (!spreadsheetId) return 0;
-
-  const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
-  const resp = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: "'Release Master'!A1:AZ",
-  });
-
-  const allRows = resp.data.values ?? [];
-  if (allRows.length < 2) return 0;
-  const [headerRow, ...dataRows] = allRows;
-  const col = buildHeaderMap(headerRow);
-
-  const uidIdx = col[SHEET_COL.UID];
-  if (uidIdx === undefined) return 0;
-
-  const titleIdx  = col["Title"]  ?? col["アルバム名"]  ?? 2;
-  const artistIdx = col["Artist"] ?? col["アーティスト"] ?? 3;
-  const cUid = indexToColumnLetter(uidIdx);
-
-  const usedUids = new Set<string>(
-    dataRows.map((r) => (r[uidIdx] ?? "").trim()).filter(Boolean)
-  );
-
-  const data: { range: string; values: string[][] }[] = [];
-  dataRows.forEach((row, i) => {
-    if ((row[uidIdx] ?? "").trim()) return;
-    const hasContent = (row[titleIdx] ?? "").trim() || (row[artistIdx] ?? "").trim();
-    if (!hasContent) return;
-    let uid = generateAlbumUid();
-    while (usedUids.has(uid)) uid = generateAlbumUid();
-    usedUids.add(uid);
-    data.push({ range: `'Release Master'!${cUid}${i + 2}`, values: [[uid]] });
-  });
-
-  if (data.length === 0) return 0;
-
-  await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId,
-    requestBody: { valueInputOption: "RAW", data },
-  });
-  return data.length;
-}
-
 export async function writeScoreToReleaseMaster(
   albumTitle: string,
   artistName: string,
@@ -234,4 +181,27 @@ export async function writeScoreToReleaseMaster(
     valueInputOption: "RAW",
     requestBody: { values: [[cellValue]] },
   });
+}
+
+/**
+ * 誤って登録された行の内容をクリアし、add-albumが再利用できる「空白行」に戻す。
+ * 行そのものは削除しない（後続行がズレるのを避けるため）。
+ * MISMATCH手動解消UIの「候補に正解がない」ケースで使う。
+ */
+export async function clearReleaseMasterRow(rowNum: number): Promise<void> {
+  const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
+  if (!spreadsheetId) throw new Error("RELEASE_MASTER_SPREADSHEET_ID is not set");
+
+  const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
+  const headerRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: "'Release Master'!1:1" });
+  const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
+
+  const idxs = [
+    col["Date"] ?? col["日付"], col["Title"] ?? col["アルバム名"], col["Artist"] ?? col["アーティスト"],
+    col[SHEET_COL.GENRE], col[SHEET_COL.SPOTIFY_URL], col[SHEET_COL.COVER_URL], col["Time"],
+  ].filter((i): i is number => i !== undefined);
+
+  const ranges = idxs.map((idx) => `'Release Master'!${indexToColumnLetter(idx)}${rowNum}`);
+  if (ranges.length === 0) return;
+  await sheets.spreadsheets.values.batchClear({ spreadsheetId, requestBody: { ranges } });
 }
