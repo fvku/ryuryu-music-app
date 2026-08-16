@@ -50,6 +50,8 @@ function MismatchQueueModal({ mismatches, password, onClose }: { mismatches: Ref
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [manualUrl, setManualUrl] = useState("");
+  const [savingManualUrl, setSavingManualUrl] = useState(false);
 
   const current = mismatches[index];
   const currentStatus = statuses[current.rowNum];
@@ -104,6 +106,29 @@ function MismatchQueueModal({ mismatches, password, onClose }: { mismatches: Ref
     }
   }
 
+  async function saveManualUrl() {
+    const url = manualUrl.trim();
+    if (!url) return;
+    setSavingManualUrl(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/resolve-spotify-mismatch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminPassword: password, rowNum: current.rowNum, spotifyUrl: url, coverUrl: "" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "保存に失敗しました");
+      setStatuses((prev) => ({ ...prev, [current.rowNum]: "resolved" }));
+      setManualUrl("");
+      goToNextPending();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "エラーが発生しました");
+    } finally {
+      setSavingManualUrl(false);
+    }
+  }
+
   async function deleteRow() {
     setDeleting(true);
     setError(null);
@@ -133,11 +158,11 @@ function MismatchQueueModal({ mismatches, password, onClose }: { mismatches: Ref
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl p-5" style={{ backgroundColor: "var(--bg-primary)", border: "1px solid var(--border-subtle)" }}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <button onClick={() => { setError(null); setIndex((i) => (i - 1 + mismatches.length) % mismatches.length); }}
+            <button onClick={() => { setError(null); setManualUrl(""); setIndex((i) => (i - 1 + mismatches.length) % mismatches.length); }}
               className="w-8 h-8 rounded-lg border flex items-center justify-center flex-shrink-0"
               style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>‹</button>
             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>MISMATCH {index + 1} / {mismatches.length}件（解消済み {resolvedCount}）</span>
-            <button onClick={() => { setError(null); setIndex((i) => (i + 1) % mismatches.length); }}
+            <button onClick={() => { setError(null); setManualUrl(""); setIndex((i) => (i + 1) % mismatches.length); }}
               className="w-8 h-8 rounded-lg border flex items-center justify-center flex-shrink-0"
               style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>›</button>
           </div>
@@ -209,13 +234,31 @@ function MismatchQueueModal({ mismatches, password, onClose }: { mismatches: Ref
 
         {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
 
-        <div className="flex items-center justify-between border-t pt-3" style={{ borderColor: "var(--border-subtle)" }}>
-          <p className="text-xs" style={{ color: "var(--text-secondary)" }}>候補に正解がない場合</p>
-          <button onClick={deleteRow} disabled={deleting || resolvingId !== null}
-            className="text-xs px-3 py-1.5 rounded-lg border disabled:opacity-50 flex-shrink-0"
-            style={{ borderColor: "rgba(239,68,68,0.4)", color: "#f87171" }}>
-            {deleting ? "削除中..." : "この行をRelease Masterから削除"}
-          </button>
+        <div className="border-t pt-3" style={{ borderColor: "var(--border-subtle)" }}>
+          <p className="text-xs mb-2" style={{ color: "var(--text-secondary)" }}>候補に正解がない場合（Spotifyに無いアルバムなど）</p>
+          <div className="flex items-center gap-2 mb-3">
+            <input
+              type="text"
+              value={manualUrl}
+              onChange={(e) => setManualUrl(e.target.value)}
+              placeholder="Bandcampなどのリンクを貼り付け"
+              className="flex-1 min-w-0 px-3 py-1.5 rounded-lg border text-xs focus:outline-none"
+              style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+            />
+            <button onClick={saveManualUrl} disabled={savingManualUrl || !manualUrl.trim() || deleting}
+              className="text-xs px-3 py-1.5 rounded-lg border disabled:opacity-50 flex-shrink-0"
+              style={{ borderColor: "#60a5fa", color: "#60a5fa" }}>
+              {savingManualUrl ? "保存中..." : "このリンクで確定"}
+            </button>
+          </div>
+          <div className="flex items-center justify-between">
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>本当に登録ミスなら</p>
+            <button onClick={deleteRow} disabled={deleting || resolvingId !== null || savingManualUrl}
+              className="text-xs px-3 py-1.5 rounded-lg border disabled:opacity-50 flex-shrink-0"
+              style={{ borderColor: "rgba(239,68,68,0.4)", color: "#f87171" }}>
+              {deleting ? "削除中..." : "この行をRelease Masterから削除"}
+            </button>
+          </div>
         </div>
       </div>
     </div>,
