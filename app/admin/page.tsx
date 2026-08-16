@@ -26,6 +26,7 @@ const ALBUM_TYPE_LABEL: Record<string, string> = { album: "アルバム", single
 
 type RefetchMismatch = {
   rowNum: number; sheetTitle: string; sheetArtist: string; sheetDate: string; sheetGenre: string;
+  sheetMemo: string; reviewers: string[];
   spotifyTitle: string; spotifyArtist: string; spotifyUrl: string;
 };
 
@@ -199,6 +200,18 @@ function MismatchQueueModal({ mismatches, password, onClose }: { mismatches: Ref
             <div className="col-span-2">
               <p style={{ color: "var(--text-secondary)" }}>タイトル / アーティスト</p>
               <p style={{ color: "var(--text-primary)" }}>{current.sheetArtist} / {current.sheetTitle}</p>
+            </div>
+            <div className="col-span-2">
+              <p style={{ color: "var(--text-secondary)" }}>genre/memo</p>
+              <p style={{ color: current.sheetMemo ? "#fbbf24" : "var(--text-secondary)" }}>
+                {current.sheetMemo || "記載なし"}
+              </p>
+            </div>
+            <div className="col-span-2">
+              <p style={{ color: "var(--text-secondary)" }}>レビュー</p>
+              <p style={{ color: current.reviewers.length > 0 ? "#fbbf24" : "var(--text-secondary)" }}>
+                {current.reviewers.length > 0 ? `${current.reviewers.join("、")} がレビュー済み` : "レビューなし"}
+              </p>
             </div>
           </div>
         </div>

@@ -10,6 +10,8 @@ import { google } from "googleapis";
 import { searchAlbums } from "@/lib/spotify";
 import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { getGoogleAuth } from "@/lib/google-auth";
+import { getAllScores } from "@/lib/sheets";
+import { getDisplayName } from "@/lib/members";
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -42,6 +44,8 @@ export interface RefetchMismatch {
   sheetArtist: string;
   sheetDate: string;
   sheetGenre: string;
+  sheetMemo: string;
+  reviewers: string[];
   spotifyTitle: string;
   spotifyArtist: string;
   spotifyUrl: string;
@@ -91,6 +95,16 @@ export async function refetchSpotifyUrls(options: RefetchSpotifyOptions): Promis
   const artistIdx  = col["Artist"] ?? col["アーティスト"] ?? 3;
   const dateIdx    = col["Date"]   ?? col["日付"]         ?? 1;
   const genreIdx   = col[SHEET_COL.GENRE] ?? 5;
+  const memoIdx    = col[SHEET_COL.GENRE_MEMO];
+
+  // MISMATCH行に「誰かが既にレビュー済みか」を表示するため、事前に1回だけscoresを取得
+  const allScores = await getAllScores();
+  const reviewersByAlbum = new Map<string, Set<string>>();
+  for (const s of allScores) {
+    const key = `${(s.albumTitle ?? "").trim()}::${(s.artistName ?? "").trim()}`;
+    if (!reviewersByAlbum.has(key)) reviewersByAlbum.set(key, new Set());
+    reviewersByAlbum.get(key)!.add(getDisplayName(s.memberName));
+  }
 
   if (spotifyIdx === undefined) throw new Error(`"${SHEET_COL.SPOTIFY_URL}" 列が見つかりません`);
 
@@ -139,6 +153,7 @@ export async function refetchSpotifyUrls(options: RefetchSpotifyOptions): Promis
     const sheetArtist = (row[artistIdx] ?? "").trim();
     const sheetDate   = (row[dateIdx]   ?? "").trim();
     const sheetGenre  = (row[genreIdx]  ?? "").trim();
+    const sheetMemo   = memoIdx !== undefined ? (row[memoIdx] ?? "").trim() : "";
 
     try {
       const results = await searchAlbums(`${sheetArtist} ${sheetTitle}`);
@@ -156,8 +171,9 @@ export async function refetchSpotifyUrls(options: RefetchSpotifyOptions): Promis
 
       if (!tOk || !aOk) {
         log(`[行${rowNum}] ⚠ MISMATCH シート:"${sheetArtist}" / "${sheetTitle}" → Spotify:"${found.artist}" / "${found.name}"`);
+        const reviewers = Array.from(reviewersByAlbum.get(`${sheetTitle}::${sheetArtist}`) ?? []);
         result.mismatches.push({
-          rowNum, sheetTitle, sheetArtist, sheetDate, sheetGenre,
+          rowNum, sheetTitle, sheetArtist, sheetDate, sheetGenre, sheetMemo, reviewers,
           spotifyTitle: found.name, spotifyArtist: found.artist, spotifyUrl: found.spotifyUrl,
         });
         result.mismatched++;
