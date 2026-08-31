@@ -3,7 +3,8 @@ import Google from "next-auth/providers/google";
 import Spotify from "next-auth/providers/spotify";
 import { EMAIL_TO_SHORT_NAME } from "./members";
 
-const SPOTIFY_SCOPES = "streaming user-read-email user-read-private";
+const SPOTIFY_SCOPES =
+  "streaming user-read-email user-read-private user-modify-playback-state user-read-playback-state";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [

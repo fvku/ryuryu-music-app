@@ -11,7 +11,10 @@ export async function GET() {
   url.searchParams.set("client_id", clientId!);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("redirect_uri", redirectUri);
-  url.searchParams.set("scope", "streaming user-read-email user-read-private");
+  url.searchParams.set(
+    "scope",
+    "streaming user-read-email user-read-private user-modify-playback-state user-read-playback-state"
+  );
   url.searchParams.set("show_dialog", "true");
 
   return NextResponse.redirect(url.toString());

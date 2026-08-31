@@ -124,14 +124,23 @@ export function useSpotifyPlayer(token: string | null | undefined): UseSpotifyPl
   async function playTrack(uri: string) {
     if (!deviceIdRef.current || !token) return;
     setSdkError("");
-    const res = await fetch(
-      `https://api.spotify.com/v1/me/player/play?device_id=${deviceIdRef.current}`,
-      {
+
+    const attempt = () =>
+      fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceIdRef.current}`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ uris: [uri] }),
-      }
-    );
+      });
+
+    let res = await attempt();
+
+    // ready 直後は SDK デバイスが Spotify バックエンドに登録されるまで数百 ms かかることがあり、
+    // その間は 404 (Device not found) が返る。一度だけ待って再試行する。
+    if (res.status === 404) {
+      await new Promise((r) => setTimeout(r, 400));
+      res = await attempt();
+    }
+
     if (!res.ok && res.status !== 204) {
       const body = await res.json().catch(() => ({}));
       setSdkError(

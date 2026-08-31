@@ -1,5 +1,13 @@
-const TOKEN_KEY = "ryuryu_spotify_token";
-const EXPIRY_KEY = "ryuryu_spotify_token_expiry";
+// v2: scope に user-modify-playback-state / user-read-playback-state を追加したため、
+// 旧キーに入っているスコープ不足のトークンを無効化する目的でキー名を変更している。
+const TOKEN_KEY = "ryuryu_spotify_token_v2";
+const EXPIRY_KEY = "ryuryu_spotify_token_v2_expiry";
+
+// 旧バージョン（スコープ不足）のトークンが残っていれば掃除する
+if (typeof window !== "undefined") {
+  localStorage.removeItem("ryuryu_spotify_token");
+  localStorage.removeItem("ryuryu_spotify_token_expiry");
+}
 
 export function getSpotifyToken(): string | null {
   if (typeof window === "undefined") return null;
