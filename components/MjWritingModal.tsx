@@ -152,7 +152,14 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
             loadingTracks={loadingTracks}
             trackError={trackError}
             selectedTrack={selectedTrack}
-            onSelectTrack={setSelectedTrack}
+            onSelectTrack={(track) => {
+              setSelectedTrack(track);
+              // 再生中に別トラックへ切り替え／選択解除したら前の曲を止める
+              // （自動再生はしない。再生ボタンで新トラックを頭から再生できる状態にする）
+              if (player.isReady && !player.isPaused && track?.uri !== player.currentUri) {
+                player.pause();
+              }
+            }}
           />
 
           {selectedTrack && (

@@ -26,6 +26,7 @@ export interface UseSpotifyPlayerReturn {
   sdkError: string;
   playTrack: (uri: string) => Promise<void>;
   togglePlay: () => void;
+  pause: () => void;
   commitSeek: (ms: number) => void;
 }
 
@@ -197,10 +198,14 @@ export function useSpotifyPlayer(
       subscribers.delete(notify);
       mountCount -= 1;
       onAuthInvalid = null;
-      // 最後のモーダルが閉じたら、予約済みの自動再接続はキャンセル（切断はしない）
-      if (mountCount <= 0 && reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
+      if (mountCount <= 0) {
+        // 最後のモーダルが閉じたら、予約済みの自動再接続はキャンセル（切断はしない）
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        // 編集ページを閉じたら再生は止める（接続は維持）
+        sharedPlayer?.pause().catch(() => {});
       }
     };
   }, []);
@@ -287,5 +292,9 @@ export function useSpotifyPlayer(
     sharedPlayer?.togglePlay();
   }
 
-  return { isReady, isPaused, position, duration, currentUri, sdkError, playTrack, togglePlay, commitSeek };
+  function pause() {
+    sharedPlayer?.pause().catch(() => {});
+  }
+
+  return { isReady, isPaused, position, duration, currentUri, sdkError, playTrack, togglePlay, pause, commitSeek };
 }
