@@ -28,7 +28,8 @@ export default function SpotifyPlayerPanel({
   onSeekCommit,
   onSetStartTime,
 }: SpotifyPlayerPanelProps) {
-  const { isReady, isPaused, position, duration, sdkError, playTrack, togglePlay } = player;
+  const { isReady, isPaused, position, duration, currentUri, sdkError, playTrack, togglePlay } = player;
+  const isCurrent = currentUri === selectedTrack.uri;
 
   if (!spotifyToken) {
     return (
@@ -57,7 +58,26 @@ export default function SpotifyPlayerPanel({
   }
 
   if (sdkError) {
-    return <p className="text-xs" style={{ color: "#ef4444" }}>{sdkError}</p>;
+    const isPremiumError = sdkError.startsWith("アカウントエラー");
+    return (
+      <div
+        className="rounded-2xl border p-4 flex flex-col items-center gap-2.5 text-center"
+        style={{ borderColor: "var(--border-subtle)", backgroundColor: "rgba(255,255,255,0.03)" }}
+      >
+        <p className="text-xs" style={{ color: "#ef4444" }}>{sdkError}</p>
+        {!isPremiumError && (
+          <button
+            type="button"
+            onClick={onConnect}
+            disabled={connectingSpotify}
+            className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-full font-bold transition-opacity disabled:opacity-60"
+            style={{ backgroundColor: "#1DB954", color: "white" }}
+          >
+            {connectingSpotify ? "接続中..." : "再接続する"}
+          </button>
+        )}
+      </div>
+    );
   }
 
   if (!isReady) {
@@ -77,8 +97,9 @@ export default function SpotifyPlayerPanel({
         <button
           type="button"
           onClick={() => {
-            if (!isPaused) { togglePlay(); return; }
-            if (duration > 0 || position > 0) { togglePlay(); } else { playTrack(selectedTrack.uri); }
+            // 選択中トラックが既に読み込まれていれば再生/一時停止のトグル。
+            // 別トラック（または初回）なら、その場で頭から再生を開始する。
+            if (isCurrent) { togglePlay(); } else { playTrack(selectedTrack.uri); }
           }}
           className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-opacity hover:opacity-80"
           style={{ backgroundColor: "#1DB954", color: "white" }}

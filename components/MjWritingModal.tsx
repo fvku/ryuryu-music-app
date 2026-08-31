@@ -48,7 +48,10 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   const [spotifyToken, setSpotifyToken] = useState<string | null>(() => getSpotifyToken());
   const [connectingSpotify, setConnectingSpotify] = useState(false);
   const [seekValue, setSeekValue] = useState<number | null>(null);
-  const player = useSpotifyPlayer(spotifyToken);
+  const player = useSpotifyPlayer(spotifyToken, {
+    // トークンが失効し再取得もできなかったら接続状態に戻す（パネルが「再接続」導線を出す）
+    onTokenInvalid: () => setSpotifyToken(null),
+  });
 
   const assign = useInlineFieldUpdate(album, "mjAssign", album.mjAssign?.trim() ?? "", onSaved);
   const mj = useInlineFieldUpdate(album, "mjAdoption", album.mjAdoption ?? "", onSaved);
@@ -150,8 +153,6 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
             trackError={trackError}
             selectedTrack={selectedTrack}
             onSelectTrack={setSelectedTrack}
-            isPlayerReady={player.isReady}
-            onPlayTrack={player.playTrack}
           />
 
           {selectedTrack && (

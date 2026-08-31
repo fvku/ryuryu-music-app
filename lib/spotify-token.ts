@@ -30,6 +30,29 @@ export function clearSpotifyToken() {
   localStorage.removeItem(EXPIRY_KEY);
 }
 
+/**
+ * httpOnly Cookie の refresh_token を使ってアクセストークンを再発行する。
+ * 成功時は localStorage を更新して新トークンを返す。
+ * refresh_token が無い/失効している場合は localStorage を掃除して null を返す
+ * （呼び出し側は「再接続」導線へ誘導する）。
+ */
+export async function refreshSpotifyToken(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const res = await fetch("/api/spotify-oauth/refresh", { cache: "no-store" });
+    if (!res.ok) {
+      clearSpotifyToken();
+      return null;
+    }
+    const data = (await res.json()) as { token: string; expiresIn: number };
+    saveSpotifyToken(data.token, data.expiresIn);
+    return data.token;
+  } catch {
+    // ネットワーク断など一時的な失敗。localStorage は消さず現状維持。
+    return null;
+  }
+}
+
 export function openSpotifyAuthPopup(
   onSuccess: (token: string, expiresIn: number) => void,
   onError?: (error: string) => void
@@ -41,6 +64,8 @@ export function openSpotifyAuthPopup(
   );
 
   function handleMessage(e: MessageEvent) {
+    // トークンを含むメッセージなので、必ず自オリジンからのものだけ受け取る
+    if (e.origin !== window.location.origin) return;
     if (e.data?.type === "SPOTIFY_AUTH_SUCCESS") {
       window.removeEventListener("message", handleMessage);
       onSuccess(e.data.token as string, e.data.expiresIn as number);

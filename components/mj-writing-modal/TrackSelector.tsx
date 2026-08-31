@@ -10,8 +10,6 @@ interface TrackSelectorProps {
   trackError: string | null;
   selectedTrack: SpotifyTrack | null;
   onSelectTrack: (track: SpotifyTrack | null) => void;
-  isPlayerReady: boolean;
-  onPlayTrack: (uri: string) => void;
 }
 
 /** おすすめトラック一覧（選択中チップ・ローディング/エラー/リスト） */
@@ -22,8 +20,6 @@ export default function TrackSelector({
   trackError,
   selectedTrack,
   onSelectTrack,
-  isPlayerReady,
-  onPlayTrack,
 }: TrackSelectorProps) {
   return (
     <div>
@@ -57,12 +53,9 @@ export default function TrackSelector({
                 key={track.trackNumber}
                 type="button"
                 onClick={() => {
-                  if (isSelected) {
-                    onSelectTrack(null);
-                  } else {
-                    onSelectTrack(track);
-                    if (isPlayerReady && track.uri) onPlayTrack(track.uri);
-                  }
+                  // 選択のみ。再生は下の «再生開始位置» パネルの再生ボタンから行う
+                  // （選択のたびに頭出し再生されると /me/player/play を連射してしまうため）
+                  onSelectTrack(isSelected ? null : track);
                 }}
                 className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-white/5"
                 style={{ backgroundColor: isSelected ? "rgba(139,92,246,0.15)" : "transparent" }}

@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { REFRESH_COOKIE, REFRESH_COOKIE_MAX_AGE, refreshCookieOptions } from "@/lib/spotify-oauth-cookie";
 
 export const dynamic = "force-dynamic";
 
-function htmlResponse(script: string) {
-  return new NextResponse(
+function htmlResponse(script: string, refreshToken?: string) {
+  const res = new NextResponse(
     `<!DOCTYPE html><html><body><script>${script}<\/script></body></html>`,
     { headers: { "Content-Type": "text/html" } }
   );
+  if (refreshToken) {
+    res.cookies.set(REFRESH_COOKIE, refreshToken, refreshCookieOptions(REFRESH_COOKIE_MAX_AGE));
+  }
+  return res;
 }
 
 export async function GET(req: NextRequest) {
@@ -16,7 +21,7 @@ export async function GET(req: NextRequest) {
 
   if (error || !code) {
     return htmlResponse(
-      `window.opener?.postMessage({type:"SPOTIFY_AUTH_ERROR",error:${JSON.stringify(error ?? "cancelled")}},"*");window.close();`
+      `window.opener?.postMessage({type:"SPOTIFY_AUTH_ERROR",error:${JSON.stringify(error ?? "cancelled")}},window.location.origin);window.close();`
     );
   }
 
@@ -37,12 +42,17 @@ export async function GET(req: NextRequest) {
 
   if (!res.ok) {
     return htmlResponse(
-      `window.opener?.postMessage({type:"SPOTIFY_AUTH_ERROR",error:"token_exchange_failed"},"*");window.close();`
+      `window.opener?.postMessage({type:"SPOTIFY_AUTH_ERROR",error:"token_exchange_failed"},window.location.origin);window.close();`
     );
   }
 
-  const data = await res.json() as { access_token: string; expires_in: number };
+  const data = (await res.json()) as {
+    access_token: string;
+    expires_in: number;
+    refresh_token?: string;
+  };
   return htmlResponse(
-    `window.opener?.postMessage({type:"SPOTIFY_AUTH_SUCCESS",token:${JSON.stringify(data.access_token)},expiresIn:${data.expires_in}},"*");window.close();`
+    `window.opener?.postMessage({type:"SPOTIFY_AUTH_SUCCESS",token:${JSON.stringify(data.access_token)},expiresIn:${data.expires_in}},window.location.origin);window.close();`,
+    data.refresh_token
   );
 }
