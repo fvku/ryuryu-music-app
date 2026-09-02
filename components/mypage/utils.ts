@@ -1,6 +1,7 @@
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import { EMAIL_TO_SHORT_NAME, parseLegacyScoreNum } from "@/lib/members";
 import { getCombinedScore, getSummaryEntry, isSameAlbum, namesForUser, ScoreSummary } from "@/lib/score-utils";
+import { CONTRIBUTOR_ASSIGN } from "@/components/mj-writing-modal/utils";
 
 export type ReviewFilter = "all" | "reviewed" | "unreviewed";
 
@@ -67,9 +68,14 @@ export function hasMjText(album: ReleaseMasterAlbum) {
 }
 
 // ASSIGN列（R=17）の値から担当者名を解析
-export function getAssignInfo(album: ReleaseMasterAlbum, userEmail: string): { isMe: boolean; name: string } | null {
+// isContributor=true（"寄稿者"）のときはメンバー誰にも紐付かない（isMe は必ず false）
+export function getAssignInfo(
+  album: ReleaseMasterAlbum,
+  userEmail: string
+): { isMe: boolean; name: string; isContributor?: boolean } | null {
   const a = album.mjAssign?.trim();
   if (!a) return null;
+  if (a === CONTRIBUTOR_ASSIGN) return { isMe: false, name: CONTRIBUTOR_ASSIGN, isContributor: true };
   const userShortName = (EMAIL_TO_SHORT_NAME[userEmail] ?? "").toLowerCase();
   const aLow = a.toLowerCase();
   const isMe = (userShortName && aLow === userShortName) ||

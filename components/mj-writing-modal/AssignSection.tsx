@@ -1,6 +1,6 @@
 "use client";
 
-import { ASSIGN_VALUES } from "./utils";
+import { ASSIGN_VALUES, CONTRIBUTOR_ASSIGN } from "./utils";
 
 interface AssignSectionProps {
   currentAssign: string;
@@ -12,6 +12,12 @@ interface AssignSectionProps {
 
 /** 担当者（ASSIGN）ボタンとインラインdropdownピッカー */
 export default function AssignSection({ currentAssign, picker, onTogglePicker, onClosePicker, onSelect }: AssignSectionProps) {
+  const isContributor = currentAssign === CONTRIBUTOR_ASSIGN;
+  const triggerStyle = isContributor
+    ? { bg: "rgba(148,163,184,0.15)", fg: "#94a3b8", border: "rgba(148,163,184,0.3)" }
+    : currentAssign
+      ? { bg: "rgba(251,191,36,0.15)", fg: "#fbbf24", border: "rgba(251,191,36,0.3)" }
+      : { bg: "rgba(107,114,128,0.15)", fg: "#6b7280", border: "var(--border-subtle)" };
   return (
     <div>
       <h3 className="text-xs font-bold mb-2.5" style={{ color: "var(--text-primary)" }}>担当者（ASSIGN）</h3>
@@ -21,9 +27,9 @@ export default function AssignSection({ currentAssign, picker, onTogglePicker, o
           onClick={onTogglePicker}
           className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-full font-medium transition-opacity hover:opacity-80"
           style={{
-            backgroundColor: currentAssign ? "rgba(251,191,36,0.15)" : "rgba(107,114,128,0.15)",
-            color: currentAssign ? "#fbbf24" : "#6b7280",
-            border: `1px solid ${currentAssign ? "rgba(251,191,36,0.3)" : "var(--border-subtle)"}`,
+            backgroundColor: triggerStyle.bg,
+            color: triggerStyle.fg,
+            border: `1px solid ${triggerStyle.border}`,
           }}
         >
           {currentAssign || "unassigned"}
@@ -40,21 +46,26 @@ export default function AssignSection({ currentAssign, picker, onTogglePicker, o
             >
               <p className="text-xs font-bold mb-2" style={{ color: "var(--text-secondary)" }}>担当者を選択</p>
               <div className="flex flex-wrap gap-1.5">
-                {ASSIGN_VALUES.map((v) => (
-                  <button
-                    key={v || "__empty__"}
-                    type="button"
-                    onClick={() => onSelect(v)}
-                    className="text-xs px-3 py-1.5 rounded-full font-medium transition-colors"
-                    style={{
-                      backgroundColor: v === currentAssign ? "rgba(251,191,36,0.2)" : "rgba(255,255,255,0.08)",
-                      color: v === currentAssign ? "#fbbf24" : "var(--text-secondary)",
-                      border: `1px solid ${v === currentAssign ? "rgba(251,191,36,0.4)" : "var(--border-subtle)"}`,
-                    }}
-                  >
-                    {v || "なし"}
-                  </button>
-                ))}
+                {ASSIGN_VALUES.map((v) => {
+                  const selected = v === currentAssign;
+                  const accent = v === CONTRIBUTOR_ASSIGN ? "148,163,184" : "251,191,36";
+                  const accentFg = v === CONTRIBUTOR_ASSIGN ? "#94a3b8" : "#fbbf24";
+                  return (
+                    <button
+                      key={v || "__empty__"}
+                      type="button"
+                      onClick={() => onSelect(v)}
+                      className="text-xs px-3 py-1.5 rounded-full font-medium transition-colors"
+                      style={{
+                        backgroundColor: selected ? `rgba(${accent},0.2)` : "rgba(255,255,255,0.08)",
+                        color: selected ? accentFg : "var(--text-secondary)",
+                        border: `1px solid ${selected ? `rgba(${accent},0.4)` : "var(--border-subtle)"}`,
+                      }}
+                    >
+                      {v || "なし"}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </>

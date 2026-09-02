@@ -126,6 +126,10 @@ export default function ForYouMjPanel({
                     <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(107,114,128,0.15)", color: "#6b7280" }}>
                       unassigned
                     </span>
+                  ) : assignInfo.isContributor ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(148,163,184,0.15)", color: "#94a3b8" }}>
+                      寄稿者
+                    </span>
                   ) : assignInfo.isMe ? (
                     <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ backgroundColor: "rgba(251,191,36,0.2)", color: "#fbbf24" }}>
                       ASSIGNED
