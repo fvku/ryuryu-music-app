@@ -56,6 +56,7 @@ async function fetchAlbums(): Promise<ReleaseMasterAlbum[]> {
         .filter((s) => s.value !== ""),
       spotifyUrl: row[col[SHEET_COL.SPOTIFY_URL]] || "",
       coverUrl:   row[col[SHEET_COL.COVER_URL]]   || "",
+      coverUrlLarge: row[col[SHEET_COL.COVER_URL_LARGE]] || "",
     }));
 
   // タイトル+アーティストが同じ行は先頭（シート上で上にある行）を残して重複除去

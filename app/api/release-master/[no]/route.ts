@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
         .filter((s) => s.value !== ""),
       spotifyUrl: row[col[SHEET_COL.SPOTIFY_URL]] || "",
       coverUrl:   row[col[SHEET_COL.COVER_URL]]   || "",
+      coverUrlLarge: row[col[SHEET_COL.COVER_URL_LARGE]] || "",
     };
 
     return NextResponse.json(album);
