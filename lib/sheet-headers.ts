@@ -63,6 +63,7 @@ export const SHEET_COL = {
   TITLE:       "アルバム名",     // C列  ※要確認
   ARTIST:      "アーティスト",   // D列  ※要確認
   GENRE:       "洋邦",           // F列
+  TIME:        "Time",           // G列（曲数・総尺。例: "9songs, 29min 9sec"）
 
   // --- 書き込み対象 ---
   UID:         "UID",            // 安定ID列（改名に耐える行識別子。位置は任意）
