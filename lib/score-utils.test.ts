@@ -47,6 +47,7 @@ function makeAlbum(overrides: Partial<ReleaseMasterAlbum> = {}): ReleaseMasterAl
     legacyScores: [],
     spotifyUrl: "",
     coverUrl: "",
+    coverUrlLarge: "",
     ...overrides,
   };
 }

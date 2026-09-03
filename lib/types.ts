@@ -27,7 +27,8 @@ export interface ReleaseMasterAlbum {
   mjText:      string;  // M/J採用（220−300）column (V=21)
   legacyScores: { name: string; value: string }[]; // Kwisoo, Meri, Kohei, Eddie, Hanawa
   spotifyUrl: string; // AB column
-  coverUrl: string;   // AC column
+  coverUrl: string;   // AC column（spotifyカバー。640×640）
+  coverUrlLarge: string; // 画像リンク変換 column（Apple Music。2000×2000）。空の行もありうる
 }
 
 export interface Score {
