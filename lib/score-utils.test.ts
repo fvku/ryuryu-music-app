@@ -35,6 +35,7 @@ function makeAlbum(overrides: Partial<ReleaseMasterAlbum> = {}): ReleaseMasterAl
     title: "Album A",
     artist: "Artist A",
     genre: "",
+    duration: "",
     genreMemo: "",
     country: "",
     mjAdoption: "",

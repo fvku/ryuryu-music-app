@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { buildHeaderMap, getCol, SHEET_COL } from "@/lib/sheet-headers";
 import { cached, CACHE_KEY, CACHE_TTL } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
+import { isAuthorized } from "@/lib/api-token";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,7 @@ async function fetchAlbums(): Promise<ReleaseMasterAlbum[]> {
       title:      row[getCol(col, "TITLE")]        || "",
       artist:     row[getCol(col, "ARTIST")]       || "",
       genre:      (row[getCol(col, "GENRE")]       || "") as ReleaseMasterAlbum["genre"],
+      duration:   row[getCol(col, "TIME")]         || "",
       genreMemo:  row[col[SHEET_COL.GENRE_MEMO]]  || "",
       country:    row[col[SHEET_COL.COUNTRY]]     || "",
       mjAdoption: row[col[SHEET_COL.MJ_ADOPTION]] || "",
@@ -66,7 +68,10 @@ async function fetchAlbums(): Promise<ReleaseMasterAlbum[]> {
   });
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  if (!(await isAuthorized(request))) {
+    return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
+  }
   try {
     const albums = await cached(CACHE_KEY.RELEASE_MASTER, CACHE_TTL.RELEASE_MASTER, fetchAlbums);
     return NextResponse.json(albums);
