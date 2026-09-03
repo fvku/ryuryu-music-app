@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { google } from "googleapis";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { buildHeaderMap, getCol, SHEET_COL } from "@/lib/sheet-headers";
 import { cached, CACHE_KEY, CACHE_TTL } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
 import { isAuthorized } from "@/lib/api-token";
+import { corsJson, corsPreflight } from "@/lib/api-cors";
 
 export const dynamic = "force-dynamic";
 
@@ -69,15 +70,23 @@ async function fetchAlbums(): Promise<ReleaseMasterAlbum[]> {
   });
 }
 
+/**
+ * Authorization ヘッダー付きの GET はブラウザで必ずプリフライトを通るので、
+ * これが無いと monthly-generator から呼べない（lib/api-cors.ts）。
+ */
+export async function OPTIONS() {
+  return corsPreflight();
+}
+
 export async function GET(request: NextRequest) {
   if (!(await isAuthorized(request))) {
-    return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
+    return corsJson({ error: "認証が必要です" }, { status: 401 });
   }
   try {
     const albums = await cached(CACHE_KEY.RELEASE_MASTER, CACHE_TTL.RELEASE_MASTER, fetchAlbums);
-    return NextResponse.json(albums);
+    return corsJson(albums);
   } catch (error) {
     console.error("Failed to get Release Master albums:", error);
-    return NextResponse.json({ error: "アルバム一覧の取得に失敗しました" }, { status: 500 });
+    return corsJson({ error: "アルバム一覧の取得に失敗しました" }, { status: 500 });
   }
 }
