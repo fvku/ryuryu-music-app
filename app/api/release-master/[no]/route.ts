@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
       title:      row[getCol(col, "TITLE")]        || "",
       artist:     row[getCol(col, "ARTIST")]       || "",
       genre:      (row[getCol(col, "GENRE")]       || "") as ReleaseMasterAlbum["genre"],
+      duration:   row[getCol(col, "TIME")]          || "",
       genreMemo:  row[col[SHEET_COL.GENRE_MEMO]]  || "",
       country:    row[col[SHEET_COL.COUNTRY]]     || "",
       mjAdoption: row[col[SHEET_COL.MJ_ADOPTION]] || "",

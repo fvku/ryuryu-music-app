@@ -1,7 +1,8 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import Spotify from "next-auth/providers/spotify";
-import { EMAIL_TO_SHORT_NAME } from "./members";
+import { isAllowedMember } from "./member-access";
+import { recordLoginIdentity } from "./auth-identity";
 
 const SPOTIFY_SCOPES =
   "streaming user-read-email user-read-private user-modify-playback-state user-read-playback-state";
@@ -20,17 +21,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     async signIn({ user }) {
-      const envAllowed = process.env.ALLOWED_MEMBER_EMAILS?.split(",").map((e) => e.trim()).filter(Boolean) ?? [];
-      const allowed = envAllowed.length > 0 ? envAllowed : Object.keys(EMAIL_TO_SHORT_NAME);
-      return allowed.includes(user.email ?? "");
+      return isAllowedMember(user.email);
     },
-    async jwt({ token, account }) {
+    async jwt({ token, account, profile }) {
+      recordLoginIdentity(token, account, profile);
       if (account?.provider === "spotify" && account.access_token) {
         token.spotifyAccessToken = account.access_token;
       }
       return token;
     },
     async session({ session, token }) {
+      session.loginProvider = token.loginProvider;
+      session.googleVerifiedEmail = token.googleVerifiedEmail;
       if (token.spotifyAccessToken) {
         (session as unknown as Record<string, unknown>).spotifyAccessToken = token.spotifyAccessToken;
       }

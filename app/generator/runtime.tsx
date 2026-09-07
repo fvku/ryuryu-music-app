@@ -1,0 +1,238 @@
+"use client";
+
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import waveAsset from "@/tools/generator-lab/assets/wave.png";
+import type { CanvasPreviewPage } from "@/lib/generator/canvas-preview";
+import type { GeneratorDocument } from "@/lib/generator/model";
+import type { ReleaseMasterAlbum } from "@/lib/types";
+
+export type LegacySlot = CanvasPreviewPage["slots"][number] & { jacket: { img: HTMLImageElement | null }; bgColor?: string };
+export type LegacyPage = Omit<CanvasPreviewPage, "slots"> & { slots: LegacySlot[] };
+export type PageImages = { wave: HTMLImageElement | null; background: HTMLImageElement | null };
+type BandSegment = { text: string; key?: string };
+type DrawData = {
+  body: string;
+  tracking: number;
+  kerns: Record<string, number> | null;
+  bodyLeadMode: "auto" | "custom";
+  bodyMaxLead: number;
+  typography: CanvasPreviewPage["slots"][number]["typography"];
+  meta: BandSegment[];
+  rec: BandSegment[];
+};
+
+export type Cell = { x: number; y: number; w: number; h: number };
+/** layoutParagraph が返す行。`at` は原稿の文字位置、`adv` は送り幅（どちらも描画が使う値そのもの）。 */
+export type BodyCluster = { at: number; len: number; adv: number; text: string; space: boolean };
+export type BodyLine = { clusters: BodyCluster[]; width: number; start: number; end: number; paragraphEnd: boolean };
+
+type Renderer = {
+  drawPage(context: CanvasRenderingContext2D, page: LegacyPage, images: PageImages): void;
+  inspectPage(context: CanvasRenderingContext2D, page: LegacyPage): string[];
+  bodyLineCount(context: CanvasRenderingContext2D, text: string, tracking: number, kerns: Record<string, number> | null): number;
+  bodyLines(context: CanvasRenderingContext2D, text: string, tracking: number, kerns: Record<string, number> | null): BodyLine[];
+  titleLinesOf(context: CanvasRenderingContext2D, text: string, cell: Cell): string[];
+};
+type LayoutModule = {
+  CANVAS: number;
+  CELLS: { jacket: Cell; title: Cell; meta: Cell; body: Cell; rec: Cell };
+  LISTED: { cellsOf(index: number): { jacket: Cell; title: Cell; meta: Cell; rec: Cell } };
+  TEXT: { bodyX: number; bodyW: number; titleLead: number; bodyAscent: number; bodyDescent: number };
+  TYPE: { body: { size: number }; meta: { size: number }; rec: { size: number } };
+  titleBaselines(cell: Cell, lineCount: number): { title: number; artist: number };
+  bodyLayoutFor(lineCount: number, maxLead?: number): { lead: number; baseline: number };
+  bodyFits(lineCount: number): boolean;
+};
+type PagesModule = { toDrawData(slot: CanvasPreviewPage["slots"][number]): DrawData };
+export type BandLayout = { parts: { key: string | null; width: number }[]; gap: number; total: number; cell: Cell };
+type TextLayoutModule = {
+  bandLayout(
+    context: CanvasRenderingContext2D,
+    segments: BandSegment[],
+    base: { size: number },
+    cell: Cell,
+    typography: DrawData["typography"],
+  ): BandLayout;
+};
+export type Exporter = {
+  renderTiled(page: LegacyPage, images: PageImages, options: { size: 1200 | 2400; onProgress(current: number, total: number): void }): Promise<{ canvas: HTMLCanvasElement }>;
+  canvasBlob(canvas: HTMLCanvasElement): Promise<Blob>;
+  releaseCanvas(canvas: HTMLCanvasElement): void;
+};
+
+export type GeneratorRuntime = {
+  renderer: Renderer;
+  layout: LayoutModule;
+  pages: PagesModule;
+  textLayout: TextLayoutModule;
+  exporter: Exporter;
+  images: PageImages;
+  coversByUid: Map<string, string>;
+  coversByNo: Map<string, string>;
+};
+
+export const FALLBACK_BACKGROUND = "#475569";
+
+let fontsReady: Promise<void> | null = null;
+const imageCache = new Map<string, Promise<HTMLImageElement>>();
+
+function requestImage(src: string): Promise<HTMLImageElement> {
+  const image = new Image();
+  image.decoding = "async";
+  if (src.startsWith("https://")) image.crossOrigin = "anonymous";
+  const loaded = new Promise<HTMLImageElement>((resolve, reject) => {
+    image.addEventListener("load", () => resolve(image), { once: true });
+    image.addEventListener("error", () => reject(new Error("画像を読み込めませんでした。")), { once: true });
+  });
+  image.src = src;
+  // decode() はタブが非表示のあいだ解決しないことがある（画面を伏せた・別タブへ移った直後など）。
+  // load まで待てば drawImage には足りるので、先に決まったほうを使う。描画結果は変わらない。
+  // decode() の失敗だけで load 成功の可能性を捨てない。古いSafariやメモリ圧迫時には
+  // decode() が先に拒否されても、load 済みの画像は drawImage できる場合がある。
+  const decoded = image.decode().then(() => image).catch(() => loaded);
+  return Promise.race([decoded, loaded]);
+}
+
+/** 同じジャケットを一覧のサムネイルと大きなプレビューで二重に取りにいかない。 */
+function loadImage(src: string): Promise<HTMLImageElement> {
+  const cached = imageCache.get(src);
+  if (cached) return cached;
+  const request = requestImage(src).catch(error => {
+    imageCache.delete(src);
+    throw error;
+  });
+  imageCache.set(src, request);
+  return request;
+}
+
+function httpsUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && value.length <= 2000 ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function coverMaps(albums: ReleaseMasterAlbum[]) {
+  const coversByUid = new Map<string, string>(), coversByNo = new Map<string, string>();
+  for (const album of albums) {
+    const cover = httpsUrl(album.coverUrl);
+    if (!cover) continue;
+    if (album.uid) coversByUid.set(album.uid, cover);
+    if (album.no) coversByNo.set(album.no, cover);
+  }
+  return { coversByUid, coversByNo };
+}
+
+export function assetUrl(documentId: string, assetId: string): string {
+  return `/api/generator/documents/${documentId}/assets/${assetId}`;
+}
+
+/** ジャケットを解決して、描画コアが受け取れる形のページにする。 */
+export async function preparePage(runtime: GeneratorRuntime, documentId: string, page: CanvasPreviewPage): Promise<LegacyPage> {
+  const sources = page.slots.map(slot =>
+    (slot.jacketAssetId && assetUrl(documentId, slot.jacketAssetId))
+    || httpsUrl(slot.sourceCoverUrl || "")
+    || (slot.sourceUid && runtime.coversByUid.get(slot.sourceUid))
+    || (slot.sourceNo && runtime.coversByNo.get(slot.sourceNo))
+    || null);
+  const jackets = await Promise.all(sources.map(source => source ? loadImage(source).catch(() => null) : Promise.resolve(null)));
+  const bgColor = page.bgColor || FALLBACK_BACKGROUND;
+  return {
+    ...page,
+    bgColor,
+    slots: page.slots.map((slot, index) => ({ ...slot, jacket: { img: jackets[index] }, ...(index === 0 ? { bgColor } : {}) })),
+  };
+}
+
+/**
+ * 1200px基準で組まれた描画コアを、任意の辺長のcanvasへ写す。
+ * 変倍は座標変換だけで行うので、版面の規則には手を入れていない。
+ */
+export function drawPageInto(runtime: GeneratorRuntime, canvas: HTMLCanvasElement, page: LegacyPage, size: number): CanvasRenderingContext2D | null {
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  const ratio = size / runtime.layout.CANVAS;
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  runtime.renderer.drawPage(context, page, runtime.images);
+  return context;
+}
+
+type RuntimeState = { runtime: GeneratorRuntime | null; error: string | null; stalled: boolean; retry(): void };
+const RuntimeContext = createContext<RuntimeState>({ runtime: null, error: null, stalled: false, retry: () => {} });
+
+export function useGeneratorRuntime(): RuntimeState {
+  return useContext(RuntimeContext);
+}
+
+export function GeneratorRuntimeProvider({
+  documentId,
+  theme,
+  children,
+}: {
+  documentId: string;
+  theme: GeneratorDocument["theme"];
+  children: ReactNode;
+}) {
+  const [runtime, setRuntime] = useState<GeneratorRuntime | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0), [stalled, setStalled] = useState(false);
+  const { useWave, waveAssetId, backgroundAssetId } = theme;
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [rendererModule, layoutModule, pagesModule, textLayoutModule, fontsModule, exporterModule, albums] = await Promise.all([
+          import("@/tools/generator-lab/core/render.mjs"),
+          import("@/tools/generator-lab/core/layout.mjs"),
+          import("@/tools/generator-lab/core/pages.mjs"),
+          import("@/tools/generator-lab/core/text-layout.mjs"),
+          import("@/tools/generator-lab/core/fonts.mjs"),
+          import("@/tools/generator-lab/tiled-renderer.mjs"),
+          fetch("/api/release-master", { cache: "no-store" }).then(async response => {
+            if (!response.ok) throw new Error("Release Masterを読み込めませんでした");
+            return await response.json() as ReleaseMasterAlbum[];
+          }),
+        ]);
+        fontsReady ||= fontsModule.default.loadAll();
+        const [wave, background] = await Promise.all([
+          useWave ? loadImage(waveAssetId ? assetUrl(documentId, waveAssetId) : waveAsset.src) : Promise.resolve(null),
+          backgroundAssetId ? loadImage(assetUrl(documentId, backgroundAssetId)) : Promise.resolve(null),
+          fontsReady,
+        ]);
+        if (cancelled) return;
+        setRuntime({
+          renderer: rendererModule.default as Renderer,
+          layout: layoutModule.default as LayoutModule,
+          pages: pagesModule.default as PagesModule,
+          textLayout: textLayoutModule as TextLayoutModule,
+          exporter: exporterModule as Exporter,
+          images: { wave, background },
+          ...coverMaps(albums),
+        });
+      } catch (loadError) {
+        if (!cancelled) setError((loadError as Error).message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [attempt, backgroundAssetId, documentId, useWave, waveAssetId]);
+
+  /** 書体や描画モジュールが揃わないまま止まると画面には何も起きない。時間で気づけるようにする。 */
+  useEffect(() => {
+    if (runtime) return;
+    const timer = window.setTimeout(() => setStalled(true), 15000);
+    return () => window.clearTimeout(timer);
+  }, [attempt, runtime]);
+
+  const retry = useCallback(() => {
+    fontsReady = null;
+    setStalled(false);
+    setError(null);
+    setAttempt(current => current + 1);
+  }, []);
+
+  const value = useMemo<RuntimeState>(() => ({ runtime, error, stalled, retry }), [error, retry, runtime, stalled]);
+  return <RuntimeContext.Provider value={value}>{children}</RuntimeContext.Provider>;
+}

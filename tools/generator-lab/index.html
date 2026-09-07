@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>投稿画像 — 描画確認版</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <header><div><span class="eyebrow">MONTHLY / JAPAN</span><h1>投稿画像</h1></div><span class="badge">描画確認版</span></header>
+  <div class="notice">サンプルデータで操作と画質を確認する画面です。下書きはこのブラウザ内だけに保存されます。共有保存・共同編集・実データには未接続です。</div>
+  <details class="draft-panel">
+    <summary>下書きの保存・復元（このブラウザ内のみ）<span id="draft-status" role="status" aria-live="polite">下書き保存を準備しています…</span></summary>
+    <p class="hint">入力停止後に自動保存します。再読み込み後はここから下書きを選んで復元できます。別のタブの下書きは上書きしません。ブラウザのデータ消去で失われるため、共有保存の代わりにはなりません。この確認版にはログイン・アカウント別の保護はありません。</p>
+    <button id="save-draft" disabled>今すぐ下書きを保存</button>
+    <label class="field">以前の下書き<select id="draft-list" disabled><option value="">確認中…</option></select></label>
+    <div class="export-actions"><button id="refresh-drafts" disabled>一覧を更新</button><button id="restore-draft" disabled>現在の入力を下書きに残して復元</button></div>
+    <p class="hint">復元元の下書きは残ります。手動ジャケット・文字調整・表示設定・背景色・波・出力サイズを復元します。</p>
+  </details>
+  <nav aria-label="画像の種類">
+    <button data-mode="listed" aria-pressed="true">掲載 · 2アルバム</button>
+    <button data-mode="adopted" aria-pressed="false">採用 · 1アルバム</button>
+    <label class="size-label">出力サイズ <select id="output-size"><option value="2400">2400 × 2400</option><option value="1200">1200 × 1200</option></select></label>
+  </nav>
+  <main>
+    <section class="preview-section" aria-label="出力プレビュー">
+      <div id="preview" aria-busy="true"></div>
+      <p id="status" role="status">フォントと画像を準備しています…</p>
+      <p class="hint">このプレビューと同じ描画結果をPNGにします。</p>
+      <div class="export-actions"><button id="prepare-png" disabled>PNGを作成</button><button id="share-png" hidden>共有・保存</button><a id="download-png" hidden>PNGをダウンロード</a></div>
+      <p id="export-status" role="status"></p>
+    </section>
+    <section class="editor-section" aria-label="編集フォーム">
+      <div class="page-setting">
+        <div><span class="eyebrow">PAGE</span><h2>この画像の背景</h2><p class="hint">上下のアルバムに共通する色は1つです。</p></div>
+        <label class="color-label">背景色 <input id="page-bg" type="color" value="#675479"></label>
+        <label class="check"><input id="use-wave" type="checkbox" checked>波レイヤーを重ねる</label>
+      </div>
+      <div id="forms"></div>
+    </section>
+  </main>
+  <footer><details><summary>今回の確認範囲</summary><p>2つのフォームは独立した項目、背景色はページの設定です。入力はサンプルにのみ反映されます。Release Master・Google認証・サーバー保存には接続していません。</p><p id="metrics"></p><a href="./checks.html">描画の比較検証</a> · <a href="./recovery-checks.html">保存・PNGのブラウザ検証</a></details></footer>
+</body>
+</html>

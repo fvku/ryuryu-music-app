@@ -15,7 +15,22 @@
       "Bash(git remote:*)",
       "Bash(git push:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(npx tsx *)",
+      "mcp__b3dc1817-d208-4982-b69d-47d34735337f__create_playlist",
+      "mcp__b3dc1817-d208-4982-b69d-47d34735337f__get_currently_playing",
+      "mcp__b3dc1817-d208-4982-b69d-47d34735337f__search",
+      "Bash(python3 -c ' *)",
+      "Bash(npx next *)",
+      "Bash(npx eslint *)",
+      "Bash(timeout 60 npx vercel ls --yes)",
+      "Bash(npx vercel *)",
+      "Bash(git ls-remote *)",
+      "Bash(grep -iA6 \"source\\\\|git\")",
+      "Bash(cd /tmp && curl -s -L https://ryuryu-music-app.vercel.app/ -o prod.html -w \"status=%{http_code} size=%{size_download}\\\\n\" && grep -o '/_next/static/[^\"]*\\\\.js' prod.html | sort -u | head -20)",
+      "Bash(npm test *)",
+      "mcp__visualize__read_me",
+      "mcp__visualize__show_widget"
     ]
   }
 }

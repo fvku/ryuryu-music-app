@@ -1,0 +1,20 @@
+{
+  "sourceRoot": "/Users/koheifukuda/Documents/Claude/Projects/漂流音楽/tools/monthly-generator",
+  "modules": {
+    "editor/js/layout.js": "270bf80f68f4897e6c35240d54979ccd426470556ffeda748ef3b0848a69d96e",
+    "editor/js/textEngine.js": "3518d45ea747654734919dec21a19533c9632585664b00abe3e3fed7ba87ecd0",
+    "editor/js/pages.js": "8cecbb2a16345a8f3b8eaf9d618497670e2b54899688f6b4d727f30236f5332b",
+    "editor/js/render.js": "ce06bc8e79831444e35e2375c7872182d55f93c4bb05c0585a13b37218c5b803",
+    "editor/js/fonts.js": "9c95fee1fe67b2a75d03e41d7443006bb65cb25a6eff0b4c005cd0fa43fbc794",
+    "editor/js/colors.js": "feb778869009699f2fa81f0102f12692b51640c858965468ba006549d1b6ab29",
+    "reference/wave.png": "bfeda70a2c04ff20bd00467d1ad084f2647dc0e96695387669acdbd2119435d1",
+    "reference/jacket_2000.webp": "6a77e29c30598ae5e75d8a3a3b153cf545a67607ee6d4ef72df2ee9fdcfc5d36"
+  },
+  "excluded": [
+    "releaseMaster.js",
+    "state.js",
+    "ui.js",
+    "monthly_generator.html",
+    "devserver.js"
+  ]
+}

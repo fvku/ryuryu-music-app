@@ -80,22 +80,18 @@ export async function POST(request: NextRequest) {
 
     const dataRows = dataRes.data.values ?? [];
 
-    // タイトル（C=index2）とアーティスト（D=index3）が両方空白の最初の行を探す
-    // 列Aに既存のNo.があればそれを読み取る
-    let targetRowNum: number | null = null;
-    let no = "";
+    // No.列（A列）は末尾まで数式("=ROW()-1")が事前に入っているため、
+    // dataRows.length だけでは「実データの最終行」を判定できない。
+    // タイトル・アーティストが両方入っている最後の行を後ろから探し、その直後に追記する
+    // （MISMATCH解消でクリアされた途中の空白行は再利用しない）
+    let lastFilledIndex = -1;
     for (let i = 0; i < dataRows.length; i++) {
       const rowTitle  = (dataRows[i][2] ?? "").trim();
       const rowArtist = (dataRows[i][3] ?? "").trim();
-      if (!rowTitle && !rowArtist) {
-        targetRowNum = i + 2; // ヘッダーが1行目なのでデータは2行目〜
-        no = (dataRows[i][0] ?? "").toString().trim();
-        break;
-      }
+      if (rowTitle && rowArtist) lastFilledIndex = i;
     }
-
-    // 空白行がなければ末尾の次の行に追加
-    const writeRow = targetRowNum ?? (dataRows.length + 2);
+    const writeRow = lastFilledIndex >= 0 ? lastFilledIndex + 3 : dataRows.length + 2;
+    const no = "";
 
     const trackInfo = `${trackCount}songs, ${formatDuration(totalDurationMs)}`;
     const dateStr = formatReleaseDate(releaseDate);

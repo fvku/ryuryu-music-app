@@ -32,6 +32,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# Private operational snapshots (never commit user data)
+/.local/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

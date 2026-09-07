@@ -75,9 +75,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
           >
             <p>
-              <a href="/admin" className="hover:text-white transition-colors underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>
+              <Link href="/generator" className="hover:text-white transition-colors underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>
+                投稿画像ジェネレーター
+              </Link>
+              <span className="mx-2">·</span>
+              <Link href="/admin" className="hover:text-white transition-colors underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>
                 管理者
-              </a>
+              </Link>
             </p>
             <p className="mt-2">© 月次アルバムレビュー</p>
           </footer>

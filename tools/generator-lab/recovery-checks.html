@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Generator recovery checks</title>
+  <link rel="stylesheet" href="./style.css">
+  <style>body { max-width:760px; margin:auto; } li { margin:12px 0; line-height:1.5; } a { color:#b9c9f4; } #result { font-size:24px; } #test-preview canvas { width:100%; height:auto; }</style>
+  <script type="module" src="./recovery-checks.mjs"></script>
+</head>
+<body>
+  <h1>Recovery + PNG checks</h1>
+  <p id="result" role="status">RUNNING</p>
+  <p>サンプル専用の検証です。編集用の下書き・本番データには触れません。保存後に一度自動で再読み込みします。</p>
+  <ol id="results"></ol>
+  <p id="environment"></p>
+  <p class="hint">Simulator results are not physical-device performance guarantees. IME, touch selection, Photos, sharing and sleep still need hands-on checks.</p>
+  <a href="./">編集画面へ戻る</a>
+  <div id="test-preview"></div>
+</body>
+</html>

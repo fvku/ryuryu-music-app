@@ -63,6 +63,7 @@ export const SHEET_COL = {
   TITLE:       "アルバム名",     // C列  ※要確認
   ARTIST:      "アーティスト",   // D列  ※要確認
   GENRE:       "洋邦",           // F列
+  TIME:        "Time",           // G列（曲数・総尺）
 
   // --- 書き込み対象 ---
   UID:         "UID",            // 安定ID列（改名に耐える行識別子。位置は任意）
@@ -93,6 +94,7 @@ export const SHEET_COL_FALLBACK: Partial<Record<keyof typeof SHEET_COL, number>>
   TITLE:  2,
   ARTIST: 3,
   GENRE:  5,
+  TIME:   6,
 };
 
 /**

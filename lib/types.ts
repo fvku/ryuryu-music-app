@@ -16,6 +16,7 @@ export interface ReleaseMasterAlbum {
   title: string;
   artist: string;
   genre: "邦楽" | "洋楽" | "";
+  duration: string;   // Time column (G), e.g. "13songs, 50min 4sec"
   genreMemo: string;  // genre/memo column (K)
   country: string;    // 国 column (L)
   mjAdoption: string; // M/J採用 column (Q=16)

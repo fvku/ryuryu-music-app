@@ -184,8 +184,9 @@ export async function writeScoreToReleaseMaster(
 }
 
 /**
- * 誤って登録された行の内容をクリアし、add-albumが再利用できる「空白行」に戻す。
- * 行そのものは削除しない（後続行がズレるのを避けるため）。
+ * 誤って登録された行の内容を全列クリアする（行そのものは削除しない。後続行がズレるのを防ぐため）。
+ * No./Body/# など数式が入っている列は、値ではなく数式そのものを消してしまうため対象から除外する
+ * （その行の実際の内容を数式レンダリングで取得し、"=" で始まるセルをスキップして判定）。
  * MISMATCH手動解消UIの「候補に正解がない」ケースで使う。
  */
 export async function clearReleaseMasterRow(rowNum: number): Promise<void> {
@@ -194,14 +195,23 @@ export async function clearReleaseMasterRow(rowNum: number): Promise<void> {
 
   const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
   const headerRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: "'Release Master'!1:1" });
-  const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
+  const headerLen = (headerRes.data.values?.[0] ?? []).length;
+  if (headerLen === 0) return;
 
-  const idxs = [
-    col["Date"] ?? col["日付"], col["Title"] ?? col["アルバム名"], col["Artist"] ?? col["アーティスト"],
-    col[SHEET_COL.GENRE], col[SHEET_COL.SPOTIFY_URL], col[SHEET_COL.COVER_URL], col["Time"],
-  ].filter((i): i is number => i !== undefined);
+  const lastCol = indexToColumnLetter(headerLen - 1);
+  const rowRes = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'Release Master'!A${rowNum}:${lastCol}${rowNum}`,
+    valueRenderOption: "FORMULA",
+  });
+  const rowValues = rowRes.data.values?.[0] ?? [];
 
-  const ranges = idxs.map((idx) => `'Release Master'!${indexToColumnLetter(idx)}${rowNum}`);
+  const ranges: string[] = [];
+  for (let idx = 0; idx < headerLen; idx++) {
+    const cell = rowValues[idx];
+    if (typeof cell === "string" && cell.startsWith("=")) continue; // 数式列は保持
+    ranges.push(`'Release Master'!${indexToColumnLetter(idx)}${rowNum}`);
+  }
   if (ranges.length === 0) return;
   await sheets.spreadsheets.values.batchClear({ spreadsheetId, requestBody: { ranges } });
 }

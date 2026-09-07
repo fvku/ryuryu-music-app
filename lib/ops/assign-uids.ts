@@ -99,7 +99,12 @@ export async function assignUids(options: AssignUidsOptions): Promise<AssignUids
     pendingDetails: [],
   };
 
-  const columnValues: string[][] = dataRows.map((row, i) => {
+  // columnValues: UID列2行目〜最終行の全セル値（needHeader時の一括書き込み用）
+  // newAssignments: 今回新しく採番した行だけのリスト（既存UID列への差分書き込み用）
+  const columnValues: string[][] = [];
+  const newAssignments: { row: number; uid: string }[] = [];
+
+  dataRows.forEach((row, i) => {
     const rowInfo: AssignUidsRowInfo = {
       row: i + 2,
       no: (row[noIdx] ?? "").trim(),
@@ -108,17 +113,18 @@ export async function assignUids(options: AssignUidsOptions): Promise<AssignUids
     };
 
     const existing = (row[uidIdx!] ?? "").trim();
-    if (existing) { result.skippedHasUid++; return [existing]; }
+    if (existing) { result.skippedHasUid++; columnValues.push([existing]); return; }
 
     const hasContent = rowInfo.title || rowInfo.artist;
-    if (!hasContent) { result.skippedEmpty++; return [""]; }
+    if (!hasContent) { result.skippedEmpty++; columnValues.push([""]); return; }
 
     if (requireSpotifyUrl) {
       const spotifyUrl = (row[spotifyIdx!] ?? "").trim();
       if (!spotifyUrl) {
         result.skippedNoSpotifyUrl++;
         result.pendingDetails.push(rowInfo);
-        return [""];
+        columnValues.push([""]);
+        return;
       }
     }
 
@@ -127,7 +133,8 @@ export async function assignUids(options: AssignUidsOptions): Promise<AssignUids
     usedUids.add(uid);
     result.assigned++;
     result.assignedDetails.push(rowInfo);
-    return [uid];
+    newAssignments.push({ row: rowInfo.row, uid });
+    columnValues.push([uid]);
   });
 
   log(`\n対象データ行: ${result.total}`);
@@ -163,13 +170,35 @@ export async function assignUids(options: AssignUidsOptions): Promise<AssignUids
       requestBody: { values: [[SHEET_COL.UID]] },
     });
     log(`ヘッダー "${SHEET_COL.UID}" を ${cUid}1 に書き込みました`);
+
+    // 列を新設した初回だけ、UID列全体を一括で書き込む（この分岐は一度きり）
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'Release Master'!${cUid}2:${cUid}${dataRows.length + 1}`,
+      valueInputOption: "RAW",
+      requestBody: { values: columnValues },
+    });
+    log(`\n完了: ${result.assigned} 行に採番しました（UID列を新設）`);
+    return result;
   }
 
-  await sheets.spreadsheets.values.update({
+  // 既存のUID列: 今回採番した行だけを個別に書き込む。
+  // 毎回UID列全体を書き戻すと、値が変わらない行までサービスアカウントによる
+  // セル編集として編集履歴に残り、API負荷も増えるため差分のみ書き込む。
+  if (newAssignments.length === 0) {
+    log("\n新規採番なし: 書き込みをスキップしました");
+    return result;
+  }
+
+  await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
-    range: `'Release Master'!${cUid}2:${cUid}${dataRows.length + 1}`,
-    valueInputOption: "RAW",
-    requestBody: { values: columnValues },
+    requestBody: {
+      valueInputOption: "RAW",
+      data: newAssignments.map(({ row, uid }) => ({
+        range: `'Release Master'!${cUid}${row}`,
+        values: [[uid]],
+      })),
+    },
   });
 
   log(`\n完了: ${result.assigned} 行に採番しました`);
