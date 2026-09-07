@@ -614,7 +614,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             </span>
             {unsavedLabels.length > 0 ? <Chip tone="warn">未保存 {unsavedLabels.length}件</Chip> : <Chip tone="success">すべて保存済み</Chip>}
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
+          {/* shrink-0 にすると、狭い画面でボタンが画面外へはみ出して押せなくなる。 */}
+          <div className="flex flex-wrap gap-2">
             <Link
               href={`/generator/${documentId}/history`}
               className="inline-flex min-h-9 items-center rounded-xl border px-3 text-xs hover:bg-white/5"
