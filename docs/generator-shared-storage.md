@@ -1,6 +1,6 @@
 # 画像ジェネレーター：共有保存の実装状況
 
-更新日：2026-09-07。**既存プロトタイプのSupabaseへ初期SQLと追加マイグレーションを適用し、非公開バケットとローカル開発接続を設定済み。ローカル画面ではRelease Master取り込み、共有文書、全項目編集、対象別ロック・保存・履歴復元、画像アップロード、PNG書き出しを利用できる。** Production／Previewへの環境変数登録・デプロイは未実施。最新の適用状況・保全データ・残件は[DB再利用の記録](./generator-project-reuse.md)を参照。
+更新日：2026-09-08。**既存プロトタイプのSupabaseへ初期SQLと追加マイグレーションを適用し、非公開バケット、ローカル開発接続、Vercel Production接続を設定済み。ローカル・本番画面ではRelease Master取り込み、共有文書、全項目編集、対象別ロック・保存・履歴復元、画像アップロード、PNG書き出しを利用できる。** Previewには本番DBの接続情報を登録していない。最新の適用状況・保全データ・残件は[DB再利用の記録](./generator-project-reuse.md)を参照。
 
 操作仕様は[仕様書](./generator-specification.md)、従来の設計は[統合計画](./generator-integration-plan.md)を参照。本書は今回のコードと未接続部分を区別する実装記録。
 
@@ -72,7 +72,7 @@ PATCHには`requestId, kind, targetId, clientId, token, generation, expectedVers
 
 進捗追記：新規プロジェクトを作る計画はユーザー承認により取りやめ、既存`jmgpepnycyyjujkrrvwy`を共用する。ローカル開発用の接続は`.env.development.local`に登録済み。以下の未登録確認と手順は接続前の履歴であり、最新の状態は[再利用記録](./generator-project-reuse.md)を正とする。
 
-ローカル開発環境には次の契約に沿った接続を設定済み。Production／Previewには未登録で、公開環境の状態やキーの有効性を示すものではない。
+ローカル開発環境とVercel Productionには次の契約に沿った接続を設定済み。Productionの値は暗号化されたサーバー環境変数で、Previewには登録していない。
 
 | サーバー環境変数 | 用途 |
 | --- | --- |
@@ -89,7 +89,7 @@ PATCHには`requestId, kind, targetId, clientId, token, generation, expectedVers
 2. Claude Codeで画面遷移・情報設計・ビジュアルデザインを仕上げ、機能変更が必要な箇所はCodexへ相談事項として引き継ぐ。保存契約と文書形式は維持する。
 3. 別ブラウザ・別端末の3人で同時編集、切断、失効、引き継ぎ、履歴復元を受入確認する。
 4. iPhone実機でIME・写真入力・共有・スリープ・連続PNG負荷を確認する。
-5. 最新mainとの差分を既存未コミット変更を保護して統合し、保護されたPreviewへ進める。今回pull・merge・commit・pushはしていない。
+5. 最新`origin/main`との差分は2026-09-08に統合し、`main`へpush、本番デプロイまで完了した。Previewへ本番DBの秘密鍵を共有する場合は、用途とデータ分離を先に決める。
 
 ## 6. 検証記録（2026-09-05）
 
