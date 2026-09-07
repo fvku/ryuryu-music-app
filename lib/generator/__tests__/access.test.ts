@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { Session } from "next-auth";
 import { recordLoginIdentity } from "../../auth-identity";
 import { isAllowedMember } from "../../member-access";
-import { generatorActor, checkOrigin, readBody } from "../access";
+import { generatorActor, canBypassGeneratorPage, checkOrigin, readBody } from "../access";
 
 const email = "kohei.fuku0926@gmail.com";
 const session: Session = { expires: "2030-01-01", user: { email }, loginProvider: "google", googleVerifiedEmail: email };
@@ -32,6 +32,11 @@ describe("generator access boundary", () => {
     expect(() => generatorActor(null, "", { ...local, VERCEL: "1" })).toThrow();
     expect(() => generatorActor(null, "other@example.com", local)).toThrow();
     expect(() => generatorActor(null, "", { ...local, GENERATOR_LOCAL_PREVIEW_ACTOR: email.toUpperCase() })).toThrow();
+    expect(canBypassGeneratorPage("/generator", "", local)).toBe(true);
+    expect(canBypassGeneratorPage("/generator/document-id", "", local)).toBe(true);
+    expect(canBypassGeneratorPage("/generatorish", "", local)).toBe(false);
+    expect(canBypassGeneratorPage("/", "", local)).toBe(false);
+    expect(canBypassGeneratorPage("/generator", "", { ...local, VERCEL: "1" })).toBe(false);
   });
   it("records only actual verified Google callback data, clearing stale proof on another provider login", () => {
     const token = recordLoginIdentity({ email }, { provider: "google" }, { email, email_verified: true });

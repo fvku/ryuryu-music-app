@@ -7,6 +7,8 @@
 > **プレビュー追記**：Google OAuthのredirect URIを追加せず別ポートで本番モード確認できるよう、localhost・非Vercel・許可メンバーに限定した一時的な認証迂回を追加した。契約と起動条件は[共有保存の実装状況 §3](./generator-shared-storage.md#3-api)を参照。本番環境変数には登録しない。
 >
 > **初回受入の反映**：Release Masterから空のTimeを下書き補完、字間・行送りを置換しやすい数値入力へ変更、混在字間を`Mixed`表示、作品・背景の編集ロックを自動取得、プレビュー内のおすすめ曲名を描画位置から個別選択できるようにした。保存は対象単位でversionを作る契約を維持。型検査・Lint・270テスト・本番ビルドに成功した。
+>
+> **統合完了記録（2026-09-08）**：一括ZIP実装と実データ受入を含む`wip/generator-integration`を、最新`origin/main`（Release Master APIのトークン認証・CORS・Time・Apple Music 2000pxカバー対応）と統合し、`main`へfast-forwardしてGitHubへpushした。競合解消時にGenerator取込でもApple Music大画像を優先し、従来カバーへフォールバックする接続とテストを追加した。Time 10件は共有文書のversion 4〜13として保存済み。実Monthly 9枚のZIPはCRC・命名・2400×2400寸法・一覧目視まで確認済み。全画面認証middlewareとの統合でlocalhost専用認証迂回が遮られる回帰も検出し、Generator画面だけ既存の厳格なlocalhost・非Vercel・許可メンバー判定を共有するよう修正した。型検査・Lint・18ファイル293テスト・本番ビルドに成功し、Vercel本番はReady。iPhone実機Safariだけは未確認。
 
 ---
 

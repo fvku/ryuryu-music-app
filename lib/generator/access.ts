@@ -21,6 +21,16 @@ function localPreviewActor(environment: GeneratorAccessEnvironment, allowlist: s
   return actor;
 }
 
+/** middlewareでもAPIと同じ厳格な条件で、Generator画面だけローカル認証を迂回する。 */
+export function canBypassGeneratorPage(
+  pathname: string,
+  allowlist = process.env.ALLOWED_MEMBER_EMAILS,
+  environment: GeneratorAccessEnvironment = process.env as GeneratorAccessEnvironment,
+): boolean {
+  if (pathname !== "/generator" && !pathname.startsWith("/generator/")) return false;
+  return localPreviewActor(environment, allowlist) !== null;
+}
+
 export function generatorActor(
   session: Session | null,
   allowlist = process.env.ALLOWED_MEMBER_EMAILS,

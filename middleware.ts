@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { canBypassGeneratorPage } from "@/lib/generator/access";
 
 /**
  * アプリ全体をログイン必須にする。
@@ -12,7 +13,7 @@ import { auth } from "@/lib/auth";
  * 他の書き込み系ルートは既存どおり lib/auth.ts の auth() セッション）。
  */
 export default auth((req) => {
-  if (req.auth) return;
+  if (req.auth || canBypassGeneratorPage(req.nextUrl.pathname)) return NextResponse.next();
 
   const url = new URL("/login", req.nextUrl.origin);
   url.searchParams.set("callbackUrl", req.nextUrl.pathname + req.nextUrl.search);
