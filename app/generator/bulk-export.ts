@@ -6,14 +6,157 @@ export type ArchiveEntry = { name: string; blob: Blob };
 
 /**
  * 複数のPNGを1つのファイルへまとめる役。
- * **未実装。** 旧スタンドアロン版の無圧縮ZIP実装（stored のみ）を移植する想定で、
- * 担当と実装方針は docs/codex-generator-handoff.md に引き継いである。
+ * PNGは既に圧縮済みなので、ZIP側では再圧縮しない（method 0 = stored）。
  */
 export type ArchivePacker = (entries: ArchiveEntry[]) => Promise<Blob>;
 
-/** 実装が入ったらここで返す。UIはこの戻り値がnullの間、一括書き出しを実行できない状態で出す。 */
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < table.length; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) value = (value & 1) ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
+
+function updateCrc32(value: number, bytes: Uint8Array): number {
+  for (const byte of bytes) value = CRC_TABLE[(value ^ byte) & 0xff] ^ (value >>> 8);
+  return value;
+}
+
+async function blobCrc32(blob: Blob): Promise<number> {
+  // Blobのstreamを順に読むため、CRC計算でもPNG全体を追加のArrayBufferへ複製しない。
+  const reader = blob.stream().getReader();
+  let value = 0xffffffff;
+  try {
+    while (true) {
+      const { done, value: chunk } = await reader.read();
+      if (done) break;
+      value = updateCrc32(value, chunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return (value ^ 0xffffffff) >>> 0;
+}
+
+function dosDateTime(value: Date): { date: number; time: number } {
+  const year = Math.min(2107, Math.max(1980, value.getFullYear()));
+  return {
+    time: ((value.getHours() & 31) << 11) | ((value.getMinutes() & 63) << 5) | ((Math.floor(value.getSeconds() / 2)) & 31),
+    date: (((year - 1980) & 127) << 9) | (((value.getMonth() + 1) & 15) << 5) | (value.getDate() & 31),
+  };
+}
+
+class ZipWriter {
+  readonly bytes: Uint8Array<ArrayBuffer>;
+  private readonly view: DataView;
+  private offset = 0;
+
+  constructor(size: number) {
+    this.bytes = new Uint8Array(new ArrayBuffer(size));
+    this.view = new DataView(this.bytes.buffer);
+  }
+
+  u16(value: number) {
+    this.view.setUint16(this.offset, value, true);
+    this.offset += 2;
+  }
+
+  u32(value: number) {
+    this.view.setUint32(this.offset, value >>> 0, true);
+    this.offset += 4;
+  }
+
+  raw(value: Uint8Array) {
+    this.bytes.set(value, this.offset);
+    this.offset += value.length;
+  }
+}
+
+type ZipRecord = {
+  name: Uint8Array;
+  blob: Blob;
+  crc: number;
+  size: number;
+  offset: number;
+};
+
+function localHeader(record: ZipRecord, date: number, time: number): Uint8Array<ArrayBuffer> {
+  const writer = new ZipWriter(30 + record.name.length);
+  writer.u32(0x04034b50);
+  writer.u16(20); // 展開に必要なバージョン
+  writer.u16(0x0800); // ファイル名はUTF-8
+  writer.u16(0); // 圧縮方式 0 = stored
+  writer.u16(time); writer.u16(date);
+  writer.u32(record.crc);
+  writer.u32(record.size); writer.u32(record.size);
+  writer.u16(record.name.length); writer.u16(0);
+  writer.raw(record.name);
+  return writer.bytes;
+}
+
+function centralHeader(record: ZipRecord, date: number, time: number): Uint8Array<ArrayBuffer> {
+  const writer = new ZipWriter(46 + record.name.length);
+  writer.u32(0x02014b50);
+  writer.u16(20); writer.u16(20);
+  writer.u16(0x0800); writer.u16(0);
+  writer.u16(time); writer.u16(date);
+  writer.u32(record.crc);
+  writer.u32(record.size); writer.u32(record.size);
+  writer.u16(record.name.length); writer.u16(0); writer.u16(0);
+  writer.u16(0); writer.u16(0); writer.u32(0);
+  writer.u32(record.offset);
+  writer.raw(record.name);
+  return writer.bytes;
+}
+
+function endRecord(count: number, centralSize: number, centralOffset: number): Uint8Array<ArrayBuffer> {
+  const writer = new ZipWriter(22);
+  writer.u32(0x06054b50);
+  writer.u16(0); writer.u16(0);
+  writer.u16(count); writer.u16(count);
+  writer.u32(centralSize); writer.u32(centralOffset);
+  writer.u16(0);
+  return writer.bytes;
+}
+
+/** ZIP32の範囲で、複数のBlobを再圧縮せず1つのアーカイブへまとめる。 */
+async function packArchive(entries: ArchiveEntry[]): Promise<Blob> {
+  if (entries.length > 0xffff) throw new Error("ZIPに入れられるファイル数を超えています。");
+  const encoder = new TextEncoder();
+  const records: ZipRecord[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const name = encoder.encode(entry.name);
+    if (!name.length || name.length > 0xffff) throw new Error("ZIP内のファイル名が不正です。");
+    if (entry.blob.size > 0xffffffff) throw new Error(`${entry.name} がZIP32の上限を超えています。`);
+    const record = { name, blob: entry.blob, crc: await blobCrc32(entry.blob), size: entry.blob.size, offset };
+    records.push(record);
+    offset += 30 + name.length + record.size;
+    if (offset > 0xffffffff) throw new Error("ZIPの合計サイズがZIP32の上限を超えています。");
+  }
+
+  const { date, time } = dosDateTime(new Date());
+  const parts: BlobPart[] = [];
+  for (const record of records) parts.push(localHeader(record, date, time), record.blob);
+
+  const centralOffset = offset;
+  for (const record of records) {
+    const header = centralHeader(record, date, time);
+    parts.push(header);
+    offset += header.length;
+  }
+  const centralSize = offset - centralOffset;
+  if (offset + 22 > 0xffffffff) throw new Error("ZIPの合計サイズがZIP32の上限を超えています。");
+  parts.push(endRecord(records.length, centralSize, centralOffset));
+  return new Blob(parts, { type: "application/zip" });
+}
+
 export function getArchivePacker(): ArchivePacker | null {
-  return null;
+  return packArchive;
 }
 
 type Named = Pick<GeneratorDocument, "series" | "period">;

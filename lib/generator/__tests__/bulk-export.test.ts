@@ -96,7 +96,36 @@ describe("全ページのPNG書き出し", () => {
     expect(seen.every(value => value.total === 3)).toBe(true);
   });
 
-  it("まとめ役はまだ実装されていない（実装されたらこのテストを消す）", () => {
-    expect(getArchivePacker()).toBeNull();
+  it("PNGをstored形式の有効なZIPへまとめる", async () => {
+    const packer = getArchivePacker();
+    expect(packer).not.toBeNull();
+    const archive = await packer!([
+      { name: "monthly_26_08_02.png", blob: new Blob(["abc"], { type: "image/png" }) },
+      { name: "月刊_03.png", blob: new Blob([new Uint8Array([0, 1, 2, 255])], { type: "image/png" }) },
+    ]);
+    expect(archive.type).toBe("application/zip");
+
+    const bytes = new Uint8Array(await archive.arrayBuffer());
+    const view = new DataView(bytes.buffer);
+    const u16 = (at: number) => view.getUint16(at, true);
+    const u32 = (at: number) => view.getUint32(at, true);
+    const decoder = new TextDecoder();
+
+    expect(u32(0)).toBe(0x04034b50);
+    expect(u16(6)).toBe(0x0800); // UTF-8
+    expect(u16(8)).toBe(0); // stored
+    expect(u32(14)).toBe(0x352441c2); // CRC32("abc")
+    expect(u32(18)).toBe(3);
+    const firstNameLength = u16(26);
+    expect(decoder.decode(bytes.slice(30, 30 + firstNameLength))).toBe("monthly_26_08_02.png");
+    expect(decoder.decode(bytes.slice(30 + firstNameLength, 33 + firstNameLength))).toBe("abc");
+
+    const end = bytes.length - 22;
+    expect(u32(end)).toBe(0x06054b50);
+    expect(u16(end + 10)).toBe(2);
+    const centralSize = u32(end + 12), centralOffset = u32(end + 16);
+    expect(centralOffset + centralSize).toBe(end);
+    expect(u32(centralOffset)).toBe(0x02014b50);
+    expect(u32(centralOffset + 42)).toBe(0);
   });
 });
