@@ -4,11 +4,15 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSession, signIn } from "next-auth/react";
 import { useNotifications } from "@/contexts/NotificationsContext";
+import { isImmersiveRoute } from "@/lib/app-chrome";
 
 export default function BottomNav() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { hasNewForYou } = useNotifications();
+
+  // ジェネレーターの編集画面では出さない。縦をプレビューへ回すため（フックはすべて呼んでから返す）。
+  if (isImmersiveRoute(pathname)) return null;
 
   const tabs = [
     {

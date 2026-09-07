@@ -11,10 +11,11 @@ import PageNavigator from "../PageNavigator";
 import { generatorJson, snapshotWithLocks, type GeneratorApiError } from "../generator-client";
 import { GeneratorRuntimeProvider } from "../runtime";
 import { Chip, Panel, SecondaryButton, SegmentedControl, StatusBanner, useMediaQuery, type SegmentOption, type Tone } from "../ui";
-import { PageInspector, StructureDialog, ThemeInspector, type TargetState } from "./Inspectors";
+import { PageInspector, RestoreControl, StructureDialog, TargetStatus, ThemeInspector, type TargetState } from "./Inspectors";
 import ItemInspector from "./ItemInspector";
 import {
   cloneContent,
+  derivePageBadges,
   keyOf,
   lockPayload,
   lockToken,
@@ -26,8 +27,8 @@ import {
   type LockResponse,
 } from "./workspace-types";
 
-type Tab = "image" | "theme";
-type ImageTab = "info" | "background";
+/** 編集パネルは1段。「画像編集」の下に「情報修正／背景設定」を重ねない。 */
+type PanelKey = "info" | "background" | "theme";
 type Status = { tone: Tone; text: string };
 type PendingSave = { requestId: string; signature: string };
 
@@ -48,7 +49,7 @@ function matchesLock(current: ActiveLock | undefined, expected: ActiveLock): boo
 
 export default function GeneratorWorkspace({ initialSnapshot, actor }: { initialSnapshot: GeneratorSnapshot; actor: string }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot), [pageIndex, setPageIndex] = useState(0);
-  const [tab, setTab] = useState<Tab>("image"), [imageTab, setImageTab] = useState<ImageTab>("info");
+  const [panel, setPanel] = useState<PanelKey>("info");
   const [slotIndex, setSlotIndex] = useState(0), [reorderOpen, setReorderOpen] = useState(false);
   const [activeLocks, setActiveLocks] = useState<Record<string, ActiveLock>>({}), [drafts, setDrafts] = useState<Record<string, ItemContent>>({});
   const [pageColors, setPageColors] = useState<Record<string, string>>({}), [themeDraft, setThemeDraft] = useState(snapshot.document.theme);
@@ -143,7 +144,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     const timer = window.setTimeout(() => {
       try {
         setRecoveryAvailable(Boolean(window.localStorage.getItem(recoveryKey)));
-        setRecoveryStatus("入力停止後、このブラウザ内にも復旧用コピーを保存します（共有保存とは別です）。");
+        setRecoveryStatus("このブラウザにも復旧用コピーを保存します（共有保存とは別）。");
       } catch {
         setRecoveryStatus("このブラウザでは復旧用コピーを保存できません。共有DBへの保存を利用してください。");
       }
@@ -164,7 +165,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           document: previewDocument,
         }));
         setRecoveryAvailable(true);
-        setRecoveryStatus(`このブラウザ内に復旧用コピーを保存済み · ${new Date().toLocaleTimeString("ja-JP")}（共有保存なし）`);
+        setRecoveryStatus(`復旧用コピー保存済み · ${new Date().toLocaleTimeString("ja-JP")}（共有保存なし）`);
       } catch {
         setRecoveryStatus("復旧用コピーを保存できませんでした。共有DBには未保存です。");
       }
@@ -507,13 +508,10 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   }
 
   const heldElsewhere = snapshot.locks.filter(lock => !activeLocks[keyOf(lock.kind as LockKind, lock.targetId)]);
-  const tabs: SegmentOption<Tab>[] = [
-    { value: "image", label: "画像編集", dot: (activeItem && itemDirty(activeItem.id)) || pageDirty ? "warn" : undefined },
-    { value: "theme", label: "共通設定", dot: themeDirty ? "warn" : activeLocks[keyOf("theme", documentId)] ? "success" : undefined },
-  ];
-  const imageTabs: SegmentOption<ImageTab>[] = [
+  const panelTabs: SegmentOption<PanelKey>[] = [
     { value: "info", label: "情報修正", dot: activeItem && itemDirty(activeItem.id) ? "warn" : activeItem && activeLocks[keyOf("item", activeItem.id)] ? "success" : undefined },
     { value: "background", label: "背景設定", dot: pageDirty ? "warn" : savedPage && activeLocks[keyOf("page", savedPage.id)] ? "success" : undefined },
+    { value: "theme", label: "共通設定", dot: themeDirty ? "warn" : activeLocks[keyOf("theme", documentId)] ? "success" : undefined },
   ];
   const bodyDiagnostic = diagnostics && previewPage && diagnostics.pageId === previewPage.id ? diagnostics.body : [];
 
@@ -526,8 +524,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   function selectFromPreview(value: PreviewSelection & { touch?: boolean }) {
     const item = pageItems[value.slotIndex];
     if (!item) return;
-    setTab("image");
-    setImageTab("info");
+    setPanel("info");
     setSlotIndex(value.slotIndex);
     setSelectionState({
       itemId: item.id,
@@ -539,6 +536,55 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     });
   }
 
+  // 対象ごとの操作列はタブと同じ行へ出すため、JSXの外で組み立てる。
+  // `direct` の自動ロック取得は、表示されている対象の分だけ走る（従来と同じ）。
+  const itemTargetState = activeItem
+    ? targetState(
+      "item",
+      activeItem.id,
+      itemDirty(activeItem.id),
+      async () => {
+        const lock = await acquire("item", activeItem.id);
+        if (lock) setDrafts(current => current[activeItem.id]
+          ? current
+          : { ...current, [activeItem.id]: cloneContent(activeItem.content) });
+      },
+      () => void save("item", activeItem.id, drafts[activeItem.id] || activeItem.content),
+      true,
+    )
+    : null;
+  const pageTargetState = savedPage
+    ? targetState(
+      "page",
+      savedPage.id,
+      pageDirty,
+      () => void acquire("page", savedPage.id),
+      () => void save("page", savedPage.id, { bgColor: pageColors[savedPage.id] ?? savedPage.bgColor ?? FALLBACK_PAGE_COLOR }),
+      true,
+    )
+    : null;
+  const themeTargetState = targetState(
+    "theme",
+    documentId,
+    themeDirty,
+    async () => {
+      const lock = await acquire("theme", documentId);
+      if (lock) setThemeDraft(snapshot.document.theme);
+    },
+    () => void save("theme", documentId, themeDraft),
+  );
+  const activeTarget = panel === "theme" ? themeTargetState : panel === "background" ? pageTargetState : itemTargetState;
+  const activeTargetLabel = panel === "theme" ? "共通設定" : panel === "background" ? "背景" : "作品";
+
+  // 文書全体の集計（未保存◯件）だけでは、どの画像かがサムネイルから分からない。
+  const pageBadges = derivePageBadges({
+    pages: visiblePages,
+    isItemDirty: itemDirty,
+    dirtyPageIds: new Set(dirtyPages.map(entry => entry.value.id)),
+    pageColors,
+    foreignLocks: heldElsewhere,
+  });
+
   const navigator = (orientation: "vertical" | "horizontal") => (
     <PageNavigator
       documentId={documentId}
@@ -548,52 +594,53 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       onReorder={() => setReorderOpen(true)}
       reorderDirty={structureDirty}
       orientation={orientation}
+      states={pageBadges}
     />
   );
 
   return (
     <GeneratorRuntimeProvider documentId={documentId} theme={themeDraft}>
       <div className="relative left-1/2 w-[calc(100vw-2rem)] max-w-[100rem] -translate-x-1/2 space-y-4">
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0">
-            <Link href="/generator" className="text-xs text-violet-300 hover:underline">← 企画一覧</Link>
-            <h1 className="mt-1 truncate text-xl font-bold sm:text-2xl">
+        {/* 企画名・版・未保存件数・移動を1行に畳む。空けた縦はプレビューへ回す。 */}
+        <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <Link href="/generator" className="shrink-0 text-xs text-violet-300 hover:underline">← 企画一覧</Link>
+            <h1 className="min-w-0 truncate text-base font-bold sm:text-lg">
               {seriesLabels[snapshot.document.series]} {snapshot.document.period.start.slice(0, 7)}
             </h1>
-            <p className="mt-1 flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
-              <span>version {snapshot.version} · 更新者 {snapshot.updatedBy}</span>
-              {unsavedLabels.length > 0 ? <Chip tone="warn">未保存 {unsavedLabels.length}件</Chip> : <Chip tone="success">すべて保存済み</Chip>}
-            </p>
+            <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+              version {snapshot.version} · 更新者 {snapshot.updatedBy}
+            </span>
+            {unsavedLabels.length > 0 ? <Chip tone="warn">未保存 {unsavedLabels.length}件</Chip> : <Chip tone="success">すべて保存済み</Chip>}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2">
             <Link
               href={`/generator/${documentId}/history`}
-              className="inline-flex min-h-11 items-center rounded-xl border px-4 text-sm hover:bg-white/5"
+              className="inline-flex min-h-9 items-center rounded-xl border px-3 text-xs hover:bg-white/5"
               style={{ borderColor: "var(--border-subtle)" }}
             >
               変更履歴
             </Link>
-            <SecondaryButton disabled={busy} onClick={() => void reload()}>最新版を再読込</SecondaryButton>
+            <SecondaryButton disabled={busy} onClick={() => void reload()} className="min-h-9 px-3 text-xs">最新版を再読込</SecondaryButton>
           </div>
         </header>
 
-        <StatusBanner tone={status.tone}>{status.text}</StatusBanner>
-
-        {/* 編集者と復旧保存は常時1行。グリッドを画面内に収めるため縦を使わない。 */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border px-4 py-2 text-[11px]" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>
-          {heldElsewhere.length > 0 && (
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="text-white">編集中</span>
+        {/* 直前の結果・ほかの編集者・復旧保存を1本の帯へ。情報は減らさず、段だけ減らす。 */}
+        <StatusBanner
+          tone={status.tone}
+          dense
+          actions={
+            <>
               {heldElsewhere.map(lock => (
                 <span key={`${lock.kind}:${lock.targetId}`} className="flex items-center gap-1">
                   <Chip tone="warn">{targetLabels[lock.kind as LockKind]}</Chip>
-                  <span>{lock.owner}</span>
+                  <span style={{ color: "var(--text-secondary)" }}>{lock.owner} が編集中</span>
                   {lock.owner === actor && (
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => void acquire(lock.kind as LockKind, lock.targetId, "transfer")}
-                      className="rounded border px-2 py-1 disabled:opacity-40"
+                      className="rounded border px-2 py-0.5 disabled:opacity-40"
                       style={{ borderColor: "var(--border-subtle)" }}
                     >
                       この端末へ引き継ぐ
@@ -601,26 +648,28 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                   )}
                 </span>
               ))}
-            </span>
-          )}
-          <span className="min-w-0 flex-1">{recoveryStatus}</span>
-          {recoveryAvailable && (
-            <span className="flex gap-2">
-              <button type="button" onClick={restoreRecovery} className="rounded border px-2 py-1" style={{ borderColor: "var(--border-subtle)" }}>復旧用コピーを開く</button>
-              <button type="button" onClick={discardRecovery} className="rounded border px-2 py-1" style={{ borderColor: "var(--border-subtle)" }}>破棄</button>
-            </span>
-          )}
-        </div>
+              <span style={{ color: "var(--text-secondary)" }}>{recoveryStatus}</span>
+              {recoveryAvailable && (
+                <span className="flex gap-2">
+                  <button type="button" onClick={restoreRecovery} className="rounded border px-2 py-0.5" style={{ borderColor: "var(--border-subtle)" }}>復旧用コピーを開く</button>
+                  <button type="button" onClick={discardRecovery} className="rounded border px-2 py-0.5" style={{ borderColor: "var(--border-subtle)" }}>破棄</button>
+                </span>
+              )}
+            </>
+          }
+        >
+          {status.text}
+        </StatusBanner>
 
         {!wide && <div className="xl:hidden">{navigator("horizontal")}</div>}
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start xl:h-[calc(100vh-20rem)] xl:grid-cols-[8.5rem_minmax(0,1fr)_26rem] xl:items-stretch">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start xl:h-[calc(100vh-13rem)] xl:grid-cols-[8.5rem_minmax(0,1fr)_26rem] xl:items-stretch">
           <aside className="hidden xl:block xl:h-full xl:min-h-0">
             {wide && navigator("vertical")}
           </aside>
 
           {/* 行送りを触っている間もプレビューが見えているように、画面上部へ留める。 */}
-          <Panel className="sticky top-16 z-20 xl:static xl:h-full xl:min-h-0 xl:overflow-y-auto">
+          <Panel padding="tight" className="sticky top-16 z-20 xl:static xl:h-full xl:min-h-0 xl:overflow-y-auto">
             {previewPage ? (
               <GeneratorPreview
                 document={previewDocument}
@@ -641,11 +690,16 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
           <Panel className="xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:overflow-hidden">
             <div className="shrink-0 space-y-2">
-              <SegmentedControl label="編集パネル" options={tabs} value={tab} onChange={next => setTab(next)} />
-              {tab === "image" && (
-                <SegmentedControl label="画像編集の対象" size="small" options={imageTabs} value={imageTab} onChange={next => setImageTab(next)} />
+              {/* 1段目＝編集する対象、2段目＝その対象の状態と保存・復元。主操作までの段を4から2へ。 */}
+              <SegmentedControl label="編集パネル" options={panelTabs} value={panel} onChange={next => setPanel(next)} />
+              {activeTarget && (
+                <TargetStatus
+                  state={activeTarget}
+                  label={activeTargetLabel}
+                  trailing={activeTarget.locked ? <RestoreControl state={activeTarget} compact /> : null}
+                />
               )}
-              {tab === "image" && imageTab === "info" && pageItems.length > 1 && (
+              {panel === "info" && pageItems.length > 1 && (
                 <SegmentedControl
                   label="掲載の位置"
                   size="small"
@@ -661,19 +715,10 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             </div>
 
             <div className="mt-3 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-hidden">
-              {tab === "theme" ? (
+              {panel === "theme" ? (
                 <div className="xl:overflow-y-auto xl:pr-1">
                   <ThemeInspector
-                    state={targetState(
-                      "theme",
-                      documentId,
-                      themeDirty,
-                      async () => {
-                        const lock = await acquire("theme", documentId);
-                        if (lock) setThemeDraft(snapshot.document.theme);
-                      },
-                      () => void save("theme", documentId, themeDraft),
-                    )}
+                    state={themeTargetState}
                     theme={themeDraft}
                     onTheme={setThemeDraft}
                     onImage={async (target, file) => {
@@ -682,18 +727,11 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                     }}
                   />
                 </div>
-              ) : imageTab === "background" ? (
+              ) : panel === "background" ? (
                 <div className="xl:overflow-y-auto xl:pr-1">
-                  {savedPage ? (
+                  {savedPage && pageTargetState ? (
                     <PageInspector
-                      state={targetState(
-                        "page",
-                        savedPage.id,
-                        pageDirty,
-                        () => void acquire("page", savedPage.id),
-                        () => void save("page", savedPage.id, { bgColor: pageColors[savedPage.id] ?? savedPage.bgColor ?? FALLBACK_PAGE_COLOR }),
-                        true,
-                      )}
+                      state={pageTargetState}
                       pageNumber={currentIndex + 2}
                       color={pageColors[savedPage.id] ?? savedPage.bgColor ?? FALLBACK_PAGE_COLOR}
                       defined={Boolean(pageColors[savedPage.id] ?? savedPage.bgColor)}
@@ -703,26 +741,14 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                     <p className="text-sm" style={{ color: "var(--text-secondary)" }}>背景を編集できる画像がありません。</p>
                   )}
                 </div>
-              ) : activeItem && page ? (
+              ) : activeItem && page && itemTargetState ? (
                 <ItemInspector
                   key={`${activeItem.id}:${snapshot.itemVersions[activeItem.id]}`}
                   item={activeItem}
                   draft={drafts[activeItem.id]}
                   pageKind={page.kind}
                   diagnostic={bodyDiagnostic.find(value => value.slotId === activeItem.id) || null}
-                  state={targetState(
-                    "item",
-                    activeItem.id,
-                    itemDirty(activeItem.id),
-                    async () => {
-                      const lock = await acquire("item", activeItem.id);
-                      if (lock) setDrafts(current => current[activeItem.id]
-                        ? current
-                        : { ...current, [activeItem.id]: cloneContent(activeItem.content) });
-                    },
-                    () => void save("item", activeItem.id, drafts[activeItem.id] || activeItem.content),
-                    true,
-                  )}
+                  state={itemTargetState}
                   onDraft={content => setDrafts(current => ({ ...current, [activeItem.id]: content }))}
                   onImage={file => uploadImage("item", activeItem.id, file)}
                   selection={selection}

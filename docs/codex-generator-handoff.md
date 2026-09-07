@@ -31,9 +31,17 @@
 
 ## 現在地
 
-UIは3カラム構成（サムネイル列／大きなプレビュー／編集パネル）へ再構成済み。編集パネルは「画像編集（情報修正・背景設定）」と「共通設定」の2タブ、並び順はモーダル。プレビューをクリック・ドラッグすると調整対象と評価文の範囲が決まり、選択範囲はcanvasに重ねたDOMのオーバーレイで表示される。
+UIは3カラム構成（サムネイル列／大きなプレビュー／編集パネル）。編集パネルのタブは1段で「情報修正／背景設定／共通設定」、その次の行が対象の状態・保存・復元。並び順はモーダル。プレビューをクリック・ドラッグすると調整対象と評価文の範囲が決まり、選択範囲はcanvasに重ねたDOMのオーバーレイで表示される。
 
-変更はすべて `app/generator/` 配下（2026-09-07に `wip/generator-integration` へ退避済み。上の追記を参照）。**`lib/generator/`、`tools/generator-lab/`、`app/api/`、`supabase/`、`lib/auth*`、`app/layout.tsx`、`app/globals.css` は変更していません。** 型検査・ESLint（全体）・`npm test`（267件）・`npm run build` はすべて成功しています。
+> **2026-09-07（第3セッション）の変更**：編集画面の縦を確保するため、利用者の承認のもとで
+> `app/layout.tsx` と `components/BottomNav.tsx` にも手を入れた（`/generator/<id>` だけ
+> ボトムナビ・フッター・`main` の下余白を出さない。判定は `lib/app-chrome.ts` の1関数）。
+> 大プレビューは1440×900で402→522px、ページの縦スクロールは445→0px。
+> **`lib/generator/`、`tools/generator-lab/`、`app/api/`、`supabase/`、`lib/auth*`、`app/globals.css` は変更していません。**
+> 詳細と維持した契約は[UI実装記録 §11](./generator-ui-implementation.md)。
+> 検証のため `.next` を再ビルドしたので、3456で起動中の本番プレビューは起動し直してほしい。
+
+型検査・ESLint（全体）・`npm test`（**16ファイル・276件**）・`npm run build` はすべて成功しています。
 
 `app/generator/uipreview-temp/page.tsx` は固定データでワークスペースを描画する**見た目確認用の一時ファイル**です。ログインなしで画面を見られるので作業中は残して構いませんが、**コミット前に削除してください**。
 

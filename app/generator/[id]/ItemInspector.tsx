@@ -5,7 +5,7 @@ import type { GeneratorDocument, ItemContent } from "@/lib/generator/model";
 import { applySelectedSpacing, rebaseKerns, selectedSpacing } from "@/lib/generator/text-edit";
 import type { BodyDiagnostic } from "../GeneratorPreview";
 import { Checkbox, Chip, Field, SecondaryButton, SelectInput, TextArea, TextInput } from "../ui";
-import { TargetActions, type TargetState } from "./Inspectors";
+import { type TargetState } from "./Inspectors";
 import { cloneContent, same, type FieldSelection } from "./workspace-types";
 
 type FieldKey = keyof ItemContent["fields"];
@@ -234,10 +234,6 @@ export default function ItemInspector({
 
   return (
     <div className="flex min-h-0 flex-col gap-3 xl:h-full">
-      <div className="shrink-0">
-        <TargetActions state={state} label="作品" />
-      </div>
-
       {/* 主操作。プレビューの近くから動かさず、対象の切り替えもここで完結させる。 */}
       <div className="shrink-0 rounded-xl border p-3" style={{ borderColor: "var(--border-accent)", backgroundColor: "rgba(139,92,246,.07)" }}>
         <div className="flex items-center gap-2">
@@ -372,16 +368,25 @@ export default function ItemInspector({
                 backgroundColor: selected ? "rgba(139,92,246,.08)" : "transparent",
               }}
             >
-              <div className="flex items-center gap-2">
-                {listedBody ? (
-                  <span className="min-w-0 flex-1 text-left text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>{fieldLabels[key]}</span>
-                ) : (
-                  <button type="button" onClick={() => select(key)} className="min-w-0 flex-1 text-left text-[11px] font-medium" style={{ color: selected ? "#c4b5fd" : "var(--text-secondary)" }}>
+              <div className="flex items-start gap-2">
+                {/* 見出しと現在値でひとつの選択面。クリックでこの項目が調整対象になる。 */}
+                <button
+                  type="button"
+                  disabled={listedBody}
+                  onClick={() => select(key)}
+                  className="min-w-0 flex-1 text-left disabled:cursor-default"
+                >
+                  <span className="block text-[11px] font-medium" style={{ color: selected ? "#c4b5fd" : "var(--text-secondary)" }}>
                     {fieldLabels[key]}
-                  </button>
-                )}
+                  </span>
+                  {!open && (
+                    <span className={`mt-0.5 block text-sm ${key === "text" ? "line-clamp-2" : "truncate"}`}>
+                      {current || <span style={{ color: "var(--text-secondary)" }}>（未入力）</span>}
+                    </span>
+                  )}
+                </button>
                 {showKey && (
-                  <label className="flex cursor-pointer items-center gap-1.5 py-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                  <label className="flex shrink-0 cursor-pointer items-center gap-1.5 py-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
                     <input
                       type="checkbox"
                       checked={value.show[showKey]}
@@ -396,15 +401,17 @@ export default function ItemInspector({
                   <button
                     type="button"
                     onClick={() => toggleEditing(key)}
-                    className="min-h-9 shrink-0 rounded border px-2 text-[11px]"
+                    aria-label={open ? `${fieldLabels[key]}の入力欄を閉じる` : `${fieldLabels[key]}の文字を修正`}
+                    title={open ? "入力欄を閉じる" : "文字を修正"}
+                    className="h-8 w-8 shrink-0 rounded border text-xs leading-none"
                     style={{ borderColor: "var(--border-subtle)" }}
                   >
-                    {open ? "閉じる" : "文字を修正"}
+                    {open ? "×" : "✎"}
                   </button>
                 )}
               </div>
 
-              {open ? (
+              {open && (
                 key === "text" ? (
                   <TextArea
                     value={current}
@@ -423,12 +430,6 @@ export default function ItemInspector({
                     ref={element => { fieldRefs.current[key] = element; }}
                   />
                 )
-              ) : (
-                <button type="button" disabled={listedBody} onClick={() => select(key)} className="mt-0.5 block w-full text-left disabled:cursor-default">
-                  <span className={`block text-sm ${key === "text" ? "line-clamp-2" : "truncate"}`}>
-                    {current || <span style={{ color: "var(--text-secondary)" }}>（未入力）</span>}
-                  </span>
-                </button>
               )}
 
               {key === "trackNo" && (

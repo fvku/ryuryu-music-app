@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GeneratorHistoryEntry } from "@/lib/generator/client-types";
 import type { GeneratorDocument } from "@/lib/generator/model";
 import { Checkbox, Chip, Field, Modal, PrimaryButton, SecondaryButton, SelectInput } from "../ui";
@@ -27,8 +27,25 @@ export type TargetState = {
   onTransfer(): void;
 };
 
-/** 4つの編集対象すべてで同じ形の操作列。開始 → 保存／編集終了 → 復元の順序を固定する。 */
+/**
+ * 4つの編集対象すべてで同じ形の操作列。開始 → 保存／編集終了 → 復元の順序を固定する。
+ * 編集画面では TargetStatus をタブと同じ行へ出し、RestoreControl だけを下に置く。
+ * まとめて置きたい場所（並び順モーダル）ではこの TargetActions を使う。
+ */
 export function TargetActions({ state, label }: { state: TargetState; label?: string }) {
+  return (
+    <div className="space-y-2">
+      <TargetStatus state={state} label={label} />
+      {state.locked && <RestoreControl state={state} />}
+    </div>
+  );
+}
+
+/**
+ * 対象の状態と保存だけ。`direct` の対象は表示された時点で編集ロックを自動取得する。
+ * trailing には復元のような従属操作を渡し、同じ行に収める。
+ */
+export function TargetStatus({ state, label, trailing }: { state: TargetState; label?: string; trailing?: ReactNode }) {
   const name = label || targetLabels[state.kind];
   const attemptedTarget = useRef("");
   const targetKey = `${state.kind}:${state.targetId}`;
@@ -67,26 +84,25 @@ export function TargetActions({ state, label }: { state: TargetState; label?: st
     );
   }
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <Chip tone="success">編集中 · 自動延長</Chip>
-        <Chip tone={state.dirty ? "warn" : "info"}>{state.dirty ? "未保存" : "共有DBと一致"}</Chip>
-        <span className="flex-1" />
-        <PrimaryButton disabled={state.disabled || !state.dirty} onClick={state.onSave} className="min-h-9 px-3 text-xs">保存</PrimaryButton>
-        {!state.direct && <SecondaryButton disabled={state.disabled} onClick={state.onRelease} className="min-h-9 px-3 text-xs">編集終了</SecondaryButton>}
-      </div>
-      <RestoreControl state={state} />
+    <div className="flex flex-wrap items-center gap-2">
+      <Chip tone="success">編集中 · 自動延長</Chip>
+      <Chip tone={state.dirty ? "warn" : "info"}>{state.dirty ? "未保存" : "共有DBと一致"}</Chip>
+      <span className="flex-1" />
+      <PrimaryButton disabled={state.disabled || !state.dirty} onClick={state.onSave} className="min-h-9 px-3 text-xs">保存</PrimaryButton>
+      {!state.direct && <SecondaryButton disabled={state.disabled} onClick={state.onRelease} className="min-h-9 px-3 text-xs">編集終了</SecondaryButton>}
+      {trailing}
     </div>
   );
 }
 
-function RestoreControl({ state }: { state: TargetState }) {
+/** 過去版からその対象だけを新しいversionとして書き戻す。compact は操作列と同じ行に置く形。 */
+export function RestoreControl({ state, compact = false }: { state: TargetState; compact?: boolean }) {
   const [version, setVersion] = useState("");
   if (state.versions.length === 0) return null;
   return (
-    <details className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border-subtle)" }}>
+    <details className={`rounded-lg border ${compact ? "px-2 py-1" : "px-3 py-2"}`} style={{ borderColor: "var(--border-subtle)" }}>
       <summary className="cursor-pointer text-[11px]" style={{ color: "var(--text-secondary)" }}>
-        過去版から{targetLabels[state.kind]}を復元
+        {compact ? "過去版から復元" : `過去版から${targetLabels[state.kind]}を復元`}
       </summary>
       <p className="mt-2 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>
         選んだ版のこの対象だけを、新しいversionとして書き戻します。●はその版でこの対象が変更されたことを示します。履歴は消えません。
@@ -122,7 +138,6 @@ export function PageInspector({
 }) {
   return (
     <div className="space-y-4">
-      <TargetActions state={state} label="背景" />
       <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>
         画像 {pageNumber} の1枚だけに効きます。掲載の上下でも共通です。
       </p>
@@ -245,7 +260,6 @@ export function ThemeInspector({
   );
   return (
     <div className="space-y-4">
-      <TargetActions state={state} label="共通設定" />
       <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>
         企画のすべての画像に効きます。保存すると全ページの見た目が変わります。
       </p>

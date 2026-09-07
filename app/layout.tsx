@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import Providers from "@/components/Providers";
 import BottomNav from "@/components/BottomNav";
+import AppFrame from "@/components/AppFrame";
 import HowToUseModal from "@/components/HowToUseModal";
 import ColumnErrorIndicator from "@/components/ColumnErrorIndicator";
 import SpotifyClipboardDetector from "@/components/SpotifyClipboardDetector";
@@ -66,25 +67,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </header>
 
-          <main className="max-w-6xl mx-auto px-4 py-8 pb-36">
-            {children}
-          </main>
-
-          <footer
-            className="mt-16 border-t py-8 pb-40 text-center text-sm"
-            style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
-          >
-            <p>
-              <Link href="/generator" className="hover:text-white transition-colors underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>
-                投稿画像ジェネレーター
-              </Link>
-              <span className="mx-2">·</span>
-              <Link href="/admin" className="hover:text-white transition-colors underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>
-                管理者
-              </Link>
-            </p>
-            <p className="mt-2">© 月次アルバムレビュー</p>
-          </footer>
+          {/* 本文とフッター。ジェネレーターの編集画面だけ下余白とフッターを外す。 */}
+          <AppFrame>{children}</AppFrame>
 
           <BottomNav />
           <SpotifyClipboardDetector />

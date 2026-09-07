@@ -7,6 +7,26 @@ import { Chip } from "./ui";
 
 const THUMBNAIL = 200;
 
+/** 画像ごとの状態。文書全体の集計だけでは、どの画像かがサムネイルから分からないため。 */
+export type PageBadges = { dirty: boolean; lockedBy: string | null; needsColor: boolean };
+
+type Badge = { key: string; label: string; short: string; title: string; bg: string; fg: string };
+
+function badgesOf(state: PageBadges | undefined): Badge[] {
+  if (!state) return [];
+  const list: Badge[] = [];
+  if (state.dirty) {
+    list.push({ key: "dirty", label: "未保存", short: "未", title: "共有DBに未保存の変更があります", bg: "rgba(245,158,11,.18)", fg: "#fcd34d" });
+  }
+  if (state.lockedBy) {
+    list.push({ key: "lock", label: "他が編集中", short: "他", title: `${state.lockedBy} が編集中です`, bg: "rgba(244,63,94,.16)", fg: "#fda4af" });
+  }
+  if (state.needsColor) {
+    list.push({ key: "color", label: "背景なし", short: "背", title: "背景色が未設定です（プレビューだけ仮の色）", bg: "rgba(245,158,11,.18)", fg: "#fcd34d" });
+  }
+  return list;
+}
+
 function PageThumbnail({ documentId, page }: { documentId: string; page: CanvasPreviewPage }) {
   const { runtime } = useGeneratorRuntime();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -46,6 +66,7 @@ export default function PageNavigator({
   onReorder,
   reorderDirty,
   orientation,
+  states,
 }: {
   documentId: string;
   pages: CanvasPreviewPage[];
@@ -54,6 +75,7 @@ export default function PageNavigator({
   onReorder(): void;
   reorderDirty: boolean;
   orientation: "vertical" | "horizontal";
+  states?: Record<string, PageBadges>;
 }) {
   const vertical = orientation === "vertical";
   const reorder = (
@@ -80,13 +102,15 @@ export default function PageNavigator({
       >
         {pages.map((page, index) => {
           const active = index === pageIndex;
+          const badges = badgesOf(states?.[page.id]);
+          const titles = page.slots.map(slot => slot.fields.title || "（作品名未入力）").join(" / ");
           return (
             <li key={page.id} className={vertical ? "" : "w-20 shrink-0"}>
               <button
                 type="button"
                 onClick={() => onSelect(index)}
                 aria-pressed={active}
-                title={page.slots.map(slot => slot.fields.title || "（作品名未入力）").join(" / ")}
+                title={badges.length > 0 ? `${titles}｜${badges.map(badge => badge.title).join(" / ")}` : titles}
                 className="w-full rounded-lg border p-1 text-left transition hover:bg-white/5"
                 style={{
                   borderColor: active ? "var(--accent)" : "var(--border-subtle)",
@@ -97,6 +121,19 @@ export default function PageNavigator({
                 <span className="mt-0.5 block px-0.5 text-[10px]" style={{ color: active ? "#c4b5fd" : "var(--text-secondary)" }}>
                   {page.no} · {page.kind === "adopted" ? "採用" : "掲載"}
                 </span>
+                {badges.length > 0 && (
+                  <span className="mt-0.5 flex flex-wrap items-center gap-1 px-0.5">
+                    {badges.map(badge => (
+                      <span
+                        key={badge.key}
+                        className="inline-flex items-center rounded px-1 text-[9px] leading-4"
+                        style={{ backgroundColor: badge.bg, color: badge.fg }}
+                      >
+                        {vertical ? badge.label : badge.short}
+                      </span>
+                    ))}
+                  </span>
+                )}
               </button>
             </li>
           );

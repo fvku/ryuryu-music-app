@@ -27,26 +27,39 @@ export function Chip({ tone = "info", children }: { tone?: Tone; children: React
   );
 }
 
-/** 直前の操作結果や警告を、深刻度が分かる形で1か所に出す。 */
-export function StatusBanner({ tone = "info", children, actions }: { tone?: Tone; children: ReactNode; actions?: ReactNode }) {
+/**
+ * 直前の操作結果や警告を、深刻度が分かる形で1か所に出す。
+ * dense は編集画面用。縦がそのままプレビューの大きさに効くため、1行に収める。
+ */
+export function StatusBanner({
+  tone = "info",
+  children,
+  actions,
+  dense = false,
+}: { tone?: Tone; children: ReactNode; actions?: ReactNode; dense?: boolean }) {
   const style = bannerTone[tone];
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm"
+      className={`flex flex-wrap items-center justify-between rounded-xl border ${dense ? "gap-x-3 gap-y-1 px-3 py-1.5 text-[11px]" : "gap-3 px-4 py-3 text-sm"}`}
       style={{ borderColor: style.border, backgroundColor: style.background, color: style.text }}
     >
-      <span className="min-w-[14rem] flex-1">{children}</span>
-      {actions && <span className="flex shrink-0 flex-wrap gap-2">{actions}</span>}
+      <span className={dense ? "min-w-0 flex-1" : "min-w-[14rem] flex-1"}>{children}</span>
+      {actions && <span className={`flex shrink-0 flex-wrap items-center ${dense ? "gap-x-3 gap-y-1" : "gap-2"}`}>{actions}</span>}
     </div>
   );
 }
 
-export function Panel({ children, className = "", id }: { children: ReactNode; className?: string; id?: string }) {
+export function Panel({
+  children,
+  className = "",
+  id,
+  padding = "default",
+}: { children: ReactNode; className?: string; id?: string; padding?: "default" | "tight" }) {
   return (
     <section
       id={id}
-      className={`rounded-2xl border p-4 sm:p-5 ${className}`}
+      className={`rounded-2xl border ${padding === "tight" ? "p-3" : "p-4 sm:p-5"} ${className}`}
       style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}
     >
       {children}

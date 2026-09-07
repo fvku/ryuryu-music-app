@@ -156,14 +156,20 @@ export default function GeneratorPreview({
   }
 
   const blocked = !canExport || warnings.length > 0;
+  const blockedCount = (canExport ? 0 : 1) + warnings.length;
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-2">
+      <div className="flex shrink-0 items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold">画像 {pageNumber}</h2>
         <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{pageLabel(page)}</span>
       </div>
+      {/*
+        主作業は1200px原寸に対する字間・行送りの詰めなので、縮尺が判断の精度をそのまま決める。
+        上限は「使える縦の高さ」を幅の上限として表したもの。差し引く量は、この列の外側
+        （ルートヘッダー・見出し行・状態行）と内側（見出し・状態行・出力行）の実測に合わせている。
+      */}
       <div
-        className="relative mx-auto w-full max-w-[min(100%,40rem,max(14rem,45dvh))] overflow-hidden rounded-xl border bg-black xl:max-w-[min(100%,40rem,max(14rem,calc(100vh-31rem)))]"
+        className="relative mx-auto w-full max-w-[min(100%,44rem,max(14rem,52dvh))] shrink-0 overflow-hidden rounded-xl border bg-black xl:max-w-[min(100%,48rem,max(14rem,calc(100vh-23.5rem)))]"
         style={{ borderColor: "var(--border-subtle)" }}
       >
         <canvas
@@ -193,16 +199,36 @@ export default function GeneratorPreview({
           ))}
         </div>
       </div>
-      <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-        プレビューをクリックすると調整対象が切り替わります。評価文はドラッグで範囲を選べます。
+      {/* 案内・直前の結果・背景色の断りを1行に畳む。ここの縦はそのままプレビューの大きさに効く。 */}
+      <p role="status" className="shrink-0 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>
+        {status}
+        <span className="mx-1">·</span>
+        クリックで調整対象、ドラッグで範囲を選べます。
+        {!page.bgColor && <span className="ml-1 text-amber-300">背景色は未設定（プレビューだけ仮の色）。</span>}
       </p>
 
-      <p role="status" className="text-xs" style={{ color: "var(--text-secondary)" }}>{status}</p>
-
-      <div className="flex flex-wrap items-center gap-2">
+      {/* 出力できない理由は、出力ボタンと同じ視野に置く。 */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         <PrimaryButton disabled={exporting || !runtime || blocked} onClick={() => void exportPng(false)}>PNGを保存</PrimaryButton>
         <SecondaryButton disabled={exporting || !runtime || blocked} onClick={() => void exportPng(true)}>共有</SecondaryButton>
         <Chip tone="info">{value.theme.outputSize} × {value.theme.outputSize}</Chip>
+        {blocked && (
+          <details
+            className="min-w-0 basis-full rounded-xl border px-3 py-1.5 text-[11px] xl:basis-auto"
+            style={{ borderColor: "rgba(245,158,11,.35)", backgroundColor: "rgba(245,158,11,.08)", color: "#fcd34d" }}
+          >
+            <summary className="cursor-pointer font-semibold">⚠ PNGを書き出せない理由（{blockedCount}件）</summary>
+            <ul className="mt-1.5 space-y-1 pb-1">
+              {!canExport && (
+                <li>
+                  共有DBに未保存の変更があります。{blockedReasons.length > 0 && `未保存: ${blockedReasons.join(" / ")}。`}
+                  保存すると、その版の内容でPNGを作成できます。
+                </li>
+              )}
+              {warnings.map(warning => <li key={warning}>{warning}</li>)}
+            </ul>
+          </details>
+        )}
       </div>
 
       {(stalled || error) && !runtime && (
@@ -221,27 +247,6 @@ export default function GeneratorPreview({
         </div>
       )}
 
-      {blocked && (
-        <details
-          className="rounded-xl border px-4 py-2 text-xs"
-          style={{ borderColor: "rgba(245,158,11,.35)", backgroundColor: "rgba(245,158,11,.08)", color: "#fcd34d" }}
-        >
-          <summary className="cursor-pointer py-1 font-semibold">
-            PNGを書き出せない理由（{(canExport ? 0 : 1) + warnings.length}件）
-          </summary>
-          <ul className="mt-2 space-y-1 pb-1">
-            {!canExport && (
-              <li>
-                共有DBに未保存の変更があります。{blockedReasons.length > 0 && `未保存: ${blockedReasons.join(" / ")}。`}
-                保存すると、その版の内容でPNGを作成できます。
-              </li>
-            )}
-            {warnings.map(warning => <li key={warning}>{warning}</li>)}
-          </ul>
-        </details>
-      )}
-
-      {!page.bgColor && <p className="text-xs text-amber-300">背景色は未設定のため、プレビューだけに仮の色を使っています。</p>}
     </div>
   );
 }

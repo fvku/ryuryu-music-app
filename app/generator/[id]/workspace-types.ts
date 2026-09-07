@@ -1,3 +1,4 @@
+import type { PageBadges } from "../PageNavigator";
 import type { FieldKey } from "../hit-test";
 import type { ItemContent } from "@/lib/generator/model";
 
@@ -43,3 +44,36 @@ export type FieldSelection = {
   end: number;
   source: "preview" | "previewTouch" | "previewOpen" | "field";
 };
+
+/**
+ * 画像ごとの状態。文書全体の「未保存◯件」だけでは、どの画像のことかがサムネイルから分からない。
+ * 画面から切り離してテストできるよう、純粋な導出にしてある。
+ */
+export function derivePageBadges({
+  pages,
+  isItemDirty,
+  dirtyPageIds,
+  pageColors,
+  foreignLocks,
+}: {
+  pages: { id: string; itemIds: string[]; bgColor?: string | null }[];
+  isItemDirty(itemId: string): boolean;
+  /** 背景色が未保存のページ。 */
+  dirtyPageIds: ReadonlySet<string>;
+  /** 編集中の背景色。保存済みの値より優先する。 */
+  pageColors: Record<string, string>;
+  /** この端末が持っていないロック。 */
+  foreignLocks: { kind: string; targetId: string; owner: string }[];
+}): Record<string, PageBadges> {
+  const result: Record<string, PageBadges> = {};
+  for (const page of pages) {
+    const foreign = foreignLocks.find(lock => (lock.kind === "page" && lock.targetId === page.id)
+      || (lock.kind === "item" && page.itemIds.includes(lock.targetId)));
+    result[page.id] = {
+      dirty: dirtyPageIds.has(page.id) || page.itemIds.some(id => isItemDirty(id)),
+      lockedBy: foreign ? foreign.owner : null,
+      needsColor: !(pageColors[page.id] ?? page.bgColor),
+    };
+  }
+  return result;
+}
