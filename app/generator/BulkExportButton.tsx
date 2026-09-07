@@ -11,7 +11,7 @@ import {
   getArchivePacker,
 } from "./bulk-export";
 import { drawPageInto, preparePage, useGeneratorRuntime, type LegacyPage } from "./runtime";
-import type { Tone } from "./ui";
+import { Chip, type Tone } from "./ui";
 
 /**
  * 全ページのPNGを1つのファイルにまとめて書き出す。文書単位の操作なので見出し行へ置く。
@@ -112,16 +112,21 @@ export default function BulkExportButton({
       </button>
     );
   }
+  // 1枚ずつの「PNGを保存」と同じ色で、出力の操作だと分かるようにする。
+  // 大きさと形は見出し行のほかのボタンに合わせる（min-h-9 / px-3 / text-xs）。
+  // 押せないときも読める濃さを残す。opacity で消すと、暗い背景では存在ごと見えなくなる。
   return (
-    <button
-      type="button"
-      disabled={Boolean(reason)}
-      title={reason || `全${pages.length}枚を${archiveFileName(value)}にまとめます。`}
-      onClick={() => void run()}
-      className="inline-flex min-h-9 items-center rounded-xl border px-3 text-xs hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
-      style={{ borderColor: "var(--border-subtle)" }}
-    >
-      全ページを書き出す{!packer && "（準備中）"}
-    </button>
+    <span className="inline-flex items-center gap-1.5">
+      <button
+        type="button"
+        disabled={Boolean(reason)}
+        title={reason || `全${pages.length}枚を${archiveFileName(value)}にまとめます。`}
+        onClick={() => void run()}
+        className="inline-flex min-h-9 items-center rounded-xl bg-violet-600 px-3 text-xs font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-violet-600/45 disabled:text-white/80 disabled:hover:bg-violet-600/45"
+      >
+        全ページを書き出す
+      </button>
+      {!packer && <Chip tone="info">準備中</Chip>}
+    </span>
   );
 }
