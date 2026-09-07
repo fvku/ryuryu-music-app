@@ -82,6 +82,8 @@ npx tsx scripts/fill-time-tracks.ts --apply --force --from-row=915  # 指定行�
 
 ## 画像ジェネレーターのUI引き継ぎ
 
+ジェネレーター一式は2026-09-07にブランチ `wip/generator-integration`（commit `7453325`）へ退避済み。`main` は `a9ae701` のまま統合していないので、`git status` が空でも作業が無い意味にはならない。現在地は `git log --oneline main..HEAD` で確認する。ローカル `main` は `origin/main` より6コミット遅れているため、統合時は差分解消が必要。
+
 Monthly／Japan画像ジェネレーターの機能版は`app/generator/`に実装済み。ページ遷移・情報設計・UI／ビジュアルデザインを変更する前に、[Claude Code向け引き継ぎプロンプト](docs/claude-generator-ui-handoff.md)を**最初から最後まで読み**、そこからリンクされた操作仕様・共有保存契約・UI実装記録も確認すること。引き継ぎには、初回UI変更で失われかけた機能と2026-09-07の受入で復元した機能がまとまっている。
 
 本文は天地左右25pxを確保し、複数行の行送りを利用可能な高さまで自動最大化するのが既定。最小行送りは28pxで、収まらない場合は警告してPNG生成を止める。この描画結果、`bodyLeadMode`／`bodyMaxLead`の保存契約、既存文書を自動として扱う互換性はUI変更でも維持する。API・DB・適用済みマイグレーションの変更が必要な場合は独断で変更せず、理由・案・影響範囲をCodexへの引き継ぎ事項として残す。

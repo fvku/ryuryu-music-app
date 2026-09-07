@@ -21,11 +21,19 @@
 5. `docs/generator-project-reuse.md`（環境と未完了事項）
 6. `app/generator/`、`lib/generator/`、`tools/generator-lab/` の実コード
 
+> **2026-09-07 追記（Claude Code）：ジェネレーター一式はコミット済みになりました。**
+> 消失防止のため、利用者の指示で作業用ブランチ `wip/generator-integration` を作り、
+> 当時の未コミット・未追跡ファイル115件をそのまま1コミット（`7453325`）へ退避しました。
+> **ファイルの内容・配置は一切変えていません。** `main` は `a9ae701` のままで、統合はしていません。
+> したがって、以後は `git status` が空でも「作業が無い」意味にはなりません。
+> 現在地の確認は `git log --oneline main..HEAD` と `git show --stat 7453325` で行ってください。
+> ブランチ上での通常のcommitは継続して構いませんが、push・デプロイ・共有DBの永続変更は従来どおり依頼まで行いません。
+
 ## 現在地
 
 UIは3カラム構成（サムネイル列／大きなプレビュー／編集パネル）へ再構成済み。編集パネルは「画像編集（情報修正・背景設定）」と「共通設定」の2タブ、並び順はモーダル。プレビューをクリック・ドラッグすると調整対象と評価文の範囲が決まり、選択範囲はcanvasに重ねたDOMのオーバーレイで表示される。
 
-変更はすべて `app/generator/` 配下（未コミット・未追跡）。**`lib/generator/`、`tools/generator-lab/`、`app/api/`、`supabase/`、`lib/auth*`、`app/layout.tsx`、`app/globals.css` は変更していません。** 型検査・ESLint（全体）・`npm test`（267件）・`npm run build` はすべて成功しています。
+変更はすべて `app/generator/` 配下（2026-09-07に `wip/generator-integration` へ退避済み。上の追記を参照）。**`lib/generator/`、`tools/generator-lab/`、`app/api/`、`supabase/`、`lib/auth*`、`app/layout.tsx`、`app/globals.css` は変更していません。** 型検査・ESLint（全体）・`npm test`（267件）・`npm run build` はすべて成功しています。
 
 `app/generator/uipreview-temp/page.tsx` は固定データでワークスペースを描画する**見た目確認用の一時ファイル**です。ログインなしで画面を見られるので作業中は残して構いませんが、**コミット前に削除してください**。
 

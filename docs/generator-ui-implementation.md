@@ -197,3 +197,64 @@ Codex引き継ぎ後、`tools/generator-lab/model.mjs` の同じ依存も横展�
 - Chrome以外（Safari／Edge／Brave）での最終受入。`overflow: clip` は Safari 16 以降。未対応環境では固定されないだけで、レイアウトは崩れない。
 - 実データ（2026年8月Monthly・9画像）で初回の全サムネイル描画は確認済み。長時間編集・連続更新時の負荷は未確認。
 - commit・push・デプロイ・共有DBの変更はしていない。
+
+## 10. 2026-09-07（第2セッション）：引き継ぎの整合性確認と作業環境の保全
+
+Claude Code担当。**コードは1行も変更していない。** 文書とGitの状態だけを現在地へ合わせた。
+
+### 10-1. 経緯
+
+漂流音楽ワークスペース（`/Users/koheifukuda/Documents/Claude/Projects/漂流音楽`）側の入口が旧スタンドアロン版を指したままだったため、Claude Codeが `tools/monthly-generator/` を現在地と誤認して着手しかけた。Codexの指摘で判明。誤りの原因は個別の読み違いではなく入口ファイルの記述なので、同じ誤りが再発しないよう入口を修正した。
+
+### 10-2. 実行した検証（Codexの受入報告の再現確認）
+
+| 確認 | 結果 |
+| --- | --- |
+| `npm test` | 15ファイル・270件成功。報告と一致 |
+| `npx tsc --noEmit --incremental false` | 成功 |
+| `npm run lint` | 成功 |
+| `npm run build` | 成功 |
+| `StickyScope.tsx` / `app/generator/layout.tsx` | 記録どおり存在しない（削除済み） |
+| `app/generator/uipreview-temp/page.tsx` | 記録どおり残存 |
+
+文書の記載と実装の食い違いは見つからなかった。
+
+### 10-3. Gitの状態を変更した（重要）
+
+ジェネレーター一式が `main` 直上の未コミット・未追跡（変更17＋未追跡98）のまま置かれており、`git checkout .` や `git clean -fd` 一回で消える状態だった。利用者の指示で保全した。
+
+- ブランチ `wip/generator-integration`、コミット `7453325`。115ファイルをそのまま退避。
+- **ファイルの内容・配置・動作は変更していない。** `main` は `a9ae701` のまま。統合・push はしていない。
+- 秘密情報の混入がないことを、追加対象ファイルのパスと内容の両方で確認した（`.env*`・`.local/`・`.vercel` は `.gitignore` 済み）。
+- `uipreview-temp/page.tsx` は作業中に必要なため保全対象に含めた。**`main` へ入れる前に削除すること**は従来どおり。
+- 副作用：以後 `git status` が空でも「作業が無い」意味にはならない。現在地は `git log --oneline main..HEAD` と `git show --stat 7453325` で確認する。両引き継ぎ文書へも追記済み。
+
+### 10-4. 認証情報の是正（Codexへの申し送り事項）
+
+`origin` のURLにGitHub Personal Access Token（`ghp_` で始まる値）が平文で埋め込まれており、`git remote -v` を実行するあらゆるAIセッション・ログへ露出する状態だった。利用者の承認を得て是正した。
+
+- `gh auth setup-git` で github.com の credential helper を `gh` に設定（既存の `gh` ログインは `fvku`、scope に `repo` を含む）。
+- `git remote set-url origin https://github.com/fvku/ryuryu-music-app.git` へ変更。
+- `git ls-remote origin HEAD` が成功し、認証が維持されていることを確認。
+- 他リポジトリのGit設定・グローバル設定に同種の埋め込みが無いことも確認した。
+
+> **未完了：旧トークン自体はGitHub上でまだ有効。** URLから外しただけでは失効しない。利用者による失効（revoke）が必要。値はこの文書にも会話にも残していない。
+
+### 10-5. 文書の修正
+
+コードに触れない文書修正のみ。
+
+| ファイル | 変更 |
+| --- | --- |
+| 漂流音楽 `CLAUDE.md` / `AGENTS.md` | ジェネレーターの正本が別リポジトリであることを明示。旧フォルダから続けない旨を追加 |
+| 漂流音楽 `docs/AI_WORKFLOW.md` | 設定表を更新し、「投稿画像ジェネレーターの所在」節（リポジトリ・ローカルパス・デプロイ先・認証の責務・読む順）を追加 |
+| 漂流音楽 `tools/monthly-generator/` の `HANDOFF.md` / `SPEC.md` / `README.md` | 冒頭に凍結の告知を追加。「次に行うこと」「レビュー待ち」等が現在地ではないことを明記 |
+| `docs/claude-generator-ui-handoff.md` / `docs/codex-generator-handoff.md` | コミット状態の変化を追記し、「未コミット・未追跡」の記述を現在地へ修正 |
+
+### 10-6. 積み残し
+
+- 旧トークンの失効（利用者）。
+- ローカル `main` は `origin/main` より**6コミット遅れている**。`wip/generator-integration` は遅れた `main` から分岐しているため、統合時は最新 `main` との差分解消が必要（`docs/generator-shared-storage.md` §5-5 の手順と同じ論点）。
+- 文書間でテスト件数が267（09-05時点）と270（09-07時点）で混在している。現在の基準は**270**。
+- `docs/generator-specification.md` §1 の「現在の統合画面：localhost:3000/generator」は、実際の起動ポート3456（`.claude/launch.json`）と不一致。仕様書はCodex側と共通の正本のため、こちらでは変更していない。
+- UI・情報設計の改善提案はこのセッションでは未着手。実画面（`localhost:3456`）の確認から続ける。
