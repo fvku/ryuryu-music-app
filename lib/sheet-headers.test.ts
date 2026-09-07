@@ -40,6 +40,19 @@ describe("buildHeaderMap", () => {
   });
 });
 
+describe("SHEET_COL", () => {
+  it("resolves the Apple Music cover column separately from the Spotify one", () => {
+    const map = buildHeaderMap(["No.", "画像リンク変換", "spotifyカバー"]);
+    expect(map[SHEET_COL.COVER_URL_LARGE]).toBe(1);
+    expect(map[SHEET_COL.COVER_URL]).toBe(2);
+  });
+
+  it("leaves the Apple Music cover column unresolved when the sheet lacks it", () => {
+    const map = buildHeaderMap(["No.", "spotifyカバー"]);
+    expect(map[SHEET_COL.COVER_URL_LARGE]).toBeUndefined();
+  });
+});
+
 describe("findMissingColumns", () => {
   it("returns columns absent from the map", () => {
     const map = buildHeaderMap(["No.", "日付"]);

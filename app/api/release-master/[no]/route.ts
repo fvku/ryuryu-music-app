@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { auth } from "@/lib/auth";
+import { isAuthorized } from "@/lib/api-token";
+import { corsJson, corsPreflight } from "@/lib/api-cors";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { buildHeaderMap, findMissingColumns, getCol, getWriteCol, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
@@ -10,11 +12,19 @@ export const dynamic = "force-dynamic";
 
 const LEGACY_MEMBERS = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa"];
 
+/** GET のプリフライト。Allow-Methods に PATCH は載せないので書き込みは従来どおり弾かれる */
+export async function OPTIONS() {
+  return corsPreflight();
+}
+
 export async function GET(request: NextRequest) {
+  if (!(await isAuthorized(request))) {
+    return corsJson({ error: "認証が必要です" }, { status: 401 });
+  }
   try {
     const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
     if (!spreadsheetId) {
-      return NextResponse.json({ error: "RELEASE_MASTER_SPREADSHEET_ID is not set" }, { status: 500 });
+      return corsJson({ error: "RELEASE_MASTER_SPREADSHEET_ID is not set" }, { status: 500 });
     }
 
     const { searchParams } = new URL(request.url);
@@ -30,14 +40,14 @@ export async function GET(request: NextRequest) {
 
     const allRows = response.data.values;
     if (!allRows || allRows.length < 2) {
-      return NextResponse.json({ error: "アルバムが見つかりません" }, { status: 404 });
+      return corsJson({ error: "アルバムが見つかりません" }, { status: 404 });
     }
 
     const [headerRow, ...dataRows] = allRows;
     const col = buildHeaderMap(headerRow);
 
     if (!uidParam && (!titleParam || !artistParam)) {
-      return NextResponse.json({ error: "uid または title+artist が必要です" }, { status: 400 });
+      return corsJson({ error: "uid または title+artist が必要です" }, { status: 400 });
     }
     // UID優先で行を特定し、見つからなければ title+artist にフォールバック
     const uidIdx = col[SHEET_COL.UID];
@@ -50,7 +60,7 @@ export async function GET(request: NextRequest) {
       );
     }
     if (!row) {
-      return NextResponse.json({ error: "アルバムが見つかりません" }, { status: 404 });
+      return corsJson({ error: "アルバムが見つかりません" }, { status: 404 });
     }
 
     const album: ReleaseMasterAlbum = {
@@ -60,7 +70,7 @@ export async function GET(request: NextRequest) {
       title:      row[getCol(col, "TITLE")]        || "",
       artist:     row[getCol(col, "ARTIST")]       || "",
       genre:      (row[getCol(col, "GENRE")]       || "") as ReleaseMasterAlbum["genre"],
-      duration:   row[getCol(col, "TIME")]          || "",
+      duration:   row[getCol(col, "TIME")]         || "",
       genreMemo:  row[col[SHEET_COL.GENRE_MEMO]]  || "",
       country:    row[col[SHEET_COL.COUNTRY]]     || "",
       mjAdoption: row[col[SHEET_COL.MJ_ADOPTION]] || "",
@@ -74,12 +84,13 @@ export async function GET(request: NextRequest) {
         .filter((s) => s.value !== ""),
       spotifyUrl: row[col[SHEET_COL.SPOTIFY_URL]] || "",
       coverUrl:   row[col[SHEET_COL.COVER_URL]]   || "",
+      coverUrlLarge: row[col[SHEET_COL.COVER_URL_LARGE]] || "",
     };
 
-    return NextResponse.json(album);
+    return corsJson(album);
   } catch (error) {
     console.error("Failed to get album from Release Master:", error);
-    return NextResponse.json({ error: "アルバムの取得に失敗しました" }, { status: 500 });
+    return corsJson({ error: "アルバムの取得に失敗しました" }, { status: 500 });
   }
 }
 

@@ -63,7 +63,8 @@ export const SHEET_COL = {
   TITLE:       "アルバム名",     // C列  ※要確認
   ARTIST:      "アーティスト",   // D列  ※要確認
   GENRE:       "洋邦",           // F列
-  TIME:        "Time",           // G列（曲数・総尺）
+  TIME:        "Time",           // G列（曲数・総尺。例: "9songs, 29min 9sec"）
+  COVER_URL_LARGE: "画像リンク変換",  // Apple Music のカバー画像URL（2000×2000）。列位置は可変
 
   // --- 書き込み対象 ---
   UID:         "UID",            // 安定ID列（改名に耐える行識別子。位置は任意）

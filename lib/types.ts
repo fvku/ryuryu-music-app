@@ -16,7 +16,7 @@ export interface ReleaseMasterAlbum {
   title: string;
   artist: string;
   genre: "邦楽" | "洋楽" | "";
-  duration: string;   // Time column (G), e.g. "13songs, 50min 4sec"
+  duration: string;   // Time column (G) — 曲数・総尺。例: "9songs, 29min 9sec"
   genreMemo: string;  // genre/memo column (K)
   country: string;    // 国 column (L)
   mjAdoption: string; // M/J採用 column (Q=16)
@@ -27,7 +27,8 @@ export interface ReleaseMasterAlbum {
   mjText:      string;  // M/J採用（220−300）column (V=21)
   legacyScores: { name: string; value: string }[]; // Kwisoo, Meri, Kohei, Eddie, Hanawa
   spotifyUrl: string; // AB column
-  coverUrl: string;   // AC column
+  coverUrl: string;   // AC column（spotifyカバー。640×640）
+  coverUrlLarge: string; // 画像リンク変換 column（Apple Music。2000×2000）。空の行もありうる
 }
 
 export interface Score {

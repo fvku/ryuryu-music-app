@@ -21,7 +21,8 @@
   - `bookmarks` シート: A=memberName(email), B=albumTitle, C=artistName, D=savedAt, E=albumUid
   - アルバム紐付けは **albumUid（Release MasterのUID）優先、title+artistフォールバック**（2026-07-18〜）。albumUidが空の行は移行前の孤児データか手動追加行 → `scripts/backfill-album-uids.ts` の再実行で埋められる（冪等）
 - **Release Master**: `RELEASE_MASTER_SPREADSHEET_ID`
-  - A=No., B=Date, C=Title, D=Artist, E=Body, F=洋邦, G=Time, H=#, I=リスナー, Q=M/J採用, R=ASSIGN, S=M Number, T=Track, U=Start Time, V=M/J採用（220-300）, X=Kwisoo, Y=Meri, Z=Kohei, AA=Eddie, AB=Hanawa, AC=Kaede, AD=Spotify, AE=spotifyカバー
+  - A=No., B=Date, C=Title, D=Artist, E=Body, F=洋邦, G=Time, H=#, I=リスナー, Q=M/J採用, R=ASSIGN, S=M Number, T=Track, U=Start Time, V=M/J採用（220-300）, X=Kwisoo, Y=Meri, Z=Kohei, AA=Eddie, AB=Hanawa, AC=Kaede, AD=Spotify, AE=spotifyカバー（640×640）
+  - `画像リンク変換` = Apple Music のカバー画像URL（2000×2000）。列位置は可変なのでヘッダー名で解決する。`spotifyカバー` より充足率が高く、高解像度が要る用途（monthly-generator）はこちらを使う
 
 ## 主要ファイル
 

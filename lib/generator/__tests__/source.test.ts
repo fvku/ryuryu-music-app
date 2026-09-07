@@ -4,7 +4,7 @@ import { importDocument, parseImportPeriod, selectReleaseMasterAlbums } from "..
 
 const album = (overrides: Partial<ReleaseMasterAlbum> = {}): ReleaseMasterAlbum => ({ no: "1", uid: crypto.randomUUID(), date: "2026/08/03", title: "Album", artist: "Artist",
   genre: "洋楽", duration: "10songs, 40min", genreMemo: "Jazz", country: "US", mjAdoption: "採用", mjAssign: "", mjTrackNo: "2", mjTrack: "Song", mjStartTime: "",
-  mjText: "Text", legacyScores: [], spotifyUrl: "", coverUrl: "", ...overrides });
+  mjText: "Text", legacyScores: [], spotifyUrl: "", coverUrl: "", coverUrlLarge: "", ...overrides });
 describe("generator Release Master import", () => {
   it("computes exact month boundaries including leap years", () => {
     expect(parseImportPeriod("2024-02")).toEqual({ start: "2024-02-01", end: "2024-03-01" });
@@ -29,6 +29,12 @@ describe("generator Release Master import", () => {
   it("uses Japan choices and hides country by default", () => {
     const doc = importDocument([album({ mjAdoption: "J採用" })], "japan", "2026-08");
     expect(doc.series).toBe("japan"); expect(doc.items[0].content.show.country).toBe(false);
+  });
+  it("prefers the large Apple Music cover and falls back to the existing cover", () => {
+    const large = importDocument([album({ coverUrl: "https://example.com/spotify.jpg", coverUrlLarge: "https://example.com/apple.jpg" })], "monthly", "2026-08");
+    const fallback = importDocument([album({ coverUrl: "https://example.com/spotify.jpg" })], "monthly", "2026-08");
+    expect(large.items[0].source.coverUrl).toBe("https://example.com/apple.jpg");
+    expect(fallback.items[0].source.coverUrl).toBe("https://example.com/spotify.jpg");
   });
   it("rejects empty source months", () => expect(() => importDocument([], "monthly", "2026-08")).toThrow());
 });

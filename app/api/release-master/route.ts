@@ -1,9 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { google } from "googleapis";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { buildHeaderMap, getCol, SHEET_COL } from "@/lib/sheet-headers";
 import { cached, CACHE_KEY, CACHE_TTL } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
+import { isAuthorized } from "@/lib/api-token";
+import { corsJson, corsPreflight } from "@/lib/api-cors";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +40,7 @@ async function fetchAlbums(): Promise<ReleaseMasterAlbum[]> {
       title:      row[getCol(col, "TITLE")]        || "",
       artist:     row[getCol(col, "ARTIST")]       || "",
       genre:      (row[getCol(col, "GENRE")]       || "") as ReleaseMasterAlbum["genre"],
-      duration:   row[getCol(col, "TIME")]          || "",
+      duration:   row[getCol(col, "TIME")]         || "",
       genreMemo:  row[col[SHEET_COL.GENRE_MEMO]]  || "",
       country:    row[col[SHEET_COL.COUNTRY]]     || "",
       mjAdoption: row[col[SHEET_COL.MJ_ADOPTION]] || "",
@@ -55,6 +57,7 @@ async function fetchAlbums(): Promise<ReleaseMasterAlbum[]> {
         .filter((s) => s.value !== ""),
       spotifyUrl: row[col[SHEET_COL.SPOTIFY_URL]] || "",
       coverUrl:   row[col[SHEET_COL.COVER_URL]]   || "",
+      coverUrlLarge: row[col[SHEET_COL.COVER_URL_LARGE]] || "",
     }));
 
   // タイトル+アーティストが同じ行は先頭（シート上で上にある行）を残して重複除去
@@ -67,12 +70,23 @@ async function fetchAlbums(): Promise<ReleaseMasterAlbum[]> {
   });
 }
 
-export async function GET() {
+/**
+ * Authorization ヘッダー付きの GET はブラウザで必ずプリフライトを通るので、
+ * これが無いと monthly-generator から呼べない（lib/api-cors.ts）。
+ */
+export async function OPTIONS() {
+  return corsPreflight();
+}
+
+export async function GET(request: NextRequest) {
+  if (!(await isAuthorized(request))) {
+    return corsJson({ error: "認証が必要です" }, { status: 401 });
+  }
   try {
     const albums = await cached(CACHE_KEY.RELEASE_MASTER, CACHE_TTL.RELEASE_MASTER, fetchAlbums);
-    return NextResponse.json(albums);
+    return corsJson(albums);
   } catch (error) {
     console.error("Failed to get Release Master albums:", error);
-    return NextResponse.json({ error: "アルバム一覧の取得に失敗しました" }, { status: 500 });
+    return corsJson({ error: "アルバム一覧の取得に失敗しました" }, { status: 500 });
   }
 }

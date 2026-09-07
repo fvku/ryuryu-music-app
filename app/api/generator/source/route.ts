@@ -28,6 +28,7 @@ export function GET(request: Request) {
       mjAssign: value(row, SHEET_COL.MJ_ASSIGN), mjTrackNo: value(row, SHEET_COL.MJ_TRACK_NO), mjTrack: value(row, SHEET_COL.MJ_TRACK),
       mjStartTime: value(row, SHEET_COL.START_TIME), mjText: value(row, SHEET_COL.MJ_TEXT), legacyScores: [],
       spotifyUrl: value(row, SHEET_COL.SPOTIFY_URL), coverUrl: value(row, SHEET_COL.COVER_URL),
+      coverUrlLarge: value(row, SHEET_COL.COVER_URL_LARGE),
     }));
     return importDocument(albums, series as GeneratorSeries, month);
   });

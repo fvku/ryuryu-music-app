@@ -47,7 +47,7 @@ export function importDocument(albums: ReleaseMasterAlbum[], series: GeneratorSe
       country: album.country, trackNo: album.mjTrackNo, track: album.mjTrack, text: album.mjText };
     const contentFields = { ...sourceFields, title: album.title.replace(ep, "") };
     return { id: randomUUID(), source: { kind: "release-master", uid: album.uid.trim() || null, no: album.no || null, date: album.date,
-      importedAt, coverUrl: album.coverUrl.trim() || null, fields: sourceFields }, content: { fields: contentFields, show: { title: true, artist: true, duration: true,
+      importedAt, coverUrl: album.coverUrlLarge.trim() || album.coverUrl.trim() || null, fields: sourceFields }, content: { fields: contentFields, show: { title: true, artist: true, duration: true,
         genreMemo: true, country: series !== "japan", track: true }, tracking: 0, kerns: {}, bodyLeadMode: "auto", bodyMaxLead: 42, typography: {}, jacketAssetId: null } };
   });
   const pages: GeneratorDocument["pages"] = [];
