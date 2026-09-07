@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CanvasPreviewPage } from "@/lib/generator/canvas-preview";
 import type { GeneratorDocument } from "@/lib/generator/model";
 import { bodyIndexAt, hitTest, selectionRects, type FieldKey, type Rect } from "./hit-test";
+import { pngFileName } from "./bulk-export";
 import { drawPageInto, preparePage, useGeneratorRuntime, type GeneratorRuntime, type LegacyPage } from "./runtime";
 import { Chip, PrimaryButton, SecondaryButton } from "./ui";
 
@@ -135,9 +136,7 @@ export default function GeneratorPreview({
       });
       try {
         const blob = await runtime.exporter.canvasBlob(canvas);
-        const series = value.series === "japan" ? "monthly-japan" : "monthly";
-        const [year, month] = value.period.start.slice(0, 7).split("-");
-        const name = `${series}_${year.slice(2)}_${month}_${String(prepared.no).padStart(2, "0")}.png`;
+        const name = pngFileName(value, prepared.no);
         const file = new File([blob], name, { type: "image/png" });
         const shared = Boolean(share && navigator.canShare?.({ files: [file] }));
         if (shared) await navigator.share({ files: [file], title: name });

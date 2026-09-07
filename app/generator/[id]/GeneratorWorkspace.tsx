@@ -6,6 +6,7 @@ import { canvasPreviewPage, type CanvasPreviewPage } from "@/lib/generator/canva
 import type { GeneratorHistoryEntry, GeneratorSnapshot } from "@/lib/generator/client-types";
 import { parseDocument, type GeneratorDocument, type ItemContent } from "@/lib/generator/model";
 import type { ReleaseMasterAlbum } from "@/lib/types";
+import BulkExportButton from "../BulkExportButton";
 import GeneratorPreview, { type PreviewDiagnostics, type PreviewSelection } from "../GeneratorPreview";
 import PageNavigator from "../PageNavigator";
 import { generatorJson, snapshotWithLocks, type GeneratorApiError } from "../generator-client";
@@ -622,6 +623,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
               変更履歴
             </Link>
             <SecondaryButton disabled={busy} onClick={() => void reload()} className="min-h-9 px-3 text-xs">最新版を再読込</SecondaryButton>
+            {/* 全ページのPNGは文書単位の操作なので、ページごとの出力ボタンとは分けてここに置く。 */}
+            <BulkExportButton document={previewDocument} pages={previewPages} canExport={!dirty} onStatus={setStatus} />
           </div>
         </header>
 
