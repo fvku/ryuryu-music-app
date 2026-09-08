@@ -46,7 +46,7 @@ export function drawTitleLayout(ctx, layout) {
   ctx.restore();
 }
 
-export function bandLayout(ctx, segments, base, cell, typography = {}, preferredGap = 50) {
+export function bandLayout(ctx, segments, base, cell, typography = {}, preferredGap = L.TEXT.bandGap) {
   const margin = L.TEXT.bodyPad; // Keep frame padding; separator gaps may shrink independently to zero.
   const parts = segments.map(segment => {
     const style = typography[segment.key] || {};

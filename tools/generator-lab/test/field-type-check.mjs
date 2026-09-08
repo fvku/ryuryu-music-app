@@ -9,20 +9,26 @@ import { setSpacing, spacingValue } from '../spacing.mjs';
 
 const ctx = { measureText: text => ({ width: text.length * 10 }), fillText() {}, save() {}, restore() {}, beginPath() {}, rect() {}, clip() {} };
 const segments = [{text:'a'.repeat(20), key:'duration'}, {text:'・'}, {text:'b'.repeat(20), key:'genreMemo'}];
+test('metadata defaults its preferred gap to Layout.TEXT.bandGap (Figma実測 24.5)', () => {
+  // 帯の要素間の既定アキは実測値 24.5px（SPEC.md §5「帯の構造」）。preferredGap を
+  // 明示指定しない呼び出しでは、十分広いセルでもこの値未満に縮めない。
+  const layout = bandLayout(ctx, segments, L.TYPE.meta, { x:50, y:510, w:1100, h:74 });
+  assert.equal(layout.gap, L.TEXT.bandGap);
+});
 test('metadata tightens only separator gaps and reserves both 25px margins', () => {
   const cell = { x:50, y:510, w:540, h:74 };
-  const layout = bandLayout(ctx, segments, L.TYPE.meta, cell);
+  const layout = bandLayout(ctx, segments, L.TYPE.meta, cell, {}, 50);
   assert.equal(layout.margin, 25); assert.equal(layout.gap, 40);
   assert.equal(layout.total, cell.w - 50); assert.equal(layout.overflow, false);
   assert.equal(layout.parts[0].width, 200);
   drawBandLayout(ctx, layout);
 });
 test('metadata allows gaps below 25px, but never negative gaps', () => {
-  const layout = bandLayout(ctx, segments, L.TYPE.meta, {x:0,y:0,w:500,h:74});
+  const layout = bandLayout(ctx, segments, L.TYPE.meta, {x:0,y:0,w:500,h:74}, {}, 50);
   assert.equal(layout.margin, 25); assert.equal(layout.gap, 20); assert.equal(layout.overflow, false);
-  const exact = bandLayout(ctx, segments, L.TYPE.meta, {x:0,y:0,w:460,h:74});
+  const exact = bandLayout(ctx, segments, L.TYPE.meta, {x:0,y:0,w:460,h:74}, {}, 50);
   assert.equal(exact.gap, 0); assert.equal(exact.overflow, false);
-  const overflow = bandLayout(ctx, segments, L.TYPE.meta, {x:0,y:0,w:450,h:74});
+  const overflow = bandLayout(ctx, segments, L.TYPE.meta, {x:0,y:0,w:450,h:74}, {}, 50);
   assert.equal(overflow.gap, 0); assert.equal(overflow.overflow, true);
 });
 test('field typography applies to both mixed titles and multi-line metadata', () => {
