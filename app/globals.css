@@ -37,6 +37,13 @@ body {
   overflow-x: clip;
 }
 
+/* GeneratorRuntime already loads Noto Sans JP for canvas output. Prefer the
+   same face in the editor so Japanese UI remains readable on iOS Simulator
+   installations that do not include a Japanese system-font payload. */
+.generator-workspace {
+  font-family: "Noto Sans JP", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
 a {
   color: inherit;
   text-decoration: none;

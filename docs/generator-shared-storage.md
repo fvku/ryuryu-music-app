@@ -8,20 +8,20 @@
 
 | 対象 | ローカル実装 | 未接続・未実装 |
 | --- | --- | --- |
-| 保存形式 | 企画・期間、元データと編集内容、ページ、全書式、画像ID、Monthly／JapanのRelease Master取り込み | 確認版下書きからの変換、Weekly取り込み |
+| 保存形式 | 企画・期間、元データと編集内容、ページ、全書式、画像ID、Monthly／Japan／WeeklyのRelease Master取り込み | 確認版下書きからの変換 |
 | 認可 | 既存許可リスト＋Google確認済みメールを全APIで検査 | 実アカウントでのログイン統合試験 |
 | 保存 | 文書作成・一覧・読込、全項目編集、アルバム／ページ色／共通設定／構成の対象別保存、アカウント別ブラウザ復旧 | 共有DBへの自動保存は採用せず、対象別の明示保存をv1仕様とする |
 | ロック | 対象別取得・30秒延長・解放・編集者表示・同じ人の端末引き継ぎUI、3分失効 | 3端末受入 |
 | 履歴 | 保存と履歴の同時確定、履歴画面、対象別の過去版復元 | 過去版の独立プレビュー、文書全体の一括復元 |
 | 画像 | MIME・マジックバイト・寸法・10MB／40MP検査、非公開Storageへの準備・確定・認可読取 | 実機の写真入力受入 |
-| 描画 | 採用1作品／掲載2作品、即時プレビュー、はみ出し検査、1200／2400px PNG保存・共有 | 実機の反復出力負荷試験 |
-| 構成 | 構成版、構成ロック、採用／掲載内の並び替え・対象別復元 | 作品追加・削除・再取り込み |
+| 描画 | Monthly／Japanの採用・掲載、Weeklyの表紙・メイン・Others、即時プレビュー、はみ出し検査、1200／2400px PNG・全ページZIP。実共有W36文書で7枚ZIPまで確認済み | 物理iPhone実機での反復出力負荷試験 |
+| 構成 | 構成版、構成ロック、採用／掲載内の並び替え、Weeklyのメイン↔Others swap、対象別復元 | 作品追加・削除・再取り込み |
 
 根拠：[保存型と検証](../lib/generator/model.ts)、[認可](../lib/generator/access.ts)、[HTTP API](../app/api/generator/documents/route.ts)、[SQL](../supabase/migrations/202609040001_generator.sql)。確認版の描画・IndexedDBは今回変更していない。
 
 ## 2. 保存と競合の契約
 
-[正式な文書型](../lib/generator/model.ts)の`schemaVersion`は1。確認版の同名の版番号とは別形式で、自動変換しない。Monthly／Japanは月初から翌月初、Weeklyは明示した開始日から7日後まで（終端を含まない）。Weeklyの曜日・抽出条件・描画テンプレートは未決定で、`rendererVersion`はnull。
+[正式な文書型](../lib/generator/model.ts)の`schemaVersion`は1。確認版の同名の版番号とは別形式で、自動変換しない。Monthly／Japanは月初から翌月初。Weekly文書の識別期間は対象金曜から翌金曜まで、Release Masterの抽出は投稿金曜までの土曜〜金曜で、`#`列を`period.weekNumber`として保持する。`rendererVersion`は`weekly-v1`。
 
 アルバムは文書内IDとRelease Master UIDを区別し、取り込み元の値を`source`、編集値を`content`に保持する。並びは`pages[].itemIds`を正とし、`items`配列の応答順には依存しない。画像実体・一時URL・秘密情報は文書に含めず、画像IDを使う。企画の詳細な抽出条件を保持する項目は未追加で、取り込みアダプター実装時に設計する。
 
@@ -91,9 +91,9 @@ PATCHには`requestId, kind, targetId, clientId, token, generation, expectedVers
 4. iPhone実機でIME・写真入力・共有・スリープ・連続PNG負荷を確認する。
 5. 最新`origin/main`との差分は2026-09-08に統合し、`main`へpush、本番デプロイまで完了した。Previewへ本番DBの秘密鍵を共有する場合は、用途とデータ分離を先に決める。
 
-## 6. 検証記録（2026-09-05）
+## 6. 検証記録（2026-09-08）
 
-- `npm test -- --reporter=dot`：14ファイル、267件成功。
+- `npm test -- --reporter=dot`：Weeklyの土曜〜金曜境界、`#`列の必須性・一意性、WEEK列の抽出・重複除去、文書検証、swapの件数不変、Monthly／Japan回帰を含む。最新件数はUI実装記録§16を正とする。
 - `npx --no-install tsc --noEmit --incremental false`：成功。
 - 変更した認証・ジェネレーターのTypeScriptとAPIを対象にしたESLint：成功。
 - `npm run build`：成功。最初のsandbox実行はポート制約で失敗し、承認された環境で再実行して成功。デプロイではない。
@@ -101,3 +101,5 @@ PATCHには`requestId, kind, targetId, clientId, token, generation, expectedVers
 DBテストはdev依存の[PGlite](https://pglite.dev/docs/)による一時的なメモリ内DBに、実際のマイグレーションを適用する。[テストコード](../lib/generator/__tests__/database.test.ts)。3対象の更新、掲載上下と背景色の独立性、期限・世代による拒否、再送、対象別復元、画像不備、履歴書き込み失敗時のロールバック、直接権限の拒否を確認した。単一プロセスのエンジンであり、実Supabaseの複数接続・分散同時実行の証明ではない。
 
 HTTPテストは認証・外部fetchをモックして実ルートを呼び出す。匿名・古いセッション・Spotifyのみ・許可取消しの拒否、サーバー更新者、未設定503、秘密値を返さないことを確認した。実Supabaseではロールバック付き保存・復元とPostgREST読み取りを確認。ローカル画面では実Google OAuth、Release Master読み取り、文書作成・再読込、2026年8月Monthlyの11作品・9画像プレビューまで成功した。3人同時操作と公開環境のE2Eは未実施。[HTTP検証](../lib/generator/__tests__/http.test.ts)
+
+Weeklyの取込APIは実Release Masterを読み取り、`#35`がメイン5件＋Others 26件、`#36`がメイン5件＋Others 30件になり、全66件にジャケットURLがあることを確認した。実共有W36文書を作成し、swap保存・構成復元・作品保存・作品復元をversion 1〜5で確認後、元の内容とロック0件へ戻した。`weekly_26_W36.zip`は全7枚のCRC・2400×2400寸法・代表3面の目視に成功した。iPhone 17 Pro Simulatorの日本語表示と狭幅レイアウトも確認した。

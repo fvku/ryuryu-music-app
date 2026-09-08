@@ -41,11 +41,13 @@ export function StatusBanner({
   return (
     <div
       role="status"
-      className={`flex flex-wrap items-center justify-between rounded-xl border ${dense ? "gap-x-3 gap-y-1 px-3 py-1.5 text-[11px]" : "gap-3 px-4 py-3 text-sm"}`}
+      className={`flex rounded-xl border ${dense
+        ? "flex-col items-stretch gap-x-3 gap-y-1 px-3 py-1.5 text-[11px] sm:flex-row sm:items-center sm:justify-between"
+        : "flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm"}`}
       style={{ borderColor: style.border, backgroundColor: style.background, color: style.text }}
     >
-      <span className={dense ? "min-w-0 flex-1" : "min-w-[14rem] flex-1"}>{children}</span>
-      {actions && <span className={`flex shrink-0 flex-wrap items-center ${dense ? "gap-x-3 gap-y-1" : "gap-2"}`}>{actions}</span>}
+      <span className={dense ? "w-full min-w-0 sm:flex-1" : "min-w-[14rem] flex-1"}>{children}</span>
+      {actions && <span className={`flex flex-wrap items-center ${dense ? "w-full min-w-0 gap-x-3 gap-y-1 sm:w-auto sm:shrink-0" : "shrink-0 gap-2"}`}>{actions}</span>}
     </div>
   );
 }

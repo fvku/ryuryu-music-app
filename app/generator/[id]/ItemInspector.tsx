@@ -120,7 +120,7 @@ export default function ItemInspector({
   item: GeneratorDocument["items"][number];
   draft?: ItemContent;
   state: TargetState;
-  pageKind: "adopted" | "listed";
+  pageKind: "adopted" | "listed" | "feature" | "others";
   diagnostic: BodyDiagnostic | null;
   onDraft(value: ItemContent): void;
   onImage(file: File): Promise<string | null>;
@@ -170,8 +170,16 @@ export default function ItemInspector({
     });
   }
 
-  const target = selection.key;
-  const range = { start: selection.start, end: selection.end };
+  const visibleFields = pageKind === "feature"
+    ? fieldOrder.filter(key => !["trackNo", "track", "text"].includes(key))
+    : pageKind === "others"
+      ? fieldOrder.filter(key => key === "title" || key === "artist")
+      : fieldOrder;
+  const adjustableFields = pageKind === "listed" ? visibleFields.filter(key => key !== "text") : visibleFields;
+  const target = visibleFields.includes(selection.key) ? selection.key : "title";
+  const range = target === selection.key
+    ? { start: selection.start, end: selection.end }
+    : { start: 0, end: 0 };
   const tracking = target === "text"
     ? selectedSpacing(value.fields.text, value.tracking, value.kerns, range.start, range.end)
     : selectedSpacing(value.fields[target], value.typography[target]?.tracking ?? 0, value.typography[target]?.kerns ?? {}, range.start, range.end);
@@ -230,8 +238,6 @@ export default function ItemInspector({
 
   const bodyAuto = value.bodyLeadMode !== "custom";
   const leading = target === "text" ? null : value.typography[target]?.leading ?? defaultLeading(target);
-  const adjustableFields = pageKind === "listed" ? fieldOrder.filter(key => key !== "text") : fieldOrder;
-
   return (
     <div className="flex min-h-0 flex-col gap-3 xl:h-full">
       {/* 主操作。プレビューの近くから動かさず、対象の切り替えもここで完結させる。 */}
@@ -353,7 +359,7 @@ export default function ItemInspector({
       </div>
 
       <ul className="min-h-0 space-y-2 xl:flex-1 xl:overflow-y-auto xl:pr-1">
-        {fieldOrder.map(key => {
+        {visibleFields.map(key => {
           const showKey = showOf[key];
           const listedBody = pageKind === "listed" && key === "text";
           const selected = !listedBody && target === key;
@@ -442,7 +448,7 @@ export default function ItemInspector({
           );
         })}
 
-        <li className="rounded-lg border p-2" style={{ borderColor: "var(--border-subtle)" }}>
+        {pageKind !== "others" && <li className="rounded-lg border p-2" style={{ borderColor: "var(--border-subtle)" }}>
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>ジャケット</span>
             {value.jacketAssetId ? <Chip tone="success">差し替え済み</Chip> : <Chip tone="info">Release Master</Chip>}
@@ -468,7 +474,7 @@ export default function ItemInspector({
               <p className="text-[10px]" style={{ color: "var(--text-secondary)" }}>PNG・JPEG・WebP、10MB以下。</p>
             </div>
           )}
-        </li>
+        </li>}
       </ul>
     </div>
   );

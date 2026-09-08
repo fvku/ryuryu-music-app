@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GeneratorHistoryEntry } from "@/lib/generator/client-types";
 import type { GeneratorDocument } from "@/lib/generator/model";
 import { Checkbox, Chip, Field, Modal, PrimaryButton, SecondaryButton, SelectInput } from "../ui";
-import { targetLabels, type LockKind } from "./workspace-types";
+import { movePageItem, swapWeeklyFeatureItem, targetLabels, type LockKind, type OrderedPageKind } from "./workspace-types";
 
 export type TargetState = {
   kind: LockKind;
@@ -175,25 +175,30 @@ export function StructureDialog({
   onPages(value: GeneratorDocument["pages"]): void;
   onClose(): void;
 }) {
-  function move(kind: "adopted" | "listed", itemId: string, delta: number) {
-    const groupPages = pages.filter(page => page.kind === kind), ordered = groupPages.flatMap(page => page.itemIds);
-    const index = ordered.indexOf(itemId), target = index + delta;
-    if (index < 0 || target < 0 || target >= ordered.length) return;
-    [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
-    let offset = 0;
-    const replacements = new Map(groupPages.map(page => {
-      const ids = ordered.slice(offset, offset + page.itemIds.length);
-      offset += page.itemIds.length;
-      return [page.id, ids];
-    }));
-    onPages(pages.map(page => replacements.has(page.id) ? { ...page, itemIds: replacements.get(page.id)! } : page));
+  function move(kind: OrderedPageKind, itemId: string, delta: number) {
+    onPages(movePageItem(pages, kind, itemId, delta));
   }
 
-  const rows = pages.flatMap(page => page.itemIds.map(id => ({ id, kind: page.kind })));
+  function swapFeature(featureId: string, otherId: string) {
+    onPages(swapWeeklyFeatureItem(pages, featureId, otherId));
+  }
+
+  const isWeekly = pages.some(page => page.kind === "cover");
+  const rows = pages.flatMap<{ id: string; kind: OrderedPageKind }>(page => {
+    if (page.kind === "adopted" || page.kind === "listed" || page.kind === "feature" || page.kind === "others") {
+      const kind: OrderedPageKind = page.kind;
+      return page.itemIds.map(id => ({ id, kind }));
+    }
+    return [];
+  });
+  const otherIds = rows.filter(row => row.kind === "others").map(row => row.id);
+  const kindLabel: Record<OrderedPageKind, string> = { adopted: "採用", listed: "掲載", feature: "メイン", others: "Others" };
   return (
     <Modal
       title="並び順を変更"
-      description="採用・掲載それぞれの区分の中だけで前後に動かせます。並びが変わると、画像への割り当ても入れ替わります。"
+      description={isWeekly
+        ? "メイン5枚の順番、Other Releasesの順番、および両者の入れ替えを行えます。表紙のジャケット順もメインに連動します。"
+        : "採用・掲載それぞれの区分の中だけで前後に動かせます。並びが変わると、画像への割り当ても入れ替わります。"}
       onClose={onClose}
     >
       <div className="space-y-3">
@@ -201,8 +206,22 @@ export function StructureDialog({
         <ol className="space-y-2">
           {rows.map(({ id, kind }, index) => (
             <li key={id} className="flex items-center gap-2 rounded-lg border p-2 text-sm" style={{ borderColor: "var(--border-subtle)" }}>
-              <Chip tone="info">{kind === "adopted" ? "採用" : "掲載"}</Chip>
+              <Chip tone="info">{kindLabel[kind]}</Chip>
               <span className="min-w-0 flex-1 truncate">{items.get(id)?.content.fields.title || "（作品名未入力）"}</span>
+              {kind === "feature" && (
+                <SelectInput
+                  aria-label={`${items.get(id)?.content.fields.title || "メイン作品"}を入れ替え`}
+                  value={id}
+                  disabled={!state.locked || state.disabled || otherIds.length === 0}
+                  onChange={event => swapFeature(id, event.target.value)}
+                  className="!mt-0 max-w-52 text-xs"
+                >
+                  <option value={id}>この作品のまま</option>
+                  {otherIds.map(otherId => (
+                    <option key={otherId} value={otherId}>⇄ {items.get(otherId)?.content.fields.title || "（作品名未入力）"}</option>
+                  ))}
+                </SelectInput>
+              )}
               <button
                 type="button"
                 aria-label="上へ"

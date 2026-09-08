@@ -23,7 +23,7 @@ function targetName(snapshot: GeneratorSnapshot, entry: GeneratorHistoryEntry): 
   }
   if (entry.targetKind === "page") {
     const index = snapshot.document.pages.findIndex(value => value.id === entry.targetId);
-    return index < 0 ? "削除された画像" : `画像 ${index + 2}`;
+    return index < 0 ? "削除された画像" : `画像 ${snapshot.document.series === "weekly" ? index : index + 2}`;
   }
   return null;
 }
@@ -59,7 +59,7 @@ export default async function GeneratorHistoryPage({ params }: { params: Promise
     <section className="mx-auto max-w-3xl">
       <Link href={workspace} className="text-xs text-violet-300 hover:underline">← 編集画面へ戻る</Link>
       <h1 className="mt-2 text-xl font-bold sm:text-2xl">
-        {seriesLabels[snapshot.document.series]} {snapshot.document.period.start.slice(0, 7)} の変更履歴
+        {seriesLabels[snapshot.document.series]} {snapshot.document.series === "weekly" ? snapshot.document.period.start : snapshot.document.period.start.slice(0, 7)} の変更履歴
       </h1>
       <p className="mt-2 text-sm leading-6" style={{ color: "var(--text-secondary)" }}>
         現在は version {snapshot.version} です。復元は編集画面で、その対象の編集を開始してから行います。

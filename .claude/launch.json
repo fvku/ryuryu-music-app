@@ -4,14 +4,33 @@
     {
       "name": "ryuryu-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "3456"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "3456"
+      ],
       "port": 3456
     },
     {
       "name": "generator-ui-check-3457",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["next", "start", "-p", "3457"],
+      "runtimeArgs": [
+        "next",
+        "start",
+        "-p",
+        "3457"
+      ],
       "port": 3457
+    },
+    {
+      "name": "generator-lab",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "tools/generator-lab/serve.mjs"
+      ],
+      "port": 8778
     }
   ]
 }

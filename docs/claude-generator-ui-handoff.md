@@ -21,10 +21,11 @@
 1. `git status`と既存の未コミット・未追跡ファイル
 2. `docs/generator-specification.md`（操作仕様の正本）
 3. `docs/generator-shared-storage.md`（保存・ロック・履歴・認証の契約）
-4. `docs/generator-ui-implementation.md`（現在のUIと受入結果。今回までの判断を含む）
-5. `docs/codex-generator-handoff.md`（機能側の依存関係・未確認事項）
-6. `docs/generator-project-reuse.md`（環境と未完了事項）
-7. `app/generator/`、`lib/generator/`、`tools/generator-lab/`の実コード
+4. `docs/generator-ui-guidelines.md`（情報設計・見た目・共通部品・レスポンシブの基準）
+5. `docs/generator-ui-implementation.md`（現在のUIと受入結果。今回までの判断を含む）
+6. `docs/codex-generator-handoff.md`（機能側の依存関係・未確認事項）
+7. `docs/generator-project-reuse.md`（環境と未完了事項）
+8. `app/generator/`、`lib/generator/`、`tools/generator-lab/`の実コード
 
 ジェネレーター一式は2026-09-07に `wip/generator-integration` へ退避済み（上の追記）。相手側の変更を削除・置換したり、作り直したりせず、現在の実装へ差分を重ねてください。ブランチの切り替え・`git checkout .`・`git clean` で相手の作業を巻き戻さないでください。`app/generator/uipreview-temp/page.tsx`は固定データの見た目確認用で、作業中は利用してよいがコミット前には削除候補です。
 

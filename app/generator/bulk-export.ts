@@ -165,14 +165,29 @@ function seriesSlug(value: Named): string {
   return value.series === "japan" ? "monthly-japan" : value.series === "weekly" ? "weekly" : "monthly";
 }
 
+function isoWeek(value: string): { year: number; week: number } {
+  const source = new Date(`${value}T00:00:00.000Z`), thursday = new Date(source);
+  thursday.setUTCDate(thursday.getUTCDate() + 4 - (thursday.getUTCDay() || 7));
+  const year = thursday.getUTCFullYear(), yearStart = new Date(Date.UTC(year, 0, 1));
+  return { year, week: Math.ceil(((thursday.getTime() - yearStart.getTime()) / 86400000 + 1) / 7) };
+}
+
 /** 1枚書き出しと一括書き出しで同じ規則を使う。例: monthly_26_08_02.png */
 export function pngFileName(value: Named, no: number): string {
+  if (value.series === "weekly") {
+    const { year, week } = isoWeek(value.period.start);
+    return `weekly_${String(year).slice(2)}_W${String(value.period.weekNumber ?? week).padStart(2, "0")}_${String(no).padStart(2, "0")}.png`;
+  }
   const [year, month] = value.period.start.slice(0, 7).split("-");
   return `${seriesSlug(value)}_${year.slice(2)}_${month}_${String(no).padStart(2, "0")}.png`;
 }
 
 /** まとめたファイルの名前。例: monthly_26_08.zip */
 export function archiveFileName(value: Named): string {
+  if (value.series === "weekly") {
+    const { year, week } = isoWeek(value.period.start);
+    return `weekly_${String(year).slice(2)}_W${String(value.period.weekNumber ?? week).padStart(2, "0")}.zip`;
+  }
   const [year, month] = value.period.start.slice(0, 7).split("-");
   return `${seriesSlug(value)}_${year.slice(2)}_${month}.zip`;
 }

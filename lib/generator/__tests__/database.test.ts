@@ -175,6 +175,25 @@ describe("generator database transaction contract (embedded PostgreSQL)", () => 
     expect(restored.document.pages[1].bgColor).toBe("#654321");
     expect(restored.document.items.find(value => value.id === doc.items[1].id)?.content.fields.title).toBe("kept");
   });
+  it("allows a Weekly feature/others swap but rejects moving an item between them", async () => {
+    await db.exec("truncate public.generator_documents cascade;");
+    const weekly = structuredClone(doc), ids = new Map(weekly.items.map(item => [item.id, randomUUID()]));
+    weekly.id = randomUUID(); weekly.series = "weekly"; weekly.rendererVersion = "weekly-v1";
+    weekly.period = { type: "week", start: "2027-01-01", end: "2027-01-08", weekNumber: 53 };
+    weekly.items.forEach(item => { item.id = ids.get(item.id)!; });
+    weekly.pages = [{ id: randomUUID(), kind: "cover", itemIds: [], bgColor: null },
+      { id: randomUUID(), kind: "feature", itemIds: [weekly.items[0].id], bgColor: null },
+      { id: randomUUID(), kind: "feature", itemIds: [weekly.items[1].id], bgColor: null },
+      { id: randomUUID(), kind: "others", itemIds: [weekly.items[2].id], bgColor: null }];
+    doc = parseDocument(weekly);
+    await query("select public.generator_create($1,$2,$3) as result", [doc, actor, randomUUID()]);
+    const structure = await acquire("structure", doc.id), pages = doc.pages.map(page => ({ id: page.id, itemIds: [...page.itemIds] }));
+    [pages[1].itemIds[0], pages[3].itemIds[0]] = [pages[3].itemIds[0], pages[1].itemIds[0]];
+    const swapped = await query<Snapshot>("select public.generator_structure_save($1,$2,$3,$4) as result", [doc.id, actor, randomUUID(), { ...structure, expectedVersion: 1, content: { pages } }]);
+    expect(swapped.structureVersion).toBe(2); expect(swapped.document.pages[1].itemIds).toEqual(pages[1].itemIds);
+    pages[1].itemIds.push(pages[3].itemIds.pop()!);
+    await expect(query("select public.generator_structure_save($1,$2,$3,$4) as result", [doc.id, actor, randomUUID(), { ...structure, expectedVersion: 2, content: { pages } }])).rejects.toThrow("INVALID_INPUT");
+  });
   it("registers an uploaded asset only while its item lock remains valid", async () => {
     const lock = await acquire("item", doc.items[0].id), id = randomUUID(), sha = "a".repeat(64);
     const asset = { id, mimeType: "image/png", bytes: 100, width: 10, height: 10, sha256: sha };

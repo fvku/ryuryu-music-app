@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const mime = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.webp': 'image/webp' };
+  '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.webp': 'image/webp',
+  '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.svg': 'image/svg+xml' };
 http.createServer(async (request, response) => {
   if (request.method !== 'GET' && request.method !== 'HEAD') { response.writeHead(405); response.end(); return; }
   try {

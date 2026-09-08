@@ -233,6 +233,26 @@ t('カーニングの既定は空（Figma の既定と同じ）', () => {
   assert.strictEqual(sl.tracking, 0);
 });
 
+console.log('toWeeklyDrawData — weekly-v1の作品面に渡す形（generator-weekly-design.md §6.1）');
+t('body・rec・bodyLeadMode・bodyMaxLeadを持たない最小形', () => {
+  const d = P.toWeeklyDrawData(slotOf());
+  assert.deepStrictEqual(Object.keys(d).sort(), ['artist','kerns','meta','title','tracking','typography']);
+  assert.ok(Array.isArray(d.meta));
+});
+t('meta は toDrawData と同じ metaBand() を使う（Monthlyと同じ組み方）', () => {
+  const s = slotOf();
+  assert.deepStrictEqual(P.toWeeklyDrawData(s).meta, P.toDrawData(s).meta);
+});
+t('[EP]は落とさない（MonthlyのtoDrawDataと違い、取り込み時点で既に保持されている前提）', () => {
+  const s = slotOf({ fields: { title: '[EP] Some Title' } });
+  assert.strictEqual(P.toWeeklyDrawData(s).title, '[EP] Some Title');
+});
+t('show.title/show.artist が false なら空文字（Monthlyと同じ規則）', () => {
+  const s = slotOf({ show: { title: false, artist: false } });
+  const d = P.toWeeklyDrawData(s);
+  assert.strictEqual(d.title, ''); assert.strictEqual(d.artist, '');
+});
+
 console.log('isMissing — 黄色マスキングの判定（SPEC §7）');
 t('空 かつ「出す」 → 黄色', () => {
   assert.strictEqual(P.isMissing(slotOf({ fields: { country:'' } }), 'country'), true);

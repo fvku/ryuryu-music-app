@@ -19,4 +19,7 @@ export async function ensurePageFonts(page) {
   if ([...requests].some(font => !document.fonts.check(font, text))) {
     throw new Error('本文・作品名に必要なフォントを読み込めませんでした');
   }
+  if (page.kind === 'cover' && !Fonts.coverFontReady()) {
+    throw new Error('Weekly表紙に必要なAlternate Gothic No2 Dを読み込めませんでした');
+  }
 }

@@ -15,7 +15,11 @@ export type BodyDiagnostic = { slotId: string; lines: number; lead: number; minL
 export type PreviewDiagnostics = { pageId: string; warnings: string[]; body: BodyDiagnostic[] };
 
 function pageLabel(page: CanvasPreviewPage): string {
-  return page.kind === "adopted" ? "採用 · 1作品" : `掲載 · ${page.slots.length}作品`;
+  if (page.kind === "adopted") return "採用 · 1作品";
+  if (page.kind === "listed") return `掲載 · ${page.slots.length}作品`;
+  if (page.kind === "cover") return `表紙 · メイン${page.slots.length}作品`;
+  if (page.kind === "feature") return "メイン · 1作品";
+  return `Other Releases · ${page.slots.length}作品`;
 }
 
 export default function GeneratorPreview({
@@ -61,7 +65,7 @@ export default function GeneratorPreview({
       const issues = runtime.renderer.inspectPage(context, prepared);
       setWarnings(issues);
       onDiagnostics({ pageId: prepared.id, warnings: issues, body: bodyDiagnostics(runtime, context, prepared) });
-      const missing = prepared.slots.filter(slot => !slot.jacket.img).length;
+      const missing = page.kind === "others" ? 0 : prepared.slots.filter(slot => !slot.jacket.img).length;
       setStatus(`${pageLabel(page)}${missing ? `（ジャケット未取得 ${missing}件）` : ""}`);
     })().catch(drawError => { if (!cancelled) setStatus(`描画できませんでした: ${(drawError as Error).message}`); });
     return () => { cancelled = true; };
@@ -156,6 +160,11 @@ export default function GeneratorPreview({
 
   const blocked = !canExport || warnings.length > 0;
   const blockedCount = (canExport ? 0 : 1) + warnings.length;
+  const interactionHint = page.kind === "cover"
+    ? "表紙の選定は「並び順を変更」から入れ替えられます。"
+    : page.kind === "others"
+      ? "行をクリックすると対応する作品を選べます。"
+      : "クリックで調整対象、ドラッグで範囲を選べます。";
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex shrink-0 items-baseline justify-between gap-2">
@@ -202,7 +211,7 @@ export default function GeneratorPreview({
       <p role="status" className="shrink-0 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>
         {status}
         <span className="mx-1">·</span>
-        クリックで調整対象、ドラッグで範囲を選べます。
+        {interactionHint}
         {!page.bgColor && <span className="ml-1 text-amber-300">背景色は未設定（プレビューだけ仮の色）。</span>}
       </p>
 

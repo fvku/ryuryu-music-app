@@ -12,6 +12,35 @@ const Fonts = (() => {
     { family: 'Noto Sans JP', weights: [300, 400] },
   ];
 
+  // Weekly（NEW RELEASE WEEK）表紙の書体。Google Fontsに無いためセルフホスト（SPEC変更不要、
+  // generator-weekly-design.md §9-1）。Koheiが過去にフォントバンドルで入手したファイル
+  // （権利者表記: URW Software, Copyright 1994 by URW。ライセンス文言の埋め込みは無い）を
+  // 2026-09-08に受領し、使用の許可を得た。`assets/`直下に置く理由はwave.png・jacket_2000.webpと同じ
+  // （スタンドアロン版のserve.mjsとNext.jsアプリの両方から、モジュール相対で解決できる場所にするため）。
+  // `new URL(..., import.meta.url)` はモジュール自身の実際の取得元を基準にするため、
+  // どちらの環境で読み込まれても正しいURLになる（wave.png等のようにNext.js側の静的importを
+  // 呼び出し元に持たせる方式は取っていない。fonts.mjsはGoogle Fontsも含めて常に自分でURLを持つ設計のため）。
+  const SELF_HOSTED = [
+    { family: 'Alternate Gothic No2 D', file: 'alternate-gothic-no2-d-regular.ttf', weight: '400' },
+  ];
+  // 表紙（cover）専用の書体。Monthly／Japanはこれを一切使わないので、失敗しても
+  // loadAll() 全体を落とさない（＝失敗してもMonthly／Japanの生成は影響を受けない）。
+  // 表紙を実際に描く側（Render.drawWeeklyCover）が document.fonts.check() で
+  // 個別に確認し、読み込めていなければそこで初めてエラーにする。
+  let selfHostedLoaded = null;
+  function loadSelfHosted() {
+    return selfHostedLoaded ||= Promise.all(SELF_HOSTED.map(async f => {
+      try {
+        const url = new URL(`../assets/${f.file}`, import.meta.url);
+        const face = new FontFace(f.family, `url(${url})`, { weight: f.weight });
+        await face.load();
+        document.fonts.add(face);
+      } catch (error) {
+        console.error(`セルフホスト書体の読み込みに失敗しました（表紙以外には影響しません）: ${f.family}`, error);
+      }
+    }));
+  }
+
   // SPEC.md §9.5: renderWeightDelta（全体一律）や t.renderWeight（要素個別、例: 本文の意匠調整）で
   // 見た目用の細いウェイトが指定されていれば、それも合わせて読み込む
   // （prepare() が測るのは常に t.weight の側なので、両方要る）。
@@ -41,7 +70,7 @@ const Fonts = (() => {
     });
   }
   async function loadAll() {
-    await loadStylesheet();
+    await Promise.all([loadStylesheet(), loadSelfHosted()]);
     // document.fonts.load() はテキストを省略すると内部の既定サンプル（ラテン文字のみ）の
     // サブセットしか読み込まない。和文フォントは CJK のサブセットを明示的に指定しないと、
     // 実際に描画する文字のグリフが読み込まれないまま document.fonts.ready が解決してしまう。
@@ -61,8 +90,14 @@ const Fonts = (() => {
     // （Figma の Oswald→和文フォールバックと同じ事故を、ここでも黙って起こさないため）。
     if (!document.fonts.check('700 40px "Zen Kaku Gothic New"', '一'))
       throw new Error('Zen Kaku Gothic New が適用されていません（フォールバック書体のままです）');
+    // Alternate Gothic No2 D は表紙（weekly cover）専用。ここでは検証しない＝失敗していても
+    // Monthly／Japan／作品面／Other Releasesの生成を止めない。表紙側の検証はcoverFontReady()。
   }
-  return { loadAll, NEEDED };
+  /** 表紙を描く直前に呼ぶ。セルフホスト書体が実際に使える状態かをここで初めて厳密に確認する。 */
+  function coverFontReady() {
+    return document.fonts.check(`${SELF_HOSTED[0].weight} 40px "${SELF_HOSTED[0].family}"`);
+  }
+  return { loadAll, NEEDED, SELF_HOSTED, coverFontReady };
 })();
 
 export default Fonts;

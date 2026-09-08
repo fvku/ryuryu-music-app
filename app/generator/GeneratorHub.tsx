@@ -16,26 +16,37 @@ const seriesLabels = { monthly: "Monthly Review", japan: "Monthly Japan Review",
 
 const dateFormat = new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Tokyo" });
 
+function summaryPeriod(document: Summary): string {
+  if (document.series !== "weekly") return document.periodStart.slice(0, 7);
+  const source = new Date(`${document.periodStart}T00:00:00.000Z`), thursday = new Date(source);
+  thursday.setUTCDate(thursday.getUTCDate() + 4 - (thursday.getUTCDay() || 7));
+  const year = thursday.getUTCFullYear(), yearStart = new Date(Date.UTC(year, 0, 1));
+  const week = Math.ceil(((thursday.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${year} WEEK ${week}`;
+}
+
 function emptyStatus(count: number): Status {
   return count > 0
-    ? { tone: "info", text: "保存済みの企画を開くか、新しい月を取り込んでください。" }
+    ? { tone: "info", text: "保存済みの企画を開くか、新しい月・週を取り込んでください。" }
     : { tone: "info", text: "保存済み企画はありません。Release Masterから作成できます。" };
 }
 
 export default function GeneratorHub({
   defaultMonth,
+  defaultWeek,
   initialDocuments,
   initialError,
   initiallyNeedsLogin,
 }: {
   defaultMonth: string;
+  defaultWeek: string;
   initialDocuments: Summary[];
   initialError: string | null;
   initiallyNeedsLogin: boolean;
 }) {
   const router = useRouter();
   const [documents, setDocuments] = useState<Summary[]>(initialDocuments);
-  const [series, setSeries] = useState<"monthly" | "japan">("monthly"), [month, setMonth] = useState(defaultMonth);
+  const [series, setSeries] = useState<"monthly" | "japan" | "weekly">("monthly"), [month, setMonth] = useState(defaultMonth), [week, setWeek] = useState(defaultWeek);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<Status>(initialError ? { tone: "error", text: initialError } : emptyStatus(initialDocuments.length));
   const [needsLogin, setNeedsLogin] = useState(initiallyNeedsLogin);
@@ -58,7 +69,9 @@ export default function GeneratorHub({
     setStatus({ tone: "info", text: "Release Masterを読み込んでいます…" });
     try {
       const document = await generatorJson<GeneratorDocument>(
-        await fetch(`/api/generator/source?series=${series}&month=${encodeURIComponent(month)}`, { cache: "no-store" }),
+        await fetch(series === "weekly"
+          ? `/api/generator/source?series=weekly&week=${encodeURIComponent(week)}`
+          : `/api/generator/source?series=${series}&month=${encodeURIComponent(month)}`, { cache: "no-store" }),
       );
       const snapshot = await generatorJson<GeneratorSnapshot>(await fetch("/api/generator/documents", {
         method: "POST",
@@ -71,7 +84,7 @@ export default function GeneratorHub({
       await loadDocuments().catch(() => {});
       setNeedsLogin(value.status === 401);
       setStatus(value.code === "DOCUMENT_EXISTS"
-        ? { tone: "warn", text: "同じ企画・月は作成済みです。下の一覧から開いてください。" }
+        ? { tone: "warn", text: "同じ企画・期間は作成済みです。下の一覧から開いてください。" }
         : { tone: "error", text: value.message });
     } finally {
       setBusy(false);
@@ -87,24 +100,31 @@ export default function GeneratorHub({
         <p className="text-xs font-semibold uppercase tracking-[.2em] text-violet-300">Shared generator</p>
         <h1 className="mt-2 text-2xl font-bold sm:text-3xl">投稿画像ジェネレーター</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6" style={{ color: "var(--text-secondary)" }}>
-          Release MasterからMonthly／Japanの月次企画を取り込み、作品・背景・並び順・共通画像を共同編集できます。
+          Release MasterからMonthly／Japanの月次企画とWeeklyの週次企画を取り込み、作品・背景・並び順・共通画像を共同編集できます。
           保存は対象ごとで、同じ対象は1人だけが編集します。保存済みの版から1200／2400pxのPNGを書き出せます。
         </p>
       </section>
 
       <Panel>
-        <PanelHeading title="新しい共有文書" note="Release Masterの対象月を取り込んで、共同編集用の文書を作ります。既に作成済みの月は一覧から開きます。" />
+        <PanelHeading title="新しい共有文書" note="Release Masterの対象月または対象週を取り込んで、共同編集用の文書を作ります。" />
         <div className="grid gap-3 sm:grid-cols-[1fr_180px_auto] sm:items-end">
           <Field label="企画">
             <SelectInput value={series} onChange={event => setSeries(event.target.value as typeof series)}>
               <option value="monthly">Monthly Review</option>
               <option value="japan">Monthly Japan Review</option>
+              <option value="weekly">Weekly Review</option>
             </SelectInput>
           </Field>
-          <Field label="対象月">
-            <TextInput type="month" value={month} onChange={event => setMonth(event.target.value)} />
-          </Field>
-          <PrimaryButton disabled={busy || !month} onClick={() => void createDocument()}>取り込んで作成</PrimaryButton>
+          {series === "weekly" ? (
+            <Field label="対象週の金曜日" hint="WEEK列が「採用」「掲載」の作品を取り込みます。">
+              <TextInput type="date" value={week} onChange={event => setWeek(event.target.value)} />
+            </Field>
+          ) : (
+            <Field label="対象月">
+              <TextInput type="month" value={month} onChange={event => setMonth(event.target.value)} />
+            </Field>
+          )}
+          <PrimaryButton disabled={busy || !(series === "weekly" ? week : month)} onClick={() => void createDocument()}>取り込んで作成</PrimaryButton>
         </div>
         <div className="mt-4">
           <StatusBanner
@@ -135,7 +155,7 @@ export default function GeneratorHub({
                   style={{ borderColor: "var(--border-subtle)" }}
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold">{document.periodStart.slice(0, 7)}</span>
+                    <span className="text-sm font-semibold">{summaryPeriod(document)}</span>
                     <Chip tone="info">{seriesLabels[document.series]}</Chip>
                   </div>
                   <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>

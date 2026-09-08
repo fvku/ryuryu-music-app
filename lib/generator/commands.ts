@@ -36,7 +36,11 @@ export function parseChange(value: unknown) {
     const pageIds = new Set<string>(), itemIds = new Set<string>();
     content = { pages: data.pages.map(value => {
       const page = record(value, ["id", "itemIds"]), id = uuid(page.id);
-      if (pageIds.has(id) || !Array.isArray(page.itemIds) || page.itemIds.length < 1 || page.itemIds.length > 2) invalid();
+      // The database compares every proposed page with the stored document and
+      // requires its item count to remain unchanged. The HTTP parser therefore
+      // accepts the complete range used by both formats: Weekly cover (0),
+      // Monthly pages (1–2), and Weekly Others (up to 60).
+      if (pageIds.has(id) || !Array.isArray(page.itemIds) || page.itemIds.length > 60) invalid();
       pageIds.add(id);
       return { id, itemIds: page.itemIds.map(value => { const id = uuid(value); if (itemIds.has(id)) invalid(); itemIds.add(id); return id; }) };
     }) };

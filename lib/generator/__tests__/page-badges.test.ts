@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { derivePageBadges } from "@/app/generator/[id]/workspace-types";
+import { derivePageBadges, movePageItem, swapWeeklyFeatureItem } from "@/app/generator/[id]/workspace-types";
 
 const pages = [
   { id: "p1", itemIds: ["i1"], bgColor: "#123456" },
@@ -56,5 +56,26 @@ describe("画像ごとのサムネイル表示状態", () => {
     expect(derive().p1.needsColor).toBe(false);
     expect(derive().p2.needsColor).toBe(true);
     expect(derive({ pageColors: { p2: "#abcdef" } }).p2.needsColor).toBe(false);
+  });
+});
+
+describe("Weeklyの並び順と選定", () => {
+  const weekly = [
+    { id: "cover", kind: "cover" as const, itemIds: [], bgColor: null },
+    { id: "feature-1", kind: "feature" as const, itemIds: ["a"], bgColor: null },
+    { id: "feature-2", kind: "feature" as const, itemIds: ["b"], bgColor: null },
+    { id: "others", kind: "others" as const, itemIds: ["c", "d"], bgColor: null },
+  ];
+
+  it("メインの順番を入れ替えてもページごとの件数は変わらない", () => {
+    const moved = movePageItem(weekly, "feature", "b", -1);
+    expect(moved.map(page => page.itemIds)).toEqual([[], ["b"], ["a"], ["c", "d"]]);
+    expect(moved.map(page => page.itemIds.length)).toEqual(weekly.map(page => page.itemIds.length));
+  });
+
+  it("メインとOthersは移動ではなくswapする", () => {
+    const swapped = swapWeeklyFeatureItem(weekly, "a", "d");
+    expect(swapped.map(page => page.itemIds)).toEqual([[], ["d"], ["b"], ["c", "a"]]);
+    expect(swapped.map(page => page.itemIds.length)).toEqual(weekly.map(page => page.itemIds.length));
   });
 });

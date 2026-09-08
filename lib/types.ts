@@ -17,8 +17,10 @@ export interface ReleaseMasterAlbum {
   artist: string;
   genre: "邦楽" | "洋楽" | "";
   duration: string;   // Time column (G) — 曲数・総尺。例: "9songs, 29min 9sec"
+  weekNumber: string; // # column (H) — Weeklyの週番号（土曜〜金曜）
   genreMemo: string;  // genre/memo column (K)
   country: string;    // 国 column (L)
+  weekAdoption: string; // WEEK column (O): 採用／掲載／不採用
   mjAdoption: string; // M/J採用 column (Q=16)
   mjAssign: string;   // ASSIGN column (R=17)
   mjTrackNo:   string;  // M Number column (S=18)

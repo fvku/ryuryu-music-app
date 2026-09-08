@@ -19,14 +19,14 @@ export type GeneratorItem = {
   source: { kind: "manual" | "release-master"; uid: string | null; no: string | null; date: string; importedAt: string | null; coverUrl: string | null; fields: Fields };
   content: ItemContent;
 };
-export type GeneratorPage = { id: string; kind: "adopted" | "listed"; itemIds: string[]; bgColor: string | null };
+export type GeneratorPage = { id: string; kind: "adopted" | "listed" | "cover" | "feature" | "others"; itemIds: string[]; bgColor: string | null };
 export type GeneratorTheme = { useWave: boolean; waveAssetId: string | null; backgroundAssetId: string | null; outputSize: 1200 | 2400 };
 export type GeneratorDocument = {
   schemaVersion: 1;
   id: string;
   series: "monthly" | "japan" | "weekly";
-  period: { type: "month" | "week"; start: string; end: string };
-  rendererVersion: "monthly-japan-v1" | null;
+  period: { type: "month" | "week"; start: string; end: string; weekNumber?: number };
+  rendererVersion: "monthly-japan-v1" | "weekly-v1";
   pages: GeneratorPage[];
   theme: GeneratorTheme;
   items: GeneratorItem[];
@@ -93,14 +93,17 @@ export function parseColor(value: unknown): string | null {
 export function parseDocument(value: unknown): GeneratorDocument {
   const raw = record(value, ["schemaVersion", "id", "series", "period", "rendererVersion", "pages", "theme", "items"]);
   if (raw.schemaVersion !== 1 || typeof raw.series !== "string" || !["monthly", "japan", "weekly"].includes(raw.series)) invalid();
-  const series = raw.series as GeneratorDocument["series"], period = record(raw.period, ["type", "start", "end"]);
+  const series = raw.series as GeneratorDocument["series"], period = record(raw.period, ["type", "start", "end", "weekNumber"]);
   const start = date(period.start), end = date(period.end);
+  let weekNumber: number | undefined;
   if (end <= start) invalid();
   if (series === "weekly") {
-    if (period.type !== "week" || Date.parse(end) - Date.parse(start) !== 7 * 86400000 || raw.rendererVersion !== null) invalid();
+    if (period.type !== "week" || Date.parse(end) - Date.parse(start) !== 7 * 86400000 || raw.rendererVersion !== "weekly-v1") invalid();
+    weekNumber = number(period.weekNumber, 1, 53);
+    if (!Number.isInteger(weekNumber)) invalid();
   } else {
     const next = new Date(start); next.setUTCMonth(next.getUTCMonth() + 1);
-    if (period.type !== "month" || !start.endsWith("-01") || next.toISOString().slice(0, 10) !== end || raw.rendererVersion !== "monthly-japan-v1") invalid();
+    if (period.type !== "month" || period.weekNumber !== undefined || !start.endsWith("-01") || next.toISOString().slice(0, 10) !== end || raw.rendererVersion !== "monthly-japan-v1") invalid();
   }
   if (!Array.isArray(raw.items) || raw.items.length > 200 || !Array.isArray(raw.pages) || raw.pages.length > 200) invalid();
   const itemIds = new Set<string>(), sourceUids = new Set<string>();
@@ -119,18 +122,34 @@ export function parseDocument(value: unknown): GeneratorDocument {
       date: string(source.date, 100), importedAt, coverUrl, fields: fields(source.fields) }, content: parseItemContent(raw.content) } as GeneratorItem;
   });
   const pageIds = new Set<string>(), placed = new Set<string>();
-  let listed = false;
+  let listed = false, weeklyStage: "cover" | "feature" | "others" = "cover", featureCount = 0, coverCount = 0, othersCount = 0;
   const pages = raw.pages.map(value => {
     const raw = record(value, ["id", "kind", "itemIds", "bgColor"]), id = uuid(raw.id);
-    if (pageIds.has(id) || !Array.isArray(raw.itemIds) || typeof raw.kind !== "string" || !["adopted", "listed"].includes(raw.kind)) invalid();
+    if (pageIds.has(id) || !Array.isArray(raw.itemIds) || typeof raw.kind !== "string") invalid();
     pageIds.add(id);
-    if (listed && raw.kind === "adopted") invalid();
-    listed ||= raw.kind === "listed";
-    if (raw.itemIds.length < 1 || raw.itemIds.length > (raw.kind === "adopted" ? 1 : 2)) invalid();
+    if (series === "weekly") {
+      if (!["cover", "feature", "others"].includes(raw.kind)) invalid();
+      if (raw.kind === "cover") {
+        if (weeklyStage !== "cover" || coverCount || raw.itemIds.length !== 0) invalid();
+        coverCount += 1; weeklyStage = "feature";
+      } else if (raw.kind === "feature") {
+        if (weeklyStage !== "feature" || featureCount >= 5 || raw.itemIds.length !== 1) invalid();
+        featureCount += 1;
+      } else {
+        if (weeklyStage !== "feature" || othersCount || raw.itemIds.length > 60) invalid();
+        othersCount += 1; weeklyStage = "others";
+      }
+    } else {
+      if (!["adopted", "listed"].includes(raw.kind)) invalid();
+      if (listed && raw.kind === "adopted") invalid();
+      listed ||= raw.kind === "listed";
+      if (raw.itemIds.length < 1 || raw.itemIds.length > (raw.kind === "adopted" ? 1 : 2)) invalid();
+    }
     const ids = raw.itemIds.map(value => { const id = uuid(value); if (!itemIds.has(id) || placed.has(id)) invalid(); placed.add(id); return id; });
     return { id, kind: raw.kind as GeneratorPage["kind"], itemIds: ids, bgColor: parseColor(raw.bgColor) };
   });
+  if (series === "weekly" && (coverCount !== 1 || othersCount !== 1)) invalid();
   if (placed.size !== items.length) invalid();
-  return { schemaVersion: 1, id: uuid(raw.id), series, period: { type: series === "weekly" ? "week" : "month", start, end },
-    rendererVersion: series === "weekly" ? null : "monthly-japan-v1", pages, theme: parseTheme(raw.theme), items };
+  return { schemaVersion: 1, id: uuid(raw.id), series, period: { type: series === "weekly" ? "week" : "month", start, end, ...(weekNumber === undefined ? {} : { weekNumber }) },
+    rendererVersion: series === "weekly" ? "weekly-v1" : "monthly-japan-v1", pages, theme: parseTheme(raw.theme), items };
 }

@@ -125,6 +125,91 @@ Claude Code側のブラウザに認証セッションが無く、固定データ
 - 作業後は、変更ファイル・維持した契約・検証結果・未確認事項・次の担当者が行うことを明記してください。会話だけに判断を残さないでください。
 - commit、push、デプロイ、共有DBの変更は依頼されるまで行わないでください。
 
+## 依頼：Weekly（NEW RELEASE WEEK）の機能契約
+
+> **2026-09-08（Claude Code）**：利用者の指示でWeeklyの設計を起こした。Codex担当分は同日実装済み（結果は本節末尾）。
+> 設計の正本は[Weeklyの設計](./generator-weekly-design.md)。以下はその要点だけ。
+
+利用者の決定は3点。**データ源＝Release Masterの日付でその週を全件読み、メイン5枚は画面で振り分け**（シートに週用の列は追加しない）、
+**表紙を含めて7枚すべてツールで作る**、**機能契約の実装はCodex**。
+
+あなたにお願いしたいのは次の3つです。版面の描画とUIはこちらで担当します。
+
+1. **`lib/generator/model.ts` のスキーマ拡張。** ページ種別に `cover`／`feature`／`others` を追加し、
+   series別に許容種別・順序・`itemIds`件数を分ける（weeklyは `cover`(0件) → `feature`(1件)×N≤5 → `others`(0〜60件) の固定順）。
+   weeklyの `rendererVersion` を `"weekly-v1"` にする。
+   **`ItemContent` と `GeneratorTheme` は変更不要**です（評価文は空文字、おすすめ曲は `show.track: false`、波は **`useWave: true`**）。
+   ※当初「Weeklyは波を使わない」と書いていましたが、2026-09-08のFigma実測でWeeklyの各面にも`Backwave`が敷かれていることを確認したため訂正しました。
+2. **取り込み。** `GET /api/generator/source?series=weekly&week=YYYY-MM-DD`（金曜日付）。
+   `M/J採用`列は見ず、対象金曜までの土曜〜金曜にあり、Release Masterの`#`列が対象週番号と一致する行を対象にする。重複除去・カバー画像の優先順・Time補完はMonthlyと同じ規則を共用。
+   `WEEK=採用`を`feature`、`WEEK=掲載`を`others`へ振り分け、空欄・不採用は除外する。画面のswapは取り込み後の微調整に使う。
+3. **テスト。** weeklyの検証・取り込みと、**既存のMonthly文書が同じ検証を通り続けること**。
+
+### 触らないでほしい箇所（設計上の要点）
+
+**`generator_structure_save` の「各ページの`itemIds`件数が変わらないこと」という不変条件は緩めないでください。**
+`others`(30件)から`feature`(1件)へ1件*移す*操作はこの制約で必ず`INVALID_INPUT`になりますが、
+**選定を「入れ替え（swap）」として定義すれば件数が動かず、現行APIのまま成立します**（`feature`の1件と`others`の1件を交換）。
+UI側も入れ替えとして設計します。したがって**新規マイグレーションは不要**です。
+`series`の`check`は既にweeklyを許容し、`unique (series, period_start, period_end)` が同一週の二重作成を防ぎます。
+
+### 実装前に決まっていないこと
+
+表紙の書体 `Alternate Gothic No2 D` が Google Fonts に無い件（現行`fonts.mjs`はOswaldとNoto Sans JPだけを読む）が未決です。
+版面の座標は2026-09-08にFigmaで実測し、設計文書 §6.1〜6.3へ入れました（作品面は全数値確定、表紙とOther Releasesは
+塗り・書体の細部だけFigmaのレート上限で未取得）。いずれも描画側の宿題なので、あなたの1〜3は先行して進められます。
+
+### 2026-09-08追記（Claude Code）：WEEK列の発見、`selectWeeklyAlbums()`の再修正が必要
+
+Koheiへの確認中に判明。**Release Masterには`WEEK`列（O列）が実在し、`M/J採用`と同じ語彙（採用／掲載／不採用）ですでに手動運用されている。**
+設計時点で「Weeklyの採用概念はシートに無い」としていた前提が誤りだった。詳細と修正案は[Weeklyの設計 §12](./generator-weekly-design.md#12-2026-09-08追記week列の発見設計の前提が変わった)。
+
+- 現行の`selectWeeklyAlbums()`（洋4邦1ヒューリスティック）は取り下げ、`selectReleaseMasterAlbums()`と同型の
+  「`WEEK`列で`feature`／`others`に振り分け、`不採用`・空は除外」へ差し替えてほしい。
+- `SHEET_COL`・`ReleaseMasterAlbum`・`route.ts`のマッパーに`WEEK`列の読み取りが無いので、そこから追加が要る。
+- これに伴い「洋4邦1をUIで強制するか」は解消（Koheiの回答：強制不要、選定はRelease Master側で確定済みのため）。
+- アプリ内の選定（入れ替え）UIは維持でよい（Release Master確定後の微調整用途）。
+
+### Codex実装結果（2026-09-08）
+
+- `model.ts`へWeekly専用のkind・順序・件数検証と`weekly-v1`を追加。Monthly／Japanとのkind混在を拒否する。
+- `source.ts`と取り込みAPIへ、金曜の週境界、ISO週年・週番号、全件抽出、重複除去、洋楽4＋邦楽1の初期配分を追加した（この初期実装の週番号・配分は後続のWEEK／`#`列対応で置換済み）。Weeklyでは`[EP]`を保持し、評価文を空、`show.track`をfalseにする。
+- APIと構成保存のswap不変条件を含むWeeklyテストを追加。`npm test -- --reporter=dot`は19ファイル・314件、型検査、ESLint、本番ビルドも成功。
+- `generator_structure_save`とマイグレーションは変更していない。既存画面にはWeekly描画を未接続として除外する型ガードだけを追加した。
+- Figma実測後の確定指示に合わせ、Weeklyを`useWave: true`へ修正し、作品名の初期書式へ`tracking: -0.02`と暫定`leading: 72 / 54`を追加した。
+- 次はClaude Code担当のWeekly UI、`weekly-v1`描画、swap選定、週番号表示、書き出し命名を接続する。
+
+### Codex継続結果（2026-09-08）
+
+- Release Masterの`#`列と`WEEK`列を型・ヘッダー解決・3つのAPIマッパーへ接続し、対象金曜までの土曜〜金曜から`採用`／`掲載`だけを取り込む。対象行の`#`は欠損・不正・混在を拒否し、文書の`period.weekNumber`へ保存する。文書の識別期間は金曜〜翌金曜のまま維持する。
+- Claude Codeが実測・実装した表紙、feature、Other Releasesを統合画面へ配線した。未知のページ種別をMonthly掲載面として描くフォールバックは廃止し、明示的にエラーにする。
+- ハブの金曜選択、ISO週年と`#`週番号、画像0〜6のナビゲーション、Weekly用PNG／ZIP名、feature↔Othersのswap、ページ種別ごとの編集項目を実装した。表紙のジャケットはfeature順から導出し、重複保存しない。
+- 既存の構成保存API、各ページの件数不変条件、DBマイグレーションは変更していない。commit、push、デプロイ、共有DBの永続変更も行っていない。
+- 自動テスト、型検査、lint、本番ビルドを通し、固定データの実ブラウザで表紙、feature、Others、並び替えダイアログ、横方向のはみ出しを確認した。2026-09-09に実共有W36文書を作成し、swap保存・構成復元・作品保存・作品復元・7枚ZIPを確認した。iPhone 17 Pro Simulatorの縦表示と横向き相当条件も確認し、日本語UIフォントと狭幅警告帯を補修した。物理iPhone実機は未確認。
+
+### 2026-09-08追記（Claude Code）：`npm test`に1件失敗を確認、週の抽出範囲の記述と実装の食い違い
+
+利用制限からの復帰後、全体の検証（`npx tsc`／`npm run lint`／`node --test tools/generator-lab/test/*.mjs`／`npm test`）をやり直したところ、`npm test`で1件だけ失敗した。私は`lib/generator/`を変更していないので、Codex継続作業の時点から状態が変わったか、当時の確認漏れと思われる。
+
+**失敗**：`lib/generator/__tests__/source.test.ts`「uses exactly the WEEK groups and keeps an empty others page」（86行目）。
+`feature`が2件のはずが1件しか作られない。
+
+**原因の特定**：このテストの2件目のアルバムは`date: "2026-08-08"`。対象週は金曜`2026-08-07`。
+`weeklyReleaseWindow()`を実際に計算すると、窓は`[2026-08-01（土）, 2026-08-08（土）)`＝**土曜始まり・排他的終了**になる
+（`saturday.setUTCDate(...-6)`から機械的に確認済み）。`2026-08-08`はこの窓の**終端と同じ値**なので`date >= period.end`に該当し、
+正しく除外されている。**テストのフィクスチャが窓の外の日付を使っているだけ**で、`selectWeeklyAlbums()`自体の不具合ではなさそう。
+2件目の日付を`2026-08-01`〜`2026-08-07`の範囲へ直せば通ると思われる（未確認、`lib/generator/`は変更していない）。
+
+**もう1点、ついでに気づいたこと**：この`weeklyReleaseWindow()`は実装上**土曜〜金曜**の7日窓だが、
+本書§12「実装結果」および`docs/generator-ui-implementation.md` §16はどちらも「**選択した金曜を含むISO週（月曜〜日曜）**」と書いている。
+実装（土曜始まり）と記述（月曜始まり）が一致していない。土曜始まりの窓は、`docs/generator-weekly-design.md` §2が挙げている
+「水曜発売のATOMEWと金曜発売の4作を同じ週にまとめる」という目的は実際に満たせている（Sep4金曜を対象週にすると窓は
+`[Aug29土, Sep5土)`でSep2水・Sep4金の両方を含む）ので、**実装は目的に沿っているが、説明文だけが実際と違う**という状態に見える。
+月曜〜日曜が本来の意図なら実装側の見直しが要るし、土曜〜金曜が正しいなら説明文の訂正で足りる。どちらとも判断できる立場ではないため、
+判断も修正もCodex側にお任せしたい。
+
+---
+
 ---
 
 ## この文書の位置づけ

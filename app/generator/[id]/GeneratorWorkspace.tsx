@@ -11,7 +11,7 @@ import GeneratorPreview, { type PreviewDiagnostics, type PreviewSelection } from
 import PageNavigator from "../PageNavigator";
 import { generatorJson, snapshotWithLocks, type GeneratorApiError } from "../generator-client";
 import { GeneratorRuntimeProvider } from "../runtime";
-import { Chip, Panel, SecondaryButton, SegmentedControl, StatusBanner, useMediaQuery, type SegmentOption, type Tone } from "../ui";
+import { Chip, Panel, SecondaryButton, SegmentedControl, SelectInput, StatusBanner, useMediaQuery, type SegmentOption, type Tone } from "../ui";
 import { PageInspector, RestoreControl, StructureDialog, TargetStatus, ThemeInspector, type TargetState } from "./Inspectors";
 import ItemInspector from "./ItemInspector";
 import {
@@ -46,6 +46,15 @@ function matchesLock(current: ActiveLock | undefined, expected: ActiveLock): boo
     && current.clientId === expected.clientId
     && current.token === expected.token
     && current.generation === expected.generation);
+}
+
+function periodLabel(document: GeneratorDocument): string {
+  if (document.series !== "weekly") return document.period.start.slice(0, 7);
+  const source = new Date(`${document.period.start}T00:00:00.000Z`), thursday = new Date(source);
+  thursday.setUTCDate(thursday.getUTCDate() + 4 - (thursday.getUTCDay() || 7));
+  const year = thursday.getUTCFullYear(), yearStart = new Date(Date.UTC(year, 0, 1));
+  const week = Math.ceil(((thursday.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${year} WEEK ${document.period.weekNumber ?? week} · ${document.period.start}`;
 }
 
 export default function GeneratorWorkspace({ initialSnapshot, actor }: { initialSnapshot: GeneratorSnapshot; actor: string }) {
@@ -92,7 +101,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const activeItem = pageItems[Math.min(slotIndex, Math.max(0, pageItems.length - 1))] || null;
   const selection: FieldSelection = selectionState && activeItem && selectionState.itemId === activeItem.id
     ? selectionState
-    : { itemId: activeItem?.id || "", slotIndex: 0, key: page?.kind === "listed" ? "title" : "text", start: 0, end: 0, source: "field" };
+    : { itemId: activeItem?.id || "", slotIndex: 0, key: page?.kind === "adopted" ? "text" : "title", start: 0, end: 0, source: "field" };
   const dirty = !same(previewDocument, snapshot.document);
   const recoveryKey = `ryuryu_generator_recovery:v1:${actor}:${documentId}`;
 
@@ -482,7 +491,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const themeDirty = !same(themeDraft, snapshot.document.theme);
   const unsavedLabels = [
     ...snapshot.document.items.filter(item => itemDirty(item.id)).map(item => `作品「${item.content.fields.title || "作品名未入力"}」`),
-    ...dirtyPages.map(({ index }) => `画像 ${index + 2} の背景色`),
+    ...dirtyPages.map(({ index }) => `画像 ${snapshot.document.series === "weekly" ? index : index + 2} の背景色`),
     ...(structureDirty ? ["並び順"] : []),
     ...(themeDirty ? ["共通設定"] : []),
   ];
@@ -579,7 +588,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
   // 文書全体の集計（未保存◯件）だけでは、どの画像かがサムネイルから分からない。
   const pageBadges = derivePageBadges({
-    pages: visiblePages,
+    pages: previewPages.map(value => ({ id: value.id, itemIds: value.slots.map(slot => slot.id), bgColor: value.bgColor })),
     isItemDirty: itemDirty,
     dirtyPageIds: new Set(dirtyPages.map(entry => entry.value.id)),
     pageColors,
@@ -601,13 +610,13 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
   return (
     <GeneratorRuntimeProvider documentId={documentId} theme={themeDraft}>
-      <div className="relative left-1/2 w-[calc(100vw-2rem)] max-w-[100rem] -translate-x-1/2 space-y-4">
+      <div className="generator-workspace relative left-1/2 w-[calc(100vw-2rem)] max-w-[100rem] -translate-x-1/2 space-y-4">
         {/* 企画名・版・未保存件数・移動を1行に畳む。空けた縦はプレビューへ回す。 */}
         <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
             <Link href="/generator" className="shrink-0 text-xs text-violet-300 hover:underline">← 企画一覧</Link>
             <h1 className="min-w-0 truncate text-base font-bold sm:text-lg">
-              {seriesLabels[snapshot.document.series]} {snapshot.document.period.start.slice(0, 7)}
+              {seriesLabels[snapshot.document.series]} {periodLabel(snapshot.document)}
             </h1>
             <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
               version {snapshot.version} · 更新者 {snapshot.updatedBy}
@@ -678,7 +687,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
               <GeneratorPreview
                 document={previewDocument}
                 page={previewPage}
-                pageNumber={currentIndex + 2}
+                pageNumber={previewPage.no}
                 onDiagnostics={handleDiagnostics}
                 onSelect={selectFromPreview}
                 selection={selection.key === "text" && selection.itemId === activeItem?.id
@@ -703,7 +712,20 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                   trailing={activeTarget.locked ? <RestoreControl state={activeTarget} compact /> : null}
                 />
               )}
-              {panel === "info" && pageItems.length > 1 && (
+              {panel === "info" && page?.kind === "others" && pageItems.length > 1 ? (
+                <label className="block text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                  Other Releasesの作品
+                  <SelectInput
+                    value={String(Math.min(slotIndex, pageItems.length - 1))}
+                    onChange={event => setSlotIndex(Number(event.target.value))}
+                    className="mt-1"
+                  >
+                    {pageItems.map((item, index) => (
+                      <option key={item.id} value={index}>{index + 1}. {item.content.fields.title || "（作品名未入力）"} / {item.content.fields.artist}</option>
+                    ))}
+                  </SelectInput>
+                </label>
+              ) : panel === "info" && pageItems.length > 1 ? (
                 <SegmentedControl
                   label="掲載の位置"
                   size="small"
@@ -715,7 +737,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                     dot: itemDirty(item.id) ? "warn" : activeLocks[keyOf("item", item.id)] ? "success" : undefined,
                   }))}
                 />
-              )}
+              ) : null}
             </div>
 
             <div className="mt-3 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-hidden">
@@ -736,7 +758,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                   {savedPage && pageTargetState ? (
                     <PageInspector
                       state={pageTargetState}
-                      pageNumber={currentIndex + 2}
+                      pageNumber={previewPage?.no ?? (snapshot.document.series === "weekly" ? currentIndex : currentIndex + 2)}
                       color={pageColors[savedPage.id] ?? savedPage.bgColor ?? FALLBACK_PAGE_COLOR}
                       defined={Boolean(pageColors[savedPage.id] ?? savedPage.bgColor)}
                       onColor={value => setPageColors(current => ({ ...current, [savedPage.id]: value }))}
@@ -745,7 +767,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                     <p className="text-sm" style={{ color: "var(--text-secondary)" }}>背景を編集できる画像がありません。</p>
                   )}
                 </div>
-              ) : activeItem && page && itemTargetState ? (
+              ) : activeItem && page && (page.kind === "adopted" || page.kind === "listed" || page.kind === "feature" || page.kind === "others") && itemTargetState ? (
                 <ItemInspector
                   key={`${activeItem.id}:${snapshot.itemVersions[activeItem.id]}`}
                   item={activeItem}

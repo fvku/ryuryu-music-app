@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ReleaseMasterAlbum } from "../../types";
-import { importDocument, parseImportPeriod, selectReleaseMasterAlbums } from "../source";
+import { importDocument, importWeeklyDocument, isoWeek, parseImportPeriod, parseWeeklyImportPeriod, selectReleaseMasterAlbums, selectWeeklyAlbums } from "../source";
 
 const album = (overrides: Partial<ReleaseMasterAlbum> = {}): ReleaseMasterAlbum => ({ no: "1", uid: crypto.randomUUID(), date: "2026/08/03", title: "Album", artist: "Artist",
-  genre: "洋楽", duration: "10songs, 40min", genreMemo: "Jazz", country: "US", mjAdoption: "採用", mjAssign: "", mjTrackNo: "2", mjTrack: "Song", mjStartTime: "",
+  genre: "洋楽", duration: "10songs, 40min", weekNumber: "32", genreMemo: "Jazz", country: "US", weekAdoption: "採用", mjAdoption: "採用", mjAssign: "", mjTrackNo: "2", mjTrack: "Song", mjStartTime: "",
   mjText: "Text", legacyScores: [], spotifyUrl: "", coverUrl: "", coverUrlLarge: "", ...overrides });
 describe("generator Release Master import", () => {
   it("computes exact month boundaries including leap years", () => {
@@ -37,4 +37,67 @@ describe("generator Release Master import", () => {
     expect(fallback.items[0].source.coverUrl).toBe("https://example.com/spotify.jpg");
   });
   it("rejects empty source months", () => expect(() => importDocument([], "monthly", "2026-08")).toThrow());
+});
+
+describe("Weekly Release Master import", () => {
+  it("accepts only Friday dates, computes the exclusive end, and uses the ISO week-year", () => {
+    expect(parseWeeklyImportPeriod("2027-01-01")).toEqual({ start: "2027-01-01", end: "2027-01-08" });
+    expect(isoWeek("2027-01-01")).toEqual({ year: 2026, week: 53 });
+    expect(() => parseWeeklyImportPeriod("2026-08-27")).toThrow();
+    expect(() => parseWeeklyImportPeriod("2026-02-30")).toThrow();
+  });
+  it("selects Saturday through Friday using the # week number, excludes blank/rejected rows, and deduplicates", () => {
+    const features = Array.from({ length: 5 }, (_, index) => album({ no: String(index + 1), title: `Feature ${index + 1}`, artist: `Artist ${index + 1}`,
+      date: `2026/08/${String(1 + index).padStart(2, "0")}`, weekAdoption: "採用", mjAdoption: index % 2 ? "不採用" : "" }));
+    const listed = album({ no: "6", title: "Other", artist: "国内", date: "2026年8月7日", genre: "邦楽", weekAdoption: "掲載" });
+    const duplicate = album({ no: "7", title: " feature 1 ", artist: " artist 1 ", date: "2026-08-07", weekAdoption: "掲載" });
+    const result = selectWeeklyAlbums([
+      ...features,
+      listed,
+      duplicate,
+      album({ title: "Rejected", date: "2026-08-06", weekAdoption: "不採用" }),
+      album({ title: "Blank", date: "2026-08-06", weekAdoption: "" }),
+      album({ title: "Previous Friday", date: "2026-07-31", weekNumber: "31", weekAdoption: "採用" }),
+      album({ title: "Next Saturday", date: "2026-08-08", weekNumber: "32", weekAdoption: "掲載" }),
+    ], "2026-08-07");
+    expect(result.weekNumber).toBe(32); expect(result.feature).toHaveLength(5); expect(result.others).toHaveLength(1);
+    expect(result.feature.every(value => value.weekAdoption === "採用")).toBe(true);
+    expect(result.others.every(value => value.weekAdoption === "掲載")).toBe(true);
+    expect([...result.feature, ...result.others].map(value => value.title.trim().toLowerCase())).not.toContain("previous friday");
+    expect([...result.feature, ...result.others].map(value => value.title.trim().toLowerCase())).not.toContain("next saturday");
+    expect([...result.feature, ...result.others].map(value => value.title.trim().toLowerCase())).not.toContain("rejected");
+  });
+  it("rejects missing, invalid, or conflicting # values on WEEK rows", () => {
+    expect(() => selectWeeklyAlbums([album({ date: "2026-08-07", weekNumber: "", weekAdoption: "採用" })], "2026-08-07")).toThrow();
+    expect(() => selectWeeklyAlbums([album({ date: "2026-08-07", weekNumber: "54", weekAdoption: "掲載" })], "2026-08-07")).toThrow();
+    expect(() => selectWeeklyAlbums([
+      album({ date: "2026-08-06", weekNumber: "32", weekAdoption: "採用" }),
+      album({ no: "2", title: "Other", date: "2026-08-07", weekNumber: "31", weekAdoption: "掲載" }),
+    ], "2026-08-07")).toThrow();
+  });
+  it("creates cover, feature and others pages while preserving EP prefixes and disabling Weekly-only unused fields", () => {
+    const input = [
+      ...Array.from({ length: 5 }, (_, index) => album({ no: String(index + 1), title: `Album ${index + 1}`, date: "2026-08-07", weekAdoption: "採用", mjAdoption: "不採用" })),
+      album({ no: "6", title: "[EP] Extra", date: "2026-08-07", weekAdoption: "掲載", coverUrl: "https://example.com/spotify.jpg", coverUrlLarge: "https://example.com/apple.jpg" }),
+    ];
+    const doc = importWeeklyDocument(input, "2026-08-07", "2026-09-08T00:00:00.000Z");
+    expect(doc.rendererVersion).toBe("weekly-v1"); expect(doc.period).toEqual({ type: "week", start: "2026-08-07", end: "2026-08-14", weekNumber: 32 });
+    expect(doc.pages.map(page => [page.kind, page.itemIds.length])).toEqual([["cover", 0], ["feature", 1], ["feature", 1], ["feature", 1], ["feature", 1], ["feature", 1], ["others", 1]]);
+    const extra = doc.items.find(item => item.source.fields.title === "[EP] Extra")!;
+    expect(extra.content.fields.title).toBe("[EP] Extra"); expect(extra.content.fields.text).toBe(""); expect(extra.content.show.track).toBe(false);
+    expect(extra.source.fields.text).toBe("Text"); expect(extra.source.coverUrl).toBe("https://example.com/apple.jpg");
+    expect(extra.content.typography.title).toEqual({ tracking: -.02, kerns: {}, leading: 72 / 54 });
+    expect(doc.theme.useWave).toBe(true);
+  });
+  it("uses exactly the WEEK groups and keeps an empty others page", () => {
+    const doc = importWeeklyDocument([album({ date: "2026-08-07", weekAdoption: "採用" }), album({ no: "2", title: "Second", date: "2026-08-06", weekAdoption: "採用" })], "2026-08-07");
+    expect(doc.pages.map(page => [page.kind, page.itemIds.length])).toEqual([["cover", 0], ["feature", 1], ["feature", 1], ["others", 0]]);
+  });
+  it("enforces the single Other Releases page capacity and rejects empty weeks", () => {
+    const values = Array.from({ length: 60 }, (_, index) => album({ no: String(index + 1), title: `Album ${index}`, date: "2026-08-07", weekAdoption: "掲載" }));
+    expect(importWeeklyDocument(values, "2026-08-07").pages.at(-1)?.itemIds).toHaveLength(60);
+    expect(() => importWeeklyDocument([...values, album({ no: "61", title: "Overflow", date: "2026-08-07", weekAdoption: "掲載" })], "2026-08-07")).toThrow();
+    expect(() => importWeeklyDocument(Array.from({ length: 6 }, (_, index) => album({ no: String(index + 1), title: `Feature ${index}`, date: "2026-08-07", weekAdoption: "採用" })), "2026-08-07")).toThrow();
+    expect(() => importWeeklyDocument([], "2026-08-07")).toThrow();
+  });
 });

@@ -2,13 +2,14 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import waveAsset from "@/tools/generator-lab/assets/wave.png";
+import weeklyLogoAsset from "@/tools/generator-lab/assets/hyoryu_logo_brush_1line_white.svg";
 import type { CanvasPreviewPage } from "@/lib/generator/canvas-preview";
 import type { GeneratorDocument } from "@/lib/generator/model";
 import type { ReleaseMasterAlbum } from "@/lib/types";
 
 export type LegacySlot = CanvasPreviewPage["slots"][number] & { jacket: { img: HTMLImageElement | null }; bgColor?: string };
 export type LegacyPage = Omit<CanvasPreviewPage, "slots"> & { slots: LegacySlot[] };
-export type PageImages = { wave: HTMLImageElement | null; background: HTMLImageElement | null };
+export type PageImages = { wave: HTMLImageElement | null; background: HTMLImageElement | null; logo: HTMLImageElement | null };
 type BandSegment = { text: string; key?: string };
 type DrawData = {
   body: string;
@@ -20,6 +21,7 @@ type DrawData = {
   meta: BandSegment[];
   rec: BandSegment[];
 };
+type WeeklyDrawData = Pick<DrawData, "tracking" | "kerns" | "typography" | "meta"> & { title: string; artist: string };
 
 export type Cell = { x: number; y: number; w: number; h: number };
 /** layoutParagraph が返す行。`at` は原稿の文字位置、`adv` は送り幅（どちらも描画が使う値そのもの）。 */
@@ -42,8 +44,21 @@ type LayoutModule = {
   titleBaselines(cell: Cell, lineCount: number): { title: number; artist: number };
   bodyLayoutFor(lineCount: number, maxLead?: number): { lead: number; baseline: number };
   bodyFits(lineCount: number): boolean;
+  WEEKLY: {
+    CELLS: { jacket: Cell; panel: Cell };
+    META_CELL: Cell;
+    TITLE_INSET_X: number;
+    TITLE_BASELINE: number;
+    ARTIST_BASELINE: number;
+    TYPE: { title: { size: number }; artist: { size: number }; meta: { size: number } };
+    OTHERS: { BODY: { BOX: Cell }; TYPE: { body: { size: number } }; layoutFor(lineCount: number): { lead: number; baseline: number }; fits(lineCount: number): boolean };
+  };
 };
-type PagesModule = { toDrawData(slot: CanvasPreviewPage["slots"][number]): DrawData };
+type PagesModule = {
+  toDrawData(slot: CanvasPreviewPage["slots"][number]): DrawData;
+  toWeeklyDrawData(slot: CanvasPreviewPage["slots"][number]): WeeklyDrawData;
+  toWeeklyOtherLine(slot: CanvasPreviewPage["slots"][number]): string;
+};
 export type BandLayout = { parts: { key: string | null; width: number }[]; gap: number; total: number; cell: Cell };
 type TextLayoutModule = {
   bandLayout(
@@ -69,6 +84,7 @@ export type GeneratorRuntime = {
   images: PageImages;
   coversByUid: Map<string, string>;
   coversByNo: Map<string, string>;
+  coverFontReady(): boolean;
 };
 
 export const FALLBACK_BACKGROUND = "#475569";
@@ -131,7 +147,9 @@ export function assetUrl(documentId: string, assetId: string): string {
 
 /** ジャケットを解決して、描画コアが受け取れる形のページにする。 */
 export async function preparePage(runtime: GeneratorRuntime, documentId: string, page: CanvasPreviewPage): Promise<LegacyPage> {
-  const sources = page.slots.map(slot =>
+  if (page.kind === "cover" && !runtime.coverFontReady()) throw new Error("Weekly表紙に必要な書体を読み込めません。");
+  // Other Releasesは文字リストのみ。使わないジャケットを30件読み込まない。
+  const sources = page.slots.map(slot => page.kind === "others" ? null :
     (slot.jacketAssetId && assetUrl(documentId, slot.jacketAssetId))
     || httpsUrl(slot.sourceCoverUrl || "")
     || (slot.sourceUid && runtime.coversByUid.get(slot.sourceUid))
@@ -192,14 +210,17 @@ export function GeneratorRuntimeProvider({
           import("@/tools/generator-lab/core/fonts.mjs"),
           import("@/tools/generator-lab/tiled-renderer.mjs"),
           fetch("/api/release-master", { cache: "no-store" }).then(async response => {
-            if (!response.ok) throw new Error("Release Masterを読み込めませんでした");
+            // 新しい文書はsource.coverUrlを持つ。Release Masterの再取得は古い文書用の
+            // フォールバックなので、一時的に読めなくてもプレビュー全体は止めない。
+            if (!response.ok) return [];
             return await response.json() as ReleaseMasterAlbum[];
           }),
         ]);
         fontsReady ||= fontsModule.default.loadAll();
-        const [wave, background] = await Promise.all([
+        const [wave, background, logo] = await Promise.all([
           useWave ? loadImage(waveAssetId ? assetUrl(documentId, waveAssetId) : waveAsset.src) : Promise.resolve(null),
           backgroundAssetId ? loadImage(assetUrl(documentId, backgroundAssetId)) : Promise.resolve(null),
+          loadImage(weeklyLogoAsset.src).catch(() => null),
           fontsReady,
         ]);
         if (cancelled) return;
@@ -209,7 +230,8 @@ export function GeneratorRuntimeProvider({
           pages: pagesModule.default as PagesModule,
           textLayout: textLayoutModule as TextLayoutModule,
           exporter: exporterModule as Exporter,
-          images: { wave, background },
+          images: { wave, background, logo },
+          coverFontReady: fontsModule.default.coverFontReady,
           ...coverMaps(albums),
         });
       } catch (loadError) {

@@ -220,8 +220,141 @@ const Layout = (() => {
     return n === 1 || bodyLead(n) >= TYPE.body.size;
   }
 
+  // ============================================================
+  // Weekly（NEW RELEASE WEEK）の作品面（feature）🔵 2026-09-08実測
+  // 出典: Koheiから受領した実物投稿7枚（2026 WEEK 36、tools/generator-lab/reference/2026#36/）。
+  // generator-weekly-design.md §6.1は「罫・パネル塗りは無い」としていたが誤りだった。
+  // 実測すると、Monthlyとまったく同じ規則（各セルの外側6px白罫、黒系60%パネル）が使われている。
+  // パネルの色は投稿ごとに色相が違う（背景に応じて変わる）ので、Monthlyと同じ
+  // 「黒を乗算」方式と判断した（PANEL_FILLをそのまま流用。個別の係数再検証はしていない）。
+  //
+  // 罫の実測（1200基準、5投稿で確認）: x194–200 と x1000–1006（Frame 5の左右外側）、
+  // y44–50（ジャケット上）、y850–856（ジャケットとパネルの境界）、y1150–1156（パネル下）。
+  // すべてMonthlyの「セル外側6px」の描き方（strokeRect を RULE/2 だけ膨らませる）と一致する。
+  const WEEKLY = {
+    CELLS: {
+      jacket: { x: 200, y: 50, w: 800, h: 800 },
+      panel:  { x: 200, y: 850, w: 800, h: 300 },   // タイトル・アーティスト・メタ帯をまとめて塗る1枚のパネル
+    },
+    // 作品名・アーティスト名の内枠。generator-weekly-design.md §6.1「Album (224,880) 752×240」＝
+    // panel(200,850,800,300)を左右24pxずつ内側に入れた幅（800-48=752）と一致する。
+    TITLE_INSET_X: 24,
+    // ベースライン（1200基準）。実物5投稿（I Know Too Much / We Want Bass / ACT III / Kismet / ATOMEW、
+    // いずれも1行・ディセンダ無し）でインク下端が全投稿でy948.5に一致し確定した。
+    // 設計文書のy904（cap基準の枠、高さ44）から逆算した948とも一致する。
+    TITLE_BASELINE: 948.5,
+    // アーティスト名はGoulding／Tempalayにディセンダ（g/p/y）があったため、
+    // ディセンダの無い3投稿（We Want Bass／ACT III／Kismet）のインク下端 y1017.5 で確定。
+    // 設計文書のy980+高さ40=1020という予測より2.5px上だが、実測を正とする。
+    ARTIST_BASELINE: 1017.5,
+    // メタ帯のベースライン。5投稿全てで最頻値1096（設計文書のy1064+高さ32=1096と一致）。
+    META_BASELINE: 1096,
+    // メタ帯の要素間ギャップ。generator-weekly-design.md §6.1「要素間 gap16px」を
+    // 既存のbandLayout()にそのまま渡すと、実物とインク位置が1px以内で一致することを確認済み
+    // （Monthlyのbrand.TEXT.bandGap=24.5とは別の値。取り違えないこと）。
+    META_GAP: 16,
+    // bandLayout()のcell引数。cell.y+cell.h/2+13 が META_BASELINE と一致するように定義している
+    // （drawBandLayout()の実装がこの式でベースラインを決めるため。text-layout.mjs参照）。
+    META_CELL: { x: 200, y: 1067, w: 800, h: 32 },
+    TYPE: {
+      // 字間-2%はimportWeeklyDocument()がtypography.titleとして持たせる想定（取り込み側の責務）。
+      // ここ（版面側の既定値）に書いても、text-layout.mjs の linesOf() が
+      // style.tracking（=呼び出し側の値）を必ず優先するため描画に反映されない
+      // （generator-weekly-design.md §6.1「字間−2%をどこに持たせるか」参照）。
+      title:  { family: 'Oswald', weight: 400, size: 54, color: '#ffffff', case: 'ORIGINAL', tracking: 0,
+                shadow: { dx: 10, dy: 10, blur: 40, color: 'rgba(0,0,0,.3)' } },
+      artist: { family: 'Oswald', weight: 200, size: 42, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
+      // meta帯の字体・区切りはMonthlyの TYPE.meta と実質同じ（フォールバック・UPPER・「・」区切りも共通）。
+      meta:   { family: 'Oswald", "Noto Sans JP', weight: 300, size: 32, color: '#ffffff', case: 'UPPER', tracking: 0,
+                shadow: { dx: 0, dy: 0, blur: 40, color: 'rgba(0,0,0,.3)' } },
+      // 和文が混じった場合のフォールバック。書体は未確定（🟡 generator-weekly-design.md §6.1）。
+      // 実物と比較できる和文例がまだ無いため、Monthlyの実決定（Zen Kaku Gothic New）を暫定で踏襲する。
+      titleJP:  { family: 'Zen Kaku Gothic New', weight: 700, size: 54, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
+      artistJP: { family: 'Zen Kaku Gothic New', weight: 300, size: 42, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
+    },
+
+    // Other Releases（`others`）🔵 2026-09-08実測（2026_W-6.png、実データ30行）
+    // 罫・パネルはfeatureとまったく同じ規則（外側6px白罫、黒系60%パネル、実測で確認）。
+    // Koheiの指示（2026-09-08）：件数は週によって変動するので、行送りを表示エリアに合わせて
+    // 自動で詰める／広げる。Monthlyの本文（bodyLayoutFor）とまったく同じ考え方で、
+    // 天地のマージン（ここではASCENT/DESCENT）を固定し、そのあいだを行数で均等に割る。
+    OTHERS: {
+      CELL: { x: 200, y: 50, w: 800, h: 1100 },   // 内枠。featureのFrame 5と違い縦罫・横罫とも外周だけ
+      HEADING: { CELL: { x: 200, y: 50, w: 800, h: 172 }, BASELINE: 169.5 },  // 中央揃え。実測: インク下端169.5
+      // 本文の「天地幅」。実測30行で先頭行ベースライン248.5・最終行ベースライン1089.5、
+      // 行送り29.0（=(1089.5-248.5)/29）と、フォントサイズ29pxがほぼ一致した（境界に近い密度）。
+      // ボックス(240,222)720×870 に対し ASCENT=26.5（天）・DESCENT=2.5（地）を引いた841pxを
+      // 行数-1で割ると行送りが決まる。本文が1行だけの場合はbodyLayoutForと同様に天地中央に置く。
+      BODY: {
+        BOX: { x: 240, y: 222, w: 720, h: 870 },
+        ASCENT: 26.5, DESCENT: 2.5,
+      },
+      TYPE: {
+        heading: { family: 'Oswald', weight: 400, size: 71, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
+        // 曲名/アーティストは"Title / Artist"の1文字列として組む（区切りは半角スラッシュ、実物どおり）。
+        // [EP]プレフィックスは落とさない（Weeklyの取り込み規則、generator-weekly-design.md §1）。
+        // 和文アーティスト（石若駿、サバシスターなど）が混じるため、metaと同じ和文フォールバックを持つ。
+        body: { family: 'Oswald", "Noto Sans JP', weight: 400, size: 29, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
+      },
+      /**
+       * n行を天地の中で均等に配置する行送りとベースライン。Layout.bodyLayoutFor と同型。
+       * 収まる最小行送り＝フォントサイズ（29px）を下回ったら呼び出し側がoverflowとして扱う
+       * （othersFits(n)を使うこと）。
+       */
+      layoutFor(lineCount) {
+        const n = Math.max(1, lineCount || 1);
+        const { BOX, ASCENT, DESCENT } = WEEKLY.OTHERS.BODY;
+        const top = BOX.y, bottom = BOX.y + BOX.h;
+        const first = top + ASCENT, last = bottom - DESCENT;
+        if (n === 1) return { lead: 0, baseline: (top + bottom) / 2 + (ASCENT - DESCENT) / 2 };
+        return { lead: (last - first) / (n - 1), baseline: first };
+      },
+      fits(lineCount) {
+        const n = Math.max(1, lineCount || 1);
+        return n === 1 || WEEKLY.OTHERS.layoutFor(n).lead >= WEEKLY.OTHERS.TYPE.body.size;
+      },
+    },
+
+    // 表紙（`cover`）🔵 2026-09-08実測（2026_W-0.png、実物投稿）。書体まわりだけKoheiから受領したファイルで校正。
+    COVER: {
+      // 縦帯5本。左から帯の順に何位（1〜5位、feature 1〜5の並び）を割り当てるかは
+      // generator-weekly-design.md §6.2の実測どおり「1位が中央、外側ほど下位」。
+      // RANK_TO_BAND[i] は「(i+1)位の作品を何番目（0=左端）の帯に描くか」。
+      // 帯の並び[4,2,1,3,5]の逆写像: 1位→index2, 2位→index1, 3位→index3, 4位→index0, 5位→index4。
+      BAND_ORDER: [4, 2, 1, 3, 5],
+      RANK_TO_BAND: [2, 1, 3, 0, 4],
+      bandCell(index) { return { x: index * 240, y: 0, w: 240, h: 1200 }; },
+      // 帯の上に重なる色オーバーレイ。🔵 2026-09-09確定。Koheiから受け取ったFigmaの原本値 #0040C7・不透明度60%。
+      // 実物投稿でも裏付け済み: 表紙(2026_W-0.png)の帯と、同じジャケットが無加工で写っている作品面
+      // (2026_W-1〜5.png、セル200,50,800×800)を突き合わせ、dst=(1-a)*src+a*C を画素回帰で解いた。
+      // 5本中4本がα=0.599〜0.602・C=(0, 63.5〜64.1, 198.6〜199.2)＝#0040C7@60%に一致し、平均誤差1.2階調。
+      // （残る1本＝帯index1は縦位置・倍率が完全一致のまま横の切り出しだけ中央40%ではなく18.4%だった。
+      //   手作業で作られた実物投稿側のトリミング差で、オーバーレイの値とは無関係。）
+      // 再検算は tools/generator-lab/measure/overlay-of.mjs で行える。
+      OVERLAY: { color: 'rgba(0,64,199,0.6)' },
+      // 毛筆ロゴ。既存アセットをそのまま描く（テキストではなく画像）。下端はキャンバス下端と揃う
+      // （50+1023+176.66=1199.66）ため、実装ではキャンバス下端基準で置く。
+      LOGO: { x: 450, y: 1023, w: 300, h: 176.66 },
+      // 週タイトル。実測（1200基準、実物投稿から）:
+      //   "NEW RELEASE"      ベースライン581、インク幅477.5（実測。字間+1%込み）
+      //   "{年} WEEK {週番号}" ベースライン699、インク幅508.5
+      //   行送り118（＝フォントサイズと同じ。字間はあっても行送りには影響しない）
+      //   どちらも中心x≈600（設計文書の「(408,499)左寄せ383×217」は誤りで、実際は中央揃え）
+      // フォントはgenerator-lab/assets/alternate-gothic-no2-d-regular.ttf（Koheiから受領、fonts.mjs参照）。
+      // サイズ118・字間+1%はdocs/10_投稿デザインルール.md §6の値が実測とほぼ一致した（誤差1px未満）。
+      TITLE: {
+        LINE1_BASELINE: 581, LINE2_BASELINE: 699, LEAD: 118, CENTER_X: 600,
+      },
+      TYPE: {
+        // "NEW RELEASE"／週番号行はどちらも固定文言・算出値であり、Release Master由来の
+        // 編集可能なテキストではないので、呼び出し側が最初から大文字で組み立てる（case:'ORIGINAL'）。
+        title: { family: 'Alternate Gothic No2 D', weight: 400, size: 118, color: '#ffffff', case: 'ORIGINAL', tracking: 0.01 },
+      },
+    },
+  };
+
   return {
-    CANVAS, EXPORT_SUPER_SAMPLE, RULE, RULE_COLOR, PANEL_FILL, BACKGROUND, CELLS, LISTED, TYPE, TEXT, TEXT_RULE,
+    CANVAS, EXPORT_SUPER_SAMPLE, RULE, RULE_COLOR, PANEL_FILL, BACKGROUND, CELLS, LISTED, TYPE, TEXT, TEXT_RULE, WEEKLY,
     MIN_WEIGHT, renderWeightOf, baselinesFor, titleBaselines, bodyBand, bodyLead, bodyLayoutFor, bodyFits,
     get renderWeightDelta() { return renderWeightDelta; },
     set renderWeightDelta(v) { renderWeightDelta = v; },

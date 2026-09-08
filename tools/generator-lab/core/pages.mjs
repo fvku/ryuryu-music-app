@@ -238,6 +238,40 @@ const Pages = (() => {
     ]);
   }
 
+  /**
+   * Slot → weekly-v1のRender（作品面）に渡す形。
+   * Weeklyの作品面には評価文・RECOMMEND帯が無い（generator-weekly-design.md §1・§6.1）ので、
+   * toDrawData から body／rec／bodyLeadMode／bodyMaxLead を落とした最小形にしている。
+   * meta（曲数・総尺・ジャンル・国、区切りは「・」、UPPER）はMonthlyとまったく同じ組み方なので
+   * metaBand() をそのまま流用できる（generator-weekly-design.md §6.1で確認済み）。
+   * 作品名の[EP]はMonthlyと違い、取り込み時点で残したまま（source.tsのgeneratorItem参照）。
+   */
+  function toWeeklyDrawData(slot) {
+    return {
+      title:  slot.show.title === false ? '' : slot.fields.title,
+      artist: slot.show.artist === false ? '' : slot.fields.artist,
+      meta:   metaBand(slot),
+      tracking: slot.tracking || 0,
+      kerns: slot.kerns || null,
+      typography: slot.typography || {},
+    };
+  }
+
+  /**
+   * Slot → weekly-v1のOther Releases1行分の文字列（"作品名 / アーティスト名"）。
+   * 実物（2026_W-6.png）の書式そのまま。[EP]は落とさない（toWeeklyDrawDataと同じ理由）。
+   * show.title/show.artistがfalseの項目は空文字にする既存の規則を踏襲するが、
+   * 両方非表示なら空行になってしまうため、その場合は区切りごと落とす。
+   */
+  function toWeeklyOtherLine(slot) {
+    const title = slot.show.title === false ? '' : slot.fields.title;
+    const artist = slot.show.artist === false ? '' : slot.fields.artist;
+    if (!title && !artist) return '';
+    if (!title) return artist;
+    if (!artist) return title;
+    return `${title} / ${artist}`;
+  }
+
   /** Slot → Render.draw に渡す形（SPEC.md §7.5「render.js の分岐」） */
   function toDrawData(slot) {
     return {
@@ -274,7 +308,7 @@ const Pages = (() => {
     groupOf, yearMonth, dateKey, isEP, stripEP, sortGroup,
     normalize, selectAlbums, monthsIn,
     makeSlot, makeGroups, paginate, move, filenameOf,
-    compactBand, metaBand, recBand, toDrawData, isMissing,
+    compactBand, metaBand, recBand, toDrawData, toWeeklyDrawData, toWeeklyOtherLine, isMissing,
     AUTO_FIELDS,
   };
 })();

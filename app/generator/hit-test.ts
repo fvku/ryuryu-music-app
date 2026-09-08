@@ -110,6 +110,26 @@ export function hitTest(
   x: number,
   y: number,
 ): Hit | null {
+  if (page.kind === "cover") return null;
+  if (page.kind === "feature") {
+    const slot = page.slots[0], weekly = runtime.layout.WEEKLY;
+    if (!slot) return null;
+    if (inside(weekly.META_CELL, x, y)) {
+      return { slotIndex: 0, key: bandFieldAt(runtime, context, slot, weekly.META_CELL, "meta", x) || "duration", index: null };
+    }
+    if (inside(weekly.CELLS.panel, x, y)) {
+      return { slotIndex: 0, key: y > (weekly.TITLE_BASELINE + weekly.ARTIST_BASELINE) / 2 ? "artist" : "title", index: null };
+    }
+    return null;
+  }
+  if (page.kind === "others") {
+    if (!inside(runtime.layout.WEEKLY.OTHERS.BODY.BOX, x, y) || page.slots.length === 0) return null;
+    const { lead, baseline } = runtime.layout.WEEKLY.OTHERS.layoutFor(page.slots.length);
+    const slotIndex = lead > 0
+      ? Math.min(page.slots.length - 1, Math.max(0, Math.round((y - baseline) / lead)))
+      : 0;
+    return { slotIndex, key: "title", index: null };
+  }
   const slots = page.kind === "adopted"
     ? [{ slot: page.slots[0], cells: { ...runtime.layout.CELLS, body: runtime.layout.CELLS.body } }]
     : page.slots.map((slot, index) => ({ slot, cells: { ...runtime.layout.LISTED.cellsOf(index), body: null } }));

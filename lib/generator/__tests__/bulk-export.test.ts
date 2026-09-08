@@ -41,6 +41,10 @@ describe("全ページのPNG書き出し", () => {
     expect(pngFileName(doc, 2)).toBe("monthly_26_08_02.png");
     expect(pngFileName({ ...doc, series: "japan" }, 12)).toBe("monthly-japan_26_08_12.png");
     expect(archiveFileName(doc)).toBe("monthly_26_08.zip");
+    const weekly = { series: "weekly" as const, period: { type: "week" as const, start: "2027-01-01", end: "2027-01-08", weekNumber: 7 } };
+    expect(pngFileName(weekly, 0)).toBe("weekly_26_W07_00.png");
+    expect(pngFileName(weekly, 6)).toBe("weekly_26_W07_06.png");
+    expect(archiveFileName(weekly)).toBe("weekly_26_W07.zip");
   });
 
   it("全ページを順に描き、1枚ごとにキャンバスを解放する", async () => {

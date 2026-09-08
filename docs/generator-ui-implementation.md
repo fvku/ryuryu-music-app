@@ -438,3 +438,265 @@ ZIP生成のコードがなく、仕様書§7にも複数枚をまとめる記�
 - Codex内ブラウザの固定データで、2400px×2枚と最大想定の14枚を実際に一括書き出しし、いずれも完了表示を確認した。14枚は3回計測して約6.1〜6.3秒。OS側で特定した対象レンダラーを実行中に1秒間隔で採取し、約337MBから最大410MB（増分約73MB）だった。逐次解放後もクラッシュ・停止はない。これはMac実機上のChromium系ブラウザでの結果で、iPhone実機Safariの確認を代替するものではない。
 - 実Monthly文書のRelease Master由来Time 10件をversion 4〜13として共有保存し、画像2〜10の9枚を4.8秒で一括書き出しした。ダウンロードされたZIPは67,754,850バイト。`unzip -t`で全9件のCRCが正常、ファイル名は`monthly_26_08_02.png`〜`monthly_26_08_10.png`、全画像が2400×2400だった。3×3一覧の目視でも欠落・空白・明らかな文字切れはなかった。
 - `bulk-export.test.ts` は7件のまま、旧「未実装」テストをstored形式、CRC32、UTF-8名、中央ディレクトリを確認するテストへ置き換えた。
+
+---
+
+## 13. 2026-09-08：Weekly（NEW RELEASE WEEK）の設計
+
+利用者の依頼で、毎週金曜の新譜紹介をジェネレーターに載せるための設計を起こした。**コードは1行も変えていない。**
+追加したのは `docs/generator-weekly-design.md`（設計の正本）と、`docs/codex-generator-handoff.md` への依頼1節のみ。
+
+### 利用者の決定（2026-09-08）
+
+1. データ源は**Release Masterの日付でその週を全件読み、メイン5枚とその他は画面で振り分ける**。シートに週用の列は追加しない。
+2. **表紙を含めて7枚**すべてツールで作る（Monthly／Japanは表紙を作っていないが、Weeklyは作る）。
+3. 機能契約（`model.ts`・取り込みAPI）の実装は**Codex**。UI・描画はそのあとClaude Code。
+
+### 設計上の要点
+
+- **DBのマイグレーションは不要。** `series`の`check`は既にweeklyを許容し、`unique (series, period_start, period_end)`が
+  同一週の二重作成を防ぐ。ページ種別を検証しているSQLは無い。
+- **`generator_structure_save` は「各ページの`itemIds`件数が変わらない」ことを要求している。**
+  そのため「その他→メイン5枚へ**移す**」操作は現行APIでは必ず`INVALID_INPUT`になる。
+  選定を**入れ替え（swap）**として定義すれば件数が動かず、**APIもマイグレーションも無改造で成立する**。
+  UI側も「枠へドロップ＝その枠にいた作品がリストへ戻る」という見た目にする。
+- `ItemContent`・`GeneratorTheme`は**変更不要**。評価文は空文字、おすすめ曲は`show.track: false`、波は`useWave: false`で作る。
+  → Monthly側の保存・復元・ローカル復旧の契約に触らずに済む。
+- `canvas-preview.ts` の `no: pageIndex + 2` はMonthlyの「表紙を作らない」前提が焼き込まれた箇所で、weeklyでは`+0`にする必要がある。
+- 書き出し名は `weekly_26_W35_00.png` ／ `weekly_26_W35.zip` を提案（現行規則だと同じ月の各週が区別できない）。**Monthly側の命名は変えない。**
+
+### 維持した機能契約
+
+コードを変更していないため、本文の自動行送り、`bodyLeadMode`の互換、iPhoneの字間UI非表示、
+保存・ロック・履歴・復元・ローカル復旧の不変条件はすべて現行のまま。
+
+### 未確認・止まっている点
+
+- **表紙の書体`Alternate Gothic No2 D`がGoogle Fontsに無い。** 現行`fonts.mjs`はOswaldとNoto Sans JPだけを読み、
+  Oswaldが当たらなければ例外で描画を止める設計。セルフホストか代替書体かの判断が要る。
+- **版面の実測値が足りない。** ジャケットのy・各行のベースライン・表紙の`Strip_1`〜`_5`の座標・
+  Other Releasesの段組が未実測。Figma接続の認証がこのセッションになく、実測できなかった。
+- 自動テスト・ビルドは実行していない（コード変更が無いため）。
+
+### 2026-09-08 追記：Figmaで版面を実測
+
+`Post-images`（`fPJXS1TvmBhHCX9E2zme4i`）の`Weekly`ページを実測し、設計文書 §6.1〜6.3を推測から実測値へ差し替えた。
+
+- **作品面（`2026_W-1`）は全数値が確定。** 内枠(200,50)800×1100／ジャケ(200,50)800×800／
+  `Album`(224,880)752×240・gap44／作品名 Oswald Regular 54・字間−1.08px(−2%)・行送り72・y904／
+  アーティスト Oswald ExtraLight 42・行送り48・y980／メタ帯 Oswald Light 32・UPPER・要素間16px・y1064。
+  区切りは **`・`（中黒）**で、Monthlyと同じだった。罫・パネル塗りは無い。
+- **表紙（`2026_W-0`）の構成が確定。** 縦帯は各240×1200が5本で、左から `4 2 1 3 5`（1位が中央）。
+  ロゴは(450,1023)300×176.66＝**下端0**で、docs/10の「下端0」を裏付けた。週タイトルの枠は(408,499)383×217。
+- **Other Releases（`2026_W-6`）は1段組。** 内枠は作品面と同じ(200,50)800×1100、見出し枠(200,50)800×172、
+  本文枠(240,222)**720×897**に1テキスト。2段組ではない。
+- **前提の訂正：Weeklyも`Backwave`を敷いている。** 当初「波は使わない（`useWave: false`）」と書いたのは誤りで、
+  取り込みは`useWave: true`にする。設計文書と`docs/codex-generator-handoff.md`の該当箇所を直した。
+- **未取得：** 表紙`overlay`の塗り、週タイトルの実書体指定、Other Releasesの`Rectangle 12`の塗り・角丸、
+  見出しと本文の行送り。FigmaのStarterプランのツール呼び出し上限に当たったため。上限回復後に4回ほどで埋まる。
+
+## 14. 2026-09-08：Weekly UI実装の着手、WEEK列の発見、実装方針の確認
+
+Koheiの依頼でWeekly UI実装に着手。着手直後にFigma MCPを試したがStarterプランのレート上限は未回復（Codexが§13で当たったのと同じ）。
+
+### Koheiに確認・回答した4点
+
+1. **表紙書体 `Alternate Gothic No2 D`**：セルフホスト方針で合意。Koheiから「自分で所有しているフォントファイルを使う形か」と質問があり、そのとおりと回答。ただし商用書体のためWeb埋め込み権がデスクトップ用ライセンスに含まれるとは限らない旨を伝え、Figma側の提供元（Adobe Fonts経由なら別解あり）の確認を依頼中。**フォントファイルの到着待ち。**
+2. **洋楽4＋邦楽1の強制**：不要と決定。理由はKoheiの回答から後述のWEEK列発見につながった。
+3. **長い作品名（内枠800pxに入らない場合）**：**字間を自動で詰める**で決定。実装時は下限を設け、それでも収まらない場合ははみ出し警告でPNG生成を止める（§6.4の方針を踏襲）。
+4. **表紙背景写真の運用**：Koheiの回答から「その週の金曜日が属する暦月の背景を使う」と解釈して進める（未確定なら要修正）。
+
+### 重要な発見：Release Masterに`WEEK`列が実在した
+
+「洋4邦1を強制するか」への回答（「release masterで該当週にWEEK列が採用となっているものです」）から判明。`scripts/check-headers.ts`でO列（index 14）が`"WEEK"`であることを確認し、実データ1218行を確認したところ値は`採用`／`掲載`／`不採用`の3種（`M/J採用`と同じ語彙）。
+
+設計文書（`generator-weekly-design.md` §3・§9-4）の「Weeklyの採用概念はシートに無い」という前提が誤りだった。現行の`lib/generator/source.ts`の`selectWeeklyAlbums()`（洋4邦1ヒューリスティック、Codex未コミット）はこの列を知らずに書かれており、`不採用`の除外もしていない。
+
+詳細・修正案は[Weeklyの設計 §12](./generator-weekly-design.md#12-2026-09-08追記week列の発見設計の前提が変わった)、Codexへの依頼は`docs/codex-generator-handoff.md`へ記録した。**Koheiの指示で、この修正はCodexへ差し戻す（従来の分担どおり）。**
+
+### 実装したもの（安全に確定できる範囲のみ）
+
+- `tools/generator-lab/core/pages.mjs`：`toWeeklyDrawData(slot)`を追加。Weeklyの作品面には評価文・RECOMMEND帯が無い（設計書§1・§6.1）ため、既存`toDrawData`から`body`／`rec`／`bodyLeadMode`／`bodyMaxLead`を落とした最小形。`meta`はMonthlyの`metaBand()`をそのまま流用（曲数・総尺・ジャンル・国、区切り「・」、UPPER、要素別show/typography対応まで同一と設計書§6.1で確認済み）。`[EP]`は落とさない（取り込み時点で保持済みの前提）。
+- テスト4件を`tools/generator-lab/test/pages-check.mjs`へ追加（body/rec不在の形、metaBand共用、EP保持、show非表示時の空文字化）。`node --test tools/generator-lab/test/*.mjs`は全件成功。
+
+### あえて実装しなかったもの・理由
+
+- **`Layout`への`weekly-v1`のセル・書体定数、`Render.drawWeeklyFeature()`は未実装。** 設計書§6.1のy座標（作品名904・アーティスト980・メタ帯1064）はFigma上の「箱の上端＋高さ」の生データで、キャンバスの`fillText`ベースラインへ変換するには縦方向トリム設定（cap-height基準か等）の確認が要る。参照画像なしで変換式を推測して実装すると、Monthly／掲載枠のときに実施した「figma.pngを実測してベースラインを確定する」方法（`measure/layout_of.js`）を経ずに版面を作ることになり、必須条件（画面と書き出しの一致）を満たせないまま進むリスクが高い。**Koheiに`2026_W-1`の2倍PNG書き出しを依頼済み**（`tools/generator-lab/reference/weekly-feature.png`を想定）。到着後、同じ実測方法で確定させる。
+- `lib/generator/canvas-preview.ts`のweekly対応も見送った。Codexの現行スタブ（weekly kindはnullを返す）は、`Render.drawWeeklyFeature()`が無い状態で`feature`/`cover`/`others`を通してしまうと、`render.mjs`の`drawPage()`が未知kindを`drawListed`（Monthlyの掲載枠2面レイアウト）として誤描画してしまう安全弁になっている。描画関数ができるまでこのスタブは維持する。
+
+### 未確認・次の担当者が行うこと
+
+- `Layout.WEEKLY`のセル・書体定数と`Render.drawWeeklyFeature()`：参照画像到着後、`measure/layout_of.js`と同じ方法で実測してから実装する。
+- 表紙・Other Releasesの実装：Figmaレート上限の回復待ち（overlay塗り、週タイトル書体、Other Releasesの塗り・角丸・行送り）。フォントファイルの到着も必要。
+- `lib/generator/source.ts`のWEEK列対応：Codexへ依頼済み（`codex-generator-handoff.md`参照）。この修正が終わるまで、実データでのWeekly取り込み・選定UIの実装は本格着手しない（データの前提が変わるため）。
+- 本ターンでは`npx tsc --noEmit --incremental false`／`npm run lint`／`node --test tools/generator-lab/test/*.mjs`（全件成功）／`npm test -- --reporter=dot`（19ファイル・314件成功）／`npm run build`（成功）を実行。
+
+## 15. 2026-09-08（続き）：実物投稿7枚を受領、feature版面をpixel検証で確定・実装
+
+Koheiから実物投稿7枚（2026 WEEK 36、`tools/generator-lab/reference/2026#36/2026_W-0.png`〜`_6.png`、
+すべて2400×2400）と、表紙書体`Alternate Gothic No2 D`のフォントファイルを受領した。
+
+### 重要な訂正：罫・パネル塗りは「無い」ではなく「ある」
+
+設計文書§6.1は「罫・パネル塗りは無い」としていたが、実物5枚（`W-1`〜`_5`）を画素単位で実測すると、
+**Monthlyとまったく同じ規則**（各セルの外側6px白罫、黒系60%パネル。パネル色は投稿ごとに色相が違う＝
+背景に応じた「黒を乗算」方式）が使われていた。原因はFigmaのノード検査が親フレームの効果を辿れていなかったと見られる。
+実測値は`generator-weekly-design.md` §6.1・§12に記録した。
+
+### 実装したもの
+
+- `tools/generator-lab/core/layout.mjs`：`Layout.WEEKLY`を追加（セル・ベースライン・字体・シャドウの実測値一式）。
+- `tools/generator-lab/core/render.mjs`：`Render.drawWeeklyFeature()`（作品面の描画）と`Render.fitWeeklyTitle()`
+  （内枠752pxに収まらない作品名を字間で自動的に詰める。Koheiの決定）を追加。
+- `tools/generator-lab/test/weekly-check.mjs`（新規）：8件。`Layout.WEEKLY`の値、`fitWeeklyTitle`の3分岐
+  （収まる／詰めて収める／下限でも収まらずoverflow）、`toWeeklyDrawData`の形を検証。
+
+### 検証方法と結果
+
+Ellie Goulding／I Know Too Muchのデータで`Render.drawWeeklyFeature()`を実際に描画し、実物`2026_W-1.png`と
+同じ手法（白インクの画素プロファイル）で測定・比較した。
+
+- インク位置は1px以内で一致（作品名y948→950、アーティストy1025→1026、メタ帯x335→335など）。
+- 赤＝実物／緑＝自作の重ね合わせで、罫・タイトル・アーティスト・メタ帯がほぼ完全に一致（縁の色滲みのみ、通常のアンチエイリアス差）。
+
+### 実装中に見つけて直した不具合
+
+`fitWeeklyTitle`の二分探索が逆向きだった（収まる側に収束すべきところ、baseTrackingに向かって収束していた）。
+最初のテストで「明らかに752pxを超える53文字のタイトルが字間据え置きで“収まる”」と出たため発覚。
+`lo`（収まる側）と`hi`（収まらない側）の更新方向を入れ替え、返り値も`hi`から`lo`へ修正した。
+修正後、テストで「返ってきたtrackingで実際に収まり、それより少し緩めると収まらない」という境界性まで検算している
+（この検算が無いと同種の回帰は再発しても気づけない）。
+
+### あえて実装しなかったもの・理由
+
+- **`lib/generator/canvas-preview.ts`のweekly対応は見送った。** `drawWeeklyFeature`は動くが、これをアプリの
+  プレビュー・サムネイル・一括書き出し（`GeneratorPreview.tsx`／`PageNavigator.tsx`／`BulkExportButton.tsx`／
+  `runtime.tsx`の4箇所）へ配線する作業がまだ残っている。`cover`／`others`の描画が無い状態で配線すると、
+  weekly文書の一部ページだけ描画できて一部できない、という中途半端な状態を作り込むことになるため、
+  表紙・Other Releasesの目処が立ってからまとめて配線する方が事故が少ないと判断した。
+- 表紙・Other Releasesの実装は引き続き保留。表紙はフォントの入手経路確認待ち（`generator-weekly-design.md` §9-1）、
+  Other Releasesは行送り等の書体詳細がFigmaレート上限で未取得（§9-2）。
+
+### 検証コマンド
+
+`node --test tools/generator-lab/test/*.mjs`（44件成功）／`npx eslint tools/generator-lab`（成功）／
+`npx tsc --noEmit --incremental false`（成功）。`npm run build`は今回の変更が`.mjs`のみのため未実行
+（前回セッションで成功確認済み、コード変更なし）。
+
+### 次の担当者が行うこと
+
+1. `lib/generator/canvas-preview.ts`の`feature`対応（`no: pageIndex`のweekly分岐含む）と、上記4ファイルへの配線。
+2. 表紙の書体：入手経路の確認結果を受けて`fonts.mjs`の読み込み経路を拡張するか、Adobe Fonts埋め込みへ切り替える。
+3. 表紙・Other Releasesの実測（Figmaレート上限の回復を待つか、実物投稿PNGでの実測を試す。今回の`feature`と同じ方法が使える見込み）。
+4. `lib/generator/source.ts`のWEEK列対応（Codexへ依頼済み、`docs/codex-generator-handoff.md`参照）が終わるまで、
+   実データでの通し受入（作成→取り込み→編集→保存→書き出し）は本格着手しない。
+
+## 16. 2026-09-08（Codex継続）：Weeklyを統合画面へ接続
+
+週間上限で中断したClaude Codeの作業を引き継ぎ、Weeklyを取り込みから7枚書き出しまで統合画面へ接続した。
+
+### 実装したもの
+
+- Release Masterの`#`列を週番号の正本として読み、対象金曜までの土曜〜金曜にある`WEEK=採用`をfeature、`WEEK=掲載`をOthersへ取り込む。空欄・`不採用`は除外し、対象行の`#`が欠損・不正・複数番号の混在なら取り込みエラーにする。文書の識別期間は選択金曜〜翌金曜のまま保持する。
+- `cover`／`feature`／`others`をプレビュー、サムネイル、クリック判定、はみ出し検査、単枚PNG、全ページZIPへ接続した。未知kindのMonthly掲載面フォールバックは廃止した。
+- 表紙の5ジャケットはfeatureページ順から導出し、選定・並び順の変更へ自動追従させた。Release Masterの`#`列を見出し・表紙・PNG／ZIP名に使い、年だけは対象金曜のISO週年を使う。
+- ハブへWeeklyと金曜入力を追加し、`weekly_YY_Www_00.png`／`weekly_YY_Www.zip`の名前で書き出す。
+- 情報修正はfeatureで作品名・アーティスト・曲数／総尺・ジャンル・国、Othersで作品名・アーティストだけを表示する。Othersは最大30タブを並べず作品選択ドロップダウンにした。
+- 並び替え画面でfeatureの順序変更、Othersの順序変更、featureとOthersのswapを行える。ページごとの件数は変えず、既存の`generator_structure_save`契約を維持する。
+- カバー画像は文書に保存されたURLを正本として読み、Release Master再取得は旧文書の補完に限定した。再取得に失敗しても文書内URLで描画を継続する。
+
+### 検証
+
+- 固定Weekly文書を一時プレビュールートで開き、表紙、feature 5枚、Others、ページ番号0〜6、ページ別編集項目、swap候補を実ブラウザで確認した。横スクロールとbrowser consoleのwarning／errorは無かった。一時ルートは確認後に削除した。
+- 共有DBを変更する操作はしていない。固定文書のためロックAPIの404表示は想定内で、編集操作と保存は実行していない。
+- 自動テストではWEEK列の振り分け、空欄・不採用除外、`#`の欠損・不正・混在拒否、重複除去、上限、ISO週年、表紙とfeatureの連動、swapの件数不変、Weekly描画と警告、ZIP名を追加確認した。
+- 2026-09-09に週境界をNew Music Fridayの運用どおり土曜〜金曜へ確定し、`#`列を型・API・文書の`period.weekNumber`・表紙・見出し・ファイル名へ接続した。境界テストは直前金曜と翌土曜を除外し、土曜と対象金曜を含む。
+- 同日の実Release Master読み取りではW35がfeature 5件＋Others 26件、W36がfeature 5件＋Others 30件で、全件のジャケットURLを取得できた。最新検証はアプリ19ファイル319件、描画コア58件、型検査、lint、本番ビルドが成功した。
+- 実共有W36文書を作成し、swap保存・構成復元・作品保存・作品復元をversion 1〜5として確認した。並び順のHTTP入力検証をWeeklyの表紙0件／Others最大60件へ対応し、DB側の「ページ件数不変」検証は維持した。
+- `weekly_26_W36.zip`（48,342,938 bytes）を実ブラウザで生成し、全7枚のCRCと2400×2400寸法を確認した。表紙・メイン・Othersも目視した。
+- iPhone 17 Pro／iOS 26.3 Simulatorで縦画面を確認し、日本語システムフォントが無い環境向けに描画用Noto Sans JPを編集UIでも使用した。狭幅で警告帯が1文字ずつ折り返す問題も縦積みへ補修した。横向き相当844×390・coarse pointerでは字間UI非表示と横オーバーフローなしを確認した。
+- 最新検証はアプリ19ファイル320件、描画コア59件、型検査、lint、本番ビルドが成功した。
+
+### 残件
+
+- 接続された物理iPhoneが無かったため、実機Safariでのスリープ復帰、連続PNG／ZIP、メモリ負荷は未確認。Simulatorとタッチ対応ブラウザエミュレーションは確認済み。
+- commit、push、デプロイを行い、公開環境でGoogleログイン後にW36文書を開けることを確認する。
+
+## 17. 2026-09-08（利用制限からの復帰）：表紙・Other Releasesの実測を完了、Codexの統合作業を検証
+
+§15の続き。中断中にCodexが週間上限で止まった作業を引き継ぎ、統合（`canvas-preview.ts`・`runtime.tsx`・ハブ・プレビュー・ナビゲーション・一括書き出し）まで完了させていた（`docs/generator-ui-implementation.md` §16「Codex継続」）。復帰後、自分の担当だった表紙・Other Releasesの実測を完了させ、Codexの統合結果を検証した。
+
+### 完了させたもの（自分の担当分）
+
+- 表紙・Other Releasesを実物投稿（`tools/generator-lab/reference/2026#36/2026_W-0.png`・`_6.png`）で画素単位実測し、`Layout.WEEKLY.COVER`・`Layout.WEEKLY.OTHERS`・`Render.drawWeeklyCover`・`Render.drawWeeklyOthers`を実装（中断前に着手済みだったものを完成）。
+  - 表紙: 帯オーバーレイの色（🟡単一投稿からの推定）以外はすべて実測値。週タイトルは中央揃え（設計時の左寄せ座標は誤り、§12参照）。ロゴは既存アセットを画像として描画。
+  - Other Releases: 見出し・本文フォントサイズを実測（71px／29px）。**行送りをKoheiの指示どおり件数に応じて自動的に詰める／広げる**実装（`Layout.WEEKLY.OTHERS.layoutFor`、Monthlyの本文と同型）。
+  - 表紙書体`Alternate Gothic No2 D`をセルフホストで統合（`tools/generator-lab/assets/`、`fonts.mjs`にMonthly/Japanを巻き込まない設計で追加）。
+- テスト21件を`tools/generator-lab/test/weekly-check.mjs`へ追加。
+- `docs/generator-weekly-design.md` §6.2・§6.3・§9を実測値で更新。
+
+### Codexの統合結果の検証
+
+- `npx tsc --noEmit`／`npm run lint`／`node --test tools/generator-lab/test/*.mjs`（58件）／`npm run build`：すべて成功。
+- `render.mjs`の`drawPage()`が`cover`／`feature`／`others`を自分の担当した各関数へ正しく振り分けていること、未知kindは例外を投げる（Monthlyの掲載枠へ誤フォールバックしない）ことを確認した。
+- `runtime.tsx`がロゴアセットを正しく読み込み、`images.logo`として渡していることを確認した。
+
+### 見つけた不具合（2026-09-09にCodexで解消）
+
+- `source.test.ts`の境界fixtureを土曜〜金曜へ揃え、失敗を解消した。
+- Koheiの説明に基づき、週の抽出窓をNew Music Fridayの土曜〜金曜へ確定した。Release Masterの`#`列を週番号の正本として取り込み・保存・表示・命名へ接続し、説明文も統一した。
+
+いずれも`lib/generator/`は変更していない（担当領域の外のため）。
+
+### 検証コマンド
+
+復帰時点の検証は`npx tsc --noEmit --incremental false`／`npm run lint`／`node --test tools/generator-lab/test/*.mjs`（58件成功）／`npm run build`（成功）。その後のCodex修正を含む最新結果は§16の検証追記を正とする。
+
+## 18. 2026-09-09：表紙オーバーレイ色の確定（Codexと並行、描画側のみ）
+
+Codexが機能側（取り込み・テスト）を進めている間に、干渉しない描画側の残件を1つ片づけた。
+変更したのは`tools/generator-lab/`だけで、`lib/generator/`・`app/`・API・DBには触れていない。
+
+### 背景
+
+`docs/generator-weekly-design.md` §6.2のオーバーレイ色は、実物投稿1枚の白背景部分からの逆算で
+`rgba(0,63,198,0.6)`とし「🟡他週の実物で検算要」のまま残っていた。
+
+### 確定した値
+
+**`#0040C7` の不透明度60%（＝`rgba(0,64,199,0.6)`、通常の重ね方で乗算ではない）。** KoheiからFigmaの原本値を受け取り、
+実物投稿でも独立に裏付けた。当初の逆算値は各成分が1ずれていた。
+
+裏付けは画素回帰による。表紙の帯は各ジャケットを240×1200へcover-fitしたものだが、同じジャケットが
+作品面（`2026_W-1`〜`W-5`）のセル(200,50)800×800に無加工で写っているため、両者で`dst = (1-a)·src + a·C`を
+立てて最小二乗で解ける。週タイトル2行と毛筆ロゴはオーバーレイの上に描かれるので除外し、再標本化のずれを
+避けるため原寸側が平坦な画素だけを使った。
+
+- 5本中4本が**α=0.599〜0.602、C=(0, 63.5〜64.1, 198.6〜199.2)**＝`#0040C7`@60%に一致。
+  285,461画素／チャンネルでの平均残差**1.2階調**。
+- 残る1本（帯index1＝2位の作品）は縦位置`v0=0.000`・倍率`1.000`と完全一致のまま、**横の切り出しだけ中央40%ではなく18.4%**。
+  実物投稿が手作業で作られたことによるトリミング差で、オーバーレイの値とは無関係と判断した。
+
+### 変更したファイル
+
+| ファイル | 変更 |
+| --- | --- |
+| `tools/generator-lab/core/layout.mjs` | `WEEKLY.COVER.OVERLAY.color`を`rgba(0,64,199,0.6)`へ。出典と裏付けをコメントに記録 |
+| `tools/generator-lab/measure/overlay-of.mjs` | 新規。検算スクリプト（PNGデコード＋画素回帰）。`node tools/generator-lab/measure/overlay-of.mjs [参照フォルダ]` |
+| `tools/generator-lab/test/weekly-check.mjs` | 定数の回帰テストを1件追加（58→59件） |
+| `tools/generator-lab/reference/README.md` | 受領済みファイルの一覧と、存在しないスクリプトを指していた実測手順を差し替え |
+| `docs/generator-weekly-design.md` | §6.2の表と🟡注記、§9-2、更新履歴 |
+
+`app/generator/runtime.tsx`は`layout.mjs`を直接importしているため、アプリ側の描画にも追加変更なしで反映される
+（オーバーレイ色の定義はこの1か所だけで、複製は無い）。
+
+### 検証
+
+`node --test tools/generator-lab/test/*.mjs`（59件成功）、`npx tsc --noEmit --incremental false`、`npm run lint`：いずれも成功。
+`node tools/generator-lab/measure/overlay-of.mjs`で上記の回帰結果を再現できる。
+
+### 未確認・Codexへの引き継ぎ
+
+- 実ブラウザでの表紙の目視確認は未実施（1階調の色差なので画面での識別は困難、数値と回帰テストで担保している）。
+- `npm test`／`npm run build`は、Codexが`lib/generator/`を編集中のため実行していない。区切りのついた時点で通してほしい。
+- 設計文書§9-3「表紙の背景写真は金曜日が属する暦月の背景を使う」は**Koheiの最終確認待ちのまま**。

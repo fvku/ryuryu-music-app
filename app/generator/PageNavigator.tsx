@@ -27,6 +27,14 @@ function badgesOf(state: PageBadges | undefined): Badge[] {
   return list;
 }
 
+function pageKindLabel(page: CanvasPreviewPage): string {
+  if (page.kind === "adopted") return "採用";
+  if (page.kind === "listed") return "掲載";
+  if (page.kind === "cover") return "表紙";
+  if (page.kind === "feature") return "メイン";
+  return "Others";
+}
+
 function PageThumbnail({ documentId, page }: { documentId: string; page: CanvasPreviewPage }) {
   const { runtime } = useGeneratorRuntime();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -119,7 +127,7 @@ export default function PageNavigator({
               >
                 <PageThumbnail documentId={documentId} page={page} />
                 <span className="mt-0.5 block px-0.5 text-[10px]" style={{ color: active ? "#c4b5fd" : "var(--text-secondary)" }}>
-                  {page.no} · {page.kind === "adopted" ? "採用" : "掲載"}
+                  {page.no} · {pageKindLabel(page)}
                 </span>
                 {badges.length > 0 && (
                   <span className="mt-0.5 flex flex-wrap items-center gap-1 px-0.5">
