@@ -212,6 +212,93 @@ Koheiへの確認中に判明。**Release Masterには`WEEK`列（O列）が実�
 
 ---
 
+## 報告：背景の合成と月別waveを実装した（2026-09-09、Claude Code）
+
+**依頼ではなく報告です。**機能契約・API・DB・マイグレーションは触っていません。
+
+### 決まったこと（Koheiの決定、2026-09-09）
+
+- 背景は「地の色100%の上に、waveをブレンドモード**Luminosity**・不透明度**50%**」。
+  Monthly／Japanを含む全シリーズ共通（[Weeklyの設計 §6.5](./generator-weekly-design.md#65-背景の合成-2026-09-09確定)）。
+- **waveは月替わりで、Koheiが月ごとに未加工の原版を渡す。** 加工はこちら側で行う。
+- Weeklyが使うのは**対象金曜が属する暦月**。週が月をまたいでも金曜基準（`period.start`の月）。
+- 地の色（`page.bgColor`）は手動のカラーピッカーのまま。
+
+### 実装（すべて描画・UI側）
+
+| ファイル | 変更 |
+| --- | --- |
+| `tools/generator-lab/core/layout.mjs` ／ `render.mjs` | Luminosity・不透明度50%。素材にαが焼き込まれていても実効50%になるよう補正 |
+| `tools/generator-lab/make-wave.mjs` | 新規。原版を8bitグレースケールへ変換して`assets/waves/wave26MM.png`を作る |
+| `tools/generator-lab/assets/waves/` | 新規。2026-08〜12を配置（1か月あたり約2.9MB。原版の約1/3） |
+| `app/generator/runtime.tsx` | `BUNDLED_WAVES`と`waveForMonth()`。`period.start`の月から自動選択。`GeneratorRuntimeProvider`に`period`を追加 |
+| `app/generator/[id]/GeneratorWorkspace.tsx` | 上記Providerへ`period`を渡す1行 |
+| `app/generator/[id]/Inspectors.tsx` | 共通設定に「どの月の波を使っているか」「対象月が未登録」の表示 |
+| `.gitignore` ／ `tools/generator-lab/reference/` | 参照画像と波の原版をGit管理外へ（1枚3〜9MB。変換後だけを追跡する） |
+
+`theme`のスキーマ、`generator_check_assets`、マイグレーションは変更していません。
+`theme.waveAssetId`（アップロードによる差し替え）は従来どおり優先されます。
+
+2026-09-09に**2026年1〜12月の原版を受領**し、全12か月を変換して配置した（`assets/waves/`で約32MB、原版は約98MB）。
+旧`assets/wave.png`は退役させ、標準の波は8月の原版（`waves/wave2608.png`）に差し替えた。
+Monthlyの見た目（通常合成→Luminosity）はKoheiが確認済みで、これで確定。
+
+### 依頼（Codex）
+
+1. **実共有文書での通し確認。** 実DBに触れるのはそちらの担当なので、W36のWeekly文書と直近のMonthly文書で
+   「対象月の波が出ているか」「保存・履歴復元・7枚ZIPが通るか」を確認してほしい。
+   私が確認したのはビルド・型・lint・描画コアのテスト（59件）と、`background-check.html`での画素比較まで。
+2. **`npm test`の実行。** `lib/generator/`をそちらが編集中だったため回していない。
+3. **コミット時の扱い。** 私の変更は未コミットで、`tools/generator-lab/reference/`（実物投稿と波の原版、64MB）の
+   **削除がインデックスに乗っている**。Git管理外にする判断はKoheiのもの（2026-09-09）なので、
+   まとめてコミットしてよい。`.gitignore`に`/tools/generator-lab/reference/**/*.png`を追加済み。
+   履歴に残っている64MBは当面そのままにする判断（同日）。
+4. **既存文書への移行は不要。** `theme`のスキーマも`generator_check_assets`も変更していない。
+   `theme.waveAssetId`（アップロードによる差し替え）は従来どおり優先される。
+   波の自動選択は文書に何も保存せず、`period.start`から毎回導いている。
+
+### 依頼（2026-09-09・第2弾）：実共有文書での通し確認
+
+この日の後半に、和文書体・Other Releasesの太さ・未登録月のゲートを追加で入れた。
+実DBに触れるのはそちらの担当なので、実共有文書での確認をお願いしたい。
+
+1. **和文の見た目。** Weeklyの作品面とMonthly／Japanの採用枠・掲載枠で、和文の作品名・アーティスト名が
+   `Noto Sans JP`（作品名400／アーティスト300）で出ていること。実物投稿との照合は画素で済ませてある
+   （4か所すべて±4.3%以内）が、実画面は見ていない。
+2. **Other Releasesの太さ。** `renderWeight: 350`で、字送り・折り返し・行数が**変わっていない**こと
+   （測る太さは400のままなので変わらないはずだが、実データで確認したい）。
+3. **未登録月のゲート。** 対象月の波が無い文書で、プレビューに警告が出て**単枚PNGも一括ZIPも作れない**こと。
+   いまは2026年の12か月しか登録していないので、2027年の文書を作れば再現する。
+   境界の挙動は`lib/generator/__tests__/wave-month.test.ts`で固定してある。
+4. **既存文書への影響。** 背景の合成がLuminosityに変わり、和文書体も変わったので、
+   既存のMonthly文書を開いたときに保存や履歴が壊れていないこと（データは触っていないので変わらないはず）。
+
+いずれも`theme`のスキーマ・API・DB・マイグレーションは変更していない。
+
+### そちらで判断が要るかもしれない点
+
+- **月別waveを共有Storageへ移すか。** 現状はリポジトリ同梱で、年12か月ぶんで約35MBずつ増えます。
+  Supabaseへ移すなら保管とAPIはそちらの領域です。移す場合も、選択ロジック（`waveForMonth`）と
+  UIはそのまま使えます。
+- **「この文書はこの月の波を使う」を保存したい場合。** いまは対象月から毎回導くだけで、
+  文書に保存していません。人が月を選び直して保存したいなら`theme`にフィールドが要ります。
+
+### Codex継続結果（2026-09-09）
+
+- 月別waveは当面リポジトリ同梱を維持する。描画時に必要な対象月の1枚だけを取得でき、認証・共有Storageの
+  可用性へ新たに依存しないため。年ごとの容量増加は今後の運用実績を見て再評価する。
+- 使用月は文書へ重複保存せず、引き続き`period.start`から導出する。手動で別素材を選ぶ用途は既存の
+  `theme.waveAssetId`で表現できるため、スキーマ・DB・マイグレーションは変更していない。
+- 実共有W36文書で2026年9月、2026年8月Monthly文書で2026年8月のwaveが選ばれることを実画面で確認した。
+  W36は共通設定をversion 7へ一時保存し、version 6からversion 8として復元。Monthlyはversion 14へ一時保存し、
+  version 13からversion 15として復元した。どちらも最終値は2400px、未保存0件、ロック0件へ戻した。
+- `weekly_26_W36.zip`は7枚・47,377,064 bytes、`monthly_26_08.zip`は9枚・59,578,423 bytes。
+  全PNGのCRCと2400×2400寸法を検査し、代表画像で対象月のwave、ジャケット、文字の欠落がないことを目視した。
+- `npm test -- --reporter=dot`は19ファイル320件、描画コアは59件成功。型検査、lint、本番ビルドも成功した。
+  物理iPhone実機のスリープ復帰・連続出力負荷と、3人・別端末の同時編集は引き続き未確認。
+
+---
+
 ## この文書の位置づけ
 
 `docs/claude-generator-ui-handoff.md`（Claude Code向け）と対になる、Codex向けの引き継ぎプロンプト。役割分担は仕様書§11のとおり、Codexが機能契約・API・認証・Supabase・データ整合性・テスト、Claude Codeがページ遷移・情報設計・UI・ビジュアルデザインを担当する。2026-09-07に利用者がこの領域分担の維持を確認済み。

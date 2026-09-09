@@ -10,7 +10,7 @@ import {
   buildArchiveEntries,
   getArchivePacker,
 } from "./bulk-export";
-import { drawPageInto, preparePage, useGeneratorRuntime, type LegacyPage } from "./runtime";
+import { drawPageInto, preparePage, useGeneratorRuntime, waveWarnings, type LegacyPage } from "./runtime";
 import { Chip, type Tone } from "./ui";
 
 /**
@@ -44,7 +44,8 @@ export default function BulkExportButton({
         ? "共有DBに未保存の変更があります。保存してから書き出せます。"
         : pages.length === 0
           ? "書き出せる画像がありません。"
-          : null;
+          // 別の月の波で描いた画像は見た目が破綻しないので気づけない。ここで止める（runtime.tsxのwaveWarnings）
+          : waveWarnings(runtime)[0] ?? null;
 
   async function run() {
     if (!runtime || !packer) return;

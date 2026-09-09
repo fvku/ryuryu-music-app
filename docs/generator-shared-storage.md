@@ -103,3 +103,8 @@ DBテストはdev依存の[PGlite](https://pglite.dev/docs/)による一時的�
 HTTPテストは認証・外部fetchをモックして実ルートを呼び出す。匿名・古いセッション・Spotifyのみ・許可取消しの拒否、サーバー更新者、未設定503、秘密値を返さないことを確認した。実Supabaseではロールバック付き保存・復元とPostgREST読み取りを確認。ローカル画面では実Google OAuth、Release Master読み取り、文書作成・再読込、2026年8月Monthlyの11作品・9画像プレビューまで成功した。3人同時操作と公開環境のE2Eは未実施。[HTTP検証](../lib/generator/__tests__/http.test.ts)
 
 Weeklyの取込APIは実Release Masterを読み取り、`#35`がメイン5件＋Others 26件、`#36`がメイン5件＋Others 30件になり、全66件にジャケットURLがあることを確認した。実共有W36文書を作成し、swap保存・構成復元・作品保存・作品復元をversion 1〜5で確認後、元の内容とロック0件へ戻した。`weekly_26_W36.zip`は全7枚のCRC・2400×2400寸法・代表3面の目視に成功した。iPhone 17 Pro Simulatorの日本語表示と狭幅レイアウトも確認した。
+
+2026-09-09の月別wave受入では、W36が9月wave、2026年8月Monthlyが8月waveを自動選択することを実画面で確認した。
+共通設定の一時保存と対象別履歴復元を行い、W36はversion 8、Monthlyはversion 15で元の2400px設定へ戻した。
+両文書とも未保存0件・ロック0件。月別wave版のWeekly 7枚（47,377,064 bytes）とMonthly 9枚
+（59,578,423 bytes）は全CRC・2400×2400寸法を確認し、代表画像も目視した。スキーマ・API・DB変更はない。

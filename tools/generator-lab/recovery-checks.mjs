@@ -53,7 +53,7 @@ try {
     pass('IndexedDB: manual image Blob survives reload');
     assert((await store.load('check-other')).document.pages.adopted.slots[0].fields.title === 'Other tab', 'Other draft overwritten');
     pass('Two independent DB connections: drafts remain isolated');
-    const [sample, wave] = await Promise.all([loadImage('./assets/jacket_2000.webp'), loadImage('./assets/wave.png'), Fonts.loadAll()]);
+    const [sample, wave] = await Promise.all([loadImage('./assets/jacket_2000.webp'), loadImage('./assets/waves/wave2608.png'), Fonts.loadAll()]);
     const restored = await restoreDraft(value, sample, decode);
     assert(restored.pages.listed.slots[0].jacket.img.naturalWidth > 0, 'Image decode failed');
     assert(JSON.stringify(captureDraft(restored.pages, restored).document) === JSON.stringify(value.document), 'Restored model differs');

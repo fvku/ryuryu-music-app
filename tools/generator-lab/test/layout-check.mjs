@@ -137,8 +137,9 @@ t('行送りが文字サイズを下回るほど行数が多いと成立しな�
 });
 
 console.log('\n背景の合成（SPEC §6）');
-t('波に重ねて不透明度を掛けない。50% は波PNGのアルファに焼き込まれている', () => {
-  assert.strictEqual(L.BACKGROUND.waveOpacity, 1);
+t('波はLuminosity・不透明度50%で重ねる（Figmaの版面。実物投稿で残差0.34階調）', () => {
+  assert.strictEqual(L.BACKGROUND.waveOpacity, 0.5);
+  assert.strictEqual(L.BACKGROUND.waveBlend, 'luminosity');
 });
 
 console.log('\n色の変換（SPEC §6）');

@@ -14,17 +14,23 @@ const Layout = (() => {
   const RULE_COLOR = '#ffffff';
   const PANEL_FILL = 'rgba(0,0,0,0.6)';   // 実測: 背景を 0.4 倍する ＝ 黒 60%
 
-  // 背景の合成 🔵 2026-09-04 実測（reference/background.png ＋ reference/wave.png）
+  // 背景の合成規則。🔵 2026-09-09確定。Koheiの説明（Figmaは「地の色100%の上に、waveをブレンドモード
+  // **Luminosity**・不透明度**50%**」）を実物投稿で検算した。2026-09-04の「特別なブレンドモードは
+  // 使われていない＝ただの通常合成」という当時の判断は誤りで、通常合成では地の色の彩度が半分に薄まる。
   //
-  // **特別なブレンドモードは使われていない。ただの通常合成だった。**
-  // 波が background.png のものと同一であることを確認（輝度の相関 r=0.9999）したうえで、
-  // チャンネルごとに B = a·W + b を最小二乗フィットすると 3チャンネルとも a≈0.5（R²≥0.9995）。
+  // 検算：`reference/2026#36`の実物7枚と、同じ月のwaveで
+  //   out = 0.5·SetLum(C, Lum(wave)) + 0.5·C   （W3C Compositing 1 のLuminosity。Lum = 0.3/0.59/0.11）
+  // を解くと、作品面5枚とも残差は平均0.34階調・最大2階調で一致する（Other Releasesのみ平均1.9）。
+  // 「waveをそのままの色で50%」だとチャンネルごとの実効不透明度が0.25/0.68/0.45とばらけて合わない。
+  // 再検算は`background-check.html`（generator-labサーバ8778番）。
   //
-  // ⚠️ **50% は wave.png のアルファチャンネルに焼き込まれている**（全画素 α=128）。
-  //    Figma から書き出した波レイヤーが不透明度を持ったまま出てくるため。
-  //    したがってツール側で重ねて不透明度を掛けてはいけない（掛けると実効25%になる。実際に一度やった）。
-  //    ここが 1 なのはそのため。将来アルファを持たない波（α=255）が来たら、ここを 0.5 にして補う。
-  const BACKGROUND = { waveOpacity: 1 };
+  // ⚠️ **waveの素材は月替わりで、Koheiが月ごとに未加工の原版を渡す**（2026-09-09に確定）。
+  //    原版は`node tools/generator-lab/make-wave.mjs <原版.png>`でグレースケール化して
+  //    `assets/waves/wave26MM.png`へ置き、アプリは文書の対象月から自動で選ぶ（`runtime.tsx`の`BUNDLED_WAVES`）。
+  //    月が違うwaveでは背景が一致しないので、実物との突き合わせでは必ずその月の素材を使うこと。
+  //    αが焼き込まれた旧方式の素材（アップロードで来る可能性がある）でも実効50%になるよう、
+  //    `Render.drawBackground()`が掛ける不透明度を補正する。
+  const BACKGROUND = { waveOpacity: 0.5, waveBlend: 'luminosity' };
 
   // セル（塗りの領域。罫はこの外側 6px）
   // 検証: 罫の実測位置 y44–50 / 504–510 / 584–590 / 610–616 / 1070–1076 / 1150–1156
@@ -82,18 +88,30 @@ const Layout = (() => {
     body:   { family:'Noto Sans JP', weight:400, renderWeight:370, size:28, color:'#ffffff', case:'ORIGINAL', tracking:0,
               punct: { chars:'、。', trim: 14 } },
 
-    // 和文の作品名・アーティスト名（2026-09-04、Kohei と実物を見比べて決定）。
-    // Figma では Oswald 指定のまま和文が来ると、和文グリフが無いため OS が勝手にフォールバックしていた
-    // （検証の結果 YuGothic Bold。docs/08 §4）。これは誰かが意図して選んだものではなかったため、
-    // 改めて Web で正式に決めた。作品名は Oswald Regular の「静かに置く」役割に合わせて Bold、
-    // アーティスト名は Oswald ExtraLight の軽さに合わせて Light。
+    // 和文の作品名・アーティスト名。
+    //
+    // 経緯: Figma では Oswald 指定のまま和文が来ると、和文グリフが無いため OS が勝手に
+    // フォールバックしていた（検証の結果 YuGothic Bold。docs/08 §4）。誰かが意図して選んだものでは
+    // なかったため、2026-09-04 に Zen Kaku Gothic New（作品名 Bold／アーティスト Light）を正式に決めた。
+    // ただし当時は比較できる実物が無く、太さは見た目の判断だった。
+    //
+    // 🔵 2026-09-09に実物で検算し、**Noto Sans JP へ変更**（Koheiの決定）。
+    // Weeklyの実物投稿（reference/weekly和文サンプル/2026_W-5.png、作品名「行方不明」・
+    // アーティスト「川辺素」）を画素で測ると、幅はどの候補も±1px以内で一致する一方、インクの量は
+    // Zen Kaku 700 が実物比 +50.6%、Zen Kaku 300 が −34.6% と大きく外れていた。Noto Sans JP 400 は
+    // +2.1% でほぼ一致する（同条件の欧文で +20% の系統差が出るので、それを割り引いても
+    // Zen Kaku 700 は太すぎ、300 は細すぎ）。照合は `jp-font-check.html`。
+    // ウェイトは **作品名 400／アーティスト 300** でKoheiが確定（2026-09-09）。
+    // アーティストは Oswald ExtraLight の軽さに合わせる意図を優先した（実物との一致だけを見ると
+    // 300 は −13.0%、400 は +29.9% で 400 のほうが近いが、見比べたうえで 300 を採用）。
+    // **この値は Monthly・Japan・Weekly の3企画すべてに適用する**（Koheiの決定）。
+    // Monthly／Japan は `Layout.TYPE`、Weekly は `Layout.WEEKLY.TYPE` の側にあり、どちらも同じ値にしてある。
+    //
     // サイズ・字間・textCase は Oswald 版の title/artist をそのまま踏襲する。
     // 和文はコンデンス体ではないので Oswald と横幅の詰まり方は揃わない（Google Fonts に和文の
-    // 本格的なコンデンス書体はほぼ無い。踏襲するなら有料書体の別途調達が要る。Phase 1 以降の課題）。
-    // renderWeight（§9.5 の太さ対策）は本文と違い比較対象の Figma 実例が無く、実測して補正する
-    // 手立てが無いので今回はかけていない。実例が手に入り次第、太さを見て要調整。
-    titleJP:  { family:'Zen Kaku Gothic New', weight:700, size:54, color:'#ffffff', case:'ORIGINAL', tracking:0 },
-    artistJP: { family:'Zen Kaku Gothic New', weight:300, size:42, color:'#ffffff', case:'ORIGINAL', tracking:0 },
+    // 本格的なコンデンス書体はほぼ無い。踏襲するなら有料書体の別途調達が要る）。
+    titleJP:  { family:'Noto Sans JP', weight:400, size:54, color:'#ffffff', case:'ORIGINAL', tracking:0 },
+    artistJP: { family:'Noto Sans JP', weight:300, size:42, color:'#ffffff', case:'ORIGINAL', tracking:0 },
   };
 
   // 文字の基準位置（1200基準）。すべて figma.png の実測から
@@ -267,10 +285,10 @@ const Layout = (() => {
       // meta帯の字体・区切りはMonthlyの TYPE.meta と実質同じ（フォールバック・UPPER・「・」区切りも共通）。
       meta:   { family: 'Oswald", "Noto Sans JP', weight: 300, size: 32, color: '#ffffff', case: 'UPPER', tracking: 0,
                 shadow: { dx: 0, dy: 0, blur: 40, color: 'rgba(0,0,0,.3)' } },
-      // 和文が混じった場合のフォールバック。書体は未確定（🟡 generator-weekly-design.md §6.1）。
-      // 実物と比較できる和文例がまだ無いため、Monthlyの実決定（Zen Kaku Gothic New）を暫定で踏襲する。
-      titleJP:  { family: 'Zen Kaku Gothic New', weight: 700, size: 54, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
-      artistJP: { family: 'Zen Kaku Gothic New', weight: 300, size: 42, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
+      // 和文が混じった場合の書体。🔵 2026-09-09、実物（reference/weekly和文サンプル/2026_W-5.png）で
+      // 検算して確定した。Monthlyの`TYPE.titleJP`と同じ値・同じ根拠なので、そちらのコメントを参照。
+      titleJP:  { family: 'Noto Sans JP', weight: 400, size: 54, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
+      artistJP: { family: 'Noto Sans JP', weight: 300, size: 42, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
     },
 
     // Other Releases（`others`）🔵 2026-09-08実測（2026_W-6.png、実データ30行）
@@ -294,7 +312,13 @@ const Layout = (() => {
         // 曲名/アーティストは"Title / Artist"の1文字列として組む（区切りは半角スラッシュ、実物どおり）。
         // [EP]プレフィックスは落とさない（Weeklyの取り込み規則、generator-weekly-design.md §1）。
         // 和文アーティスト（石若駿、サバシスターなど）が混じるため、metaと同じ和文フォールバックを持つ。
-        body: { family: 'Oswald", "Noto Sans JP', weight: 400, size: 29, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
+        // renderWeight: 🔵 2026-09-09、Koheiの「太く感じる」という指摘を受けて実測した。
+        // 実物（2026_W-6.png、30行）と突き合わせると幅は±0.5pxで一致する一方、インクの量は
+        // 欧文だけの行でも +20.1%、和文まじりの行でも同程度に濃く出ていた。和文だけの問題ではなく、
+        // SPEC §9.5 の「ChromeのfillTextはFigmaよりインクが濃い」がこの小さい文字で効いている。
+        // そこで本文（TYPE.body）と同じ手当てとして、**測る太さは400のまま、描く太さだけ下げる**。
+        // 350はOswald・Noto Sans JPとも可変フォントの範囲内で、字送り・折り返しは一切変わらない。
+        body: { family: 'Oswald", "Noto Sans JP', weight: 400, renderWeight: 350, size: 29, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
       },
       /**
        * n行を天地の中で均等に配置する行送りとベースライン。Layout.bodyLayoutFor と同型。

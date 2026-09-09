@@ -1,11 +1,23 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import waveAsset from "@/tools/generator-lab/assets/wave.png";
+import wave202601 from "@/tools/generator-lab/assets/waves/wave2601.png";
+import wave202602 from "@/tools/generator-lab/assets/waves/wave2602.png";
+import wave202603 from "@/tools/generator-lab/assets/waves/wave2603.png";
+import wave202604 from "@/tools/generator-lab/assets/waves/wave2604.png";
+import wave202605 from "@/tools/generator-lab/assets/waves/wave2605.png";
+import wave202606 from "@/tools/generator-lab/assets/waves/wave2606.png";
+import wave202607 from "@/tools/generator-lab/assets/waves/wave2607.png";
+import wave202608 from "@/tools/generator-lab/assets/waves/wave2608.png";
+import wave202609 from "@/tools/generator-lab/assets/waves/wave2609.png";
+import wave202610 from "@/tools/generator-lab/assets/waves/wave2610.png";
+import wave202611 from "@/tools/generator-lab/assets/waves/wave2611.png";
+import wave202612 from "@/tools/generator-lab/assets/waves/wave2612.png";
 import weeklyLogoAsset from "@/tools/generator-lab/assets/hyoryu_logo_brush_1line_white.svg";
 import type { CanvasPreviewPage } from "@/lib/generator/canvas-preview";
 import type { GeneratorDocument } from "@/lib/generator/model";
 import type { ReleaseMasterAlbum } from "@/lib/types";
+import { pickWaveMonth, waveMonthWarning, type WaveChoice } from "./wave-month";
 
 export type LegacySlot = CanvasPreviewPage["slots"][number] & { jacket: { img: HTMLImageElement | null }; bgColor?: string };
 export type LegacyPage = Omit<CanvasPreviewPage, "slots"> & { slots: LegacySlot[] };
@@ -75,6 +87,44 @@ export type Exporter = {
   releaseCanvas(canvas: HTMLCanvasElement): void;
 };
 
+/**
+ * 月ごとの波。**素材は月替わりで、Koheiが月ごとに原版を渡す**
+ * （`docs/generator-weekly-design.md` §6.5・§9-3）。原版は未加工のまま受け取り、
+ * `node tools/generator-lab/make-wave.mjs <原版.png>` でグレースケールへ変換してここへ足す
+ * （背景の合成はLuminosityで輝度しか使わないので、色を落としても出力は変わらない）。
+ *
+ * 使う月は**文書の`period.start`が属する暦月**。Weeklyの`period.start`は投稿金曜なので、
+ * 週が月をまたいでも金曜の側の月になる（Koheiの決定、2026-09-09）。
+ */
+export const BUNDLED_WAVES: Readonly<Record<string, string>> = {
+  "2026-01": wave202601.src,
+  "2026-02": wave202602.src,
+  "2026-03": wave202603.src,
+  "2026-04": wave202604.src,
+  "2026-05": wave202605.src,
+  "2026-06": wave202606.src,
+  "2026-07": wave202607.src,
+  "2026-08": wave202608.src,
+  "2026-09": wave202609.src,
+  "2026-10": wave202610.src,
+  "2026-11": wave202611.src,
+  "2026-12": wave202612.src,
+};
+
+/**
+ * 対象月の波を選ぶ。選び方と警告文は`wave-month.ts`（画像を持たない純粋なロジック）にあり、
+ * ここは登録済みの月の一覧と実ファイルを結び付けるだけ。
+ */
+export function waveForMonth(month: string): WaveChoice & { src: string } {
+  const choice = pickWaveMonth(Object.keys(BUNDLED_WAVES), month);
+  return { ...choice, src: BUNDLED_WAVES[choice.month] ?? BUNDLED_WAVES[Object.keys(BUNDLED_WAVES)[0]] };
+}
+
+/** 対象月の波が無いまま描いているときの警告。プレビューと一括書き出しの両方で使う。 */
+export function waveWarnings(runtime: GeneratorRuntime | null): string[] {
+  return waveMonthWarning(runtime?.wave ?? null);
+}
+
 export type GeneratorRuntime = {
   renderer: Renderer;
   layout: LayoutModule;
@@ -85,6 +135,8 @@ export type GeneratorRuntime = {
   coversByUid: Map<string, string>;
   coversByNo: Map<string, string>;
   coverFontReady(): boolean;
+  /** 実際に使った波の月・本来使うべき月・対象月の素材がそろっていたか。警告表示に使う。 */
+  wave: WaveChoice | null;
 };
 
 export const FALLBACK_BACKGROUND = "#475569";
@@ -187,16 +239,20 @@ export function useGeneratorRuntime(): RuntimeState {
 export function GeneratorRuntimeProvider({
   documentId,
   theme,
+  period,
   children,
 }: {
   documentId: string;
   theme: GeneratorDocument["theme"];
+  /** 文書の対象期間。`start`が属する暦月の波を使う。 */
+  period: GeneratorDocument["period"];
   children: ReactNode;
 }) {
   const [runtime, setRuntime] = useState<GeneratorRuntime | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0), [stalled, setStalled] = useState(false);
   const { useWave, waveAssetId, backgroundAssetId } = theme;
+  const month = period.start.slice(0, 7);
 
   useEffect(() => {
     let cancelled = false;
@@ -217,8 +273,10 @@ export function GeneratorRuntimeProvider({
           }),
         ]);
         fontsReady ||= fontsModule.default.loadAll();
+        // 対象月の波は1回だけ解決して、読み込みと警告表示で同じ結果を使う
+        const selected = waveForMonth(month);
         const [wave, background, logo] = await Promise.all([
-          useWave ? loadImage(waveAssetId ? assetUrl(documentId, waveAssetId) : waveAsset.src) : Promise.resolve(null),
+          useWave ? loadImage(waveAssetId ? assetUrl(documentId, waveAssetId) : selected.src) : Promise.resolve(null),
           backgroundAssetId ? loadImage(assetUrl(documentId, backgroundAssetId)) : Promise.resolve(null),
           loadImage(weeklyLogoAsset.src).catch(() => null),
           fontsReady,
@@ -232,6 +290,7 @@ export function GeneratorRuntimeProvider({
           exporter: exporterModule as Exporter,
           images: { wave, background, logo },
           coverFontReady: fontsModule.default.coverFontReady,
+          wave: useWave && !waveAssetId ? { month: selected.month, requested: selected.requested, exact: selected.exact } : null,
           ...coverMaps(albums),
         });
       } catch (loadError) {
@@ -239,7 +298,7 @@ export function GeneratorRuntimeProvider({
       }
     })();
     return () => { cancelled = true; };
-  }, [attempt, backgroundAssetId, documentId, useWave, waveAssetId]);
+  }, [attempt, backgroundAssetId, documentId, month, useWave, waveAssetId]);
 
   /** 書体や描画モジュールが揃わないまま止まると画面には何も起きない。時間で気づけるようにする。 */
   useEffect(() => {

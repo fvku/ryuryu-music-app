@@ -1,0 +1,134 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>背景の合成チェック（地の色＋wave）</title>
+<style>body{font:14px/1.7 system-ui;margin:24px;max-width:60em}pre{background:#111;color:#eee;padding:12px;border-radius:8px;overflow:auto}</style>
+<h1>背景の合成チェック</h1>
+<p>実物投稿（<code>reference/2026#36/</code>）と、同じ月のwave（<code>assets/waves/wave2609.png</code>）を使い、
+<code>Render.drawBackground()</code> の出力が実物と一致するかを画素で比べる。
+版面の外側（背景しか写っていない左端200px）だけを見る。</p>
+<pre id="out">実行中…</pre>
+<script type="module">
+import Layout from './core/layout.mjs';
+import Render from './core/render.mjs';
+
+const load = src => new Promise((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => resolve(image);
+  image.onerror = () => reject(new Error(`読み込めません: ${src}`));
+  image.src = src;
+});
+
+// 実物投稿から逆算した地の色（generator-weekly-design.md §6.5）
+const PAGES = [
+  { file: '2026_W-1.png', bgColor: '#748089' },
+  { file: '2026_W-2.png', bgColor: '#7d674f' },
+  { file: '2026_W-3.png', bgColor: '#e1ebf9' },
+  { file: '2026_W-4.png', bgColor: '#89a2a1' },
+  { file: '2026_W-5.png', bgColor: '#b9bda6' },
+  { file: '2026_W-6.png', bgColor: '#923f3d' },
+];
+
+const lines = [];
+try {
+  // アプリが実際に読むのは、原版をグレースケール化して置いたほう
+  const wave = await load('./assets/waves/wave2609.png');
+  const size = 2400, scale = size / Layout.CANVAS;
+  const mine = document.createElement('canvas'); mine.width = mine.height = size;
+  const theirs = document.createElement('canvas'); theirs.width = theirs.height = size;
+  const mctx = mine.getContext('2d', { willReadFrequently: true });
+  const tctx = theirs.getContext('2d', { willReadFrequently: true });
+
+  lines.push(`合成モード: ${Layout.BACKGROUND.waveBlend} / 不透明度 ${Layout.BACKGROUND.waveOpacity}`);
+  let worst = 0;
+  for (const page of PAGES) {
+    // フォルダ名の `#` はURLでは断片記号になるのでエンコードして渡す
+    const post = await load(`./reference/2026%2336/${page.file}`);
+    mctx.setTransform(scale, 0, 0, scale, 0, 0);
+    mctx.clearRect(0, 0, Layout.CANVAS, Layout.CANVAS);
+    Render.drawBackground(mctx, { bgColor: page.bgColor, wave });
+    tctx.setTransform(1, 0, 0, 1, 0, 0);
+    tctx.clearRect(0, 0, size, size);
+    tctx.drawImage(post, 0, 0, size, size);
+
+    // 背景しか写っていない帯（1200基準で x6–190 / y20–1180）
+    const x0 = Math.round(6 * scale), y0 = Math.round(20 * scale);
+    const w = Math.round(184 * scale), h = Math.round(1160 * scale);
+    const a = mctx.getImageData(x0, y0, w, h).data, b = tctx.getImageData(x0, y0, w, h).data;
+    let sum = 0, max = 0, n = 0;
+    for (let i = 0; i < a.length; i += 4) for (let k = 0; k < 3; k++) {
+      const e = Math.abs(a[i + k] - b[i + k]); sum += e; n++; if (e > max) max = e;
+    }
+    worst = Math.max(worst, sum / n);
+    lines.push(`${page.file}  地の色 ${page.bgColor}  平均差 ${(sum / n).toFixed(2)}階調 / 最大 ${max}`);
+  }
+  // 旧方式の素材（α=128焼き込み・同梱の8月版）でも実効50%になっているか
+  lines.push('');
+  lines.push('■ 素材のαの違いを吸収できているか（αを焼き込んだ旧方式の素材を模して作る）');
+  // 旧方式（α=128焼き込み）の素材はもう同梱していないので、その場で作って補正が効くか試す
+  const legacyCanvas = document.createElement('canvas');
+  legacyCanvas.width = legacyCanvas.height = 1200;
+  const lctx = legacyCanvas.getContext('2d');
+  lctx.globalAlpha = 0.5;
+  lctx.drawImage(wave, 0, 0, 1200, 1200);
+  const legacy = legacyCanvas;
+  const Lum = c => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+  const clip = c => {
+    const l = Lum(c), lo = Math.min(...c), hi = Math.max(...c);
+    let o = c.slice();
+    if (lo < 0) o = o.map(v => l + ((v - l) * l) / (l - lo));
+    if (hi > 255) o = o.map(v => l + ((v - l) * (255 - l)) / (hi - l));
+    return o;
+  };
+  const setLum = (c, l) => clip(c.map(v => v + (l - Lum(c))));
+
+  const master = await load('./reference/wave2609.png');
+  for (const [name, image] of [['α=128を焼き込んだ素材（旧方式）', legacy], ['assets/waves/wave2609.png（変換後）', wave], ['reference/wave2609.png（カラー原版）', master]]) {
+    // 素材そのものの画素を読む
+    const raw = document.createElement('canvas');
+    raw.width = raw.height = Layout.CANVAS;
+    const rctx = raw.getContext('2d', { willReadFrequently: true });
+    rctx.drawImage(image, 0, 0, Layout.CANVAS, Layout.CANVAS);
+    const rawData = rctx.getImageData(0, 0, 200, 200).data;
+
+    const C = [116, 128, 137];
+    mctx.setTransform(1, 0, 0, 1, 0, 0);
+    mctx.clearRect(0, 0, size, size);
+    Render.drawBackground(mctx, { bgColor: `rgb(${C.join(',')})`, wave: image });
+    const got = mctx.getImageData(0, 0, 200, 200).data;
+
+    let sum = 0, max = 0, n = 0;
+    for (let i = 0; i < got.length; i += 4) {
+      // 素材のαは掛けずに、実効50%になっているかだけを見る
+      const want = setLum(C, Lum([rawData[i], rawData[i + 1], rawData[i + 2]])).map((v, k) => 0.5 * v + 0.5 * C[k]);
+      for (let k = 0; k < 3; k++) { const e = Math.abs(got[i + k] - want[k]); sum += e; n++; if (e > max) max = e; }
+    }
+    const ok = sum / n <= 2.5;
+    if (!ok) worst = 99;
+    lines.push(`${name}: 実効50%との差 平均 ${(sum / n).toFixed(2)}階調 / 最大 ${max}`);
+  }
+
+  // グレースケール変換で出力が変わっていないか（Luminosityは輝度しか使わないので変わらないはず）
+  lines.push('');
+  lines.push('■ グレースケール変換の前後で出力が変わらないか');
+  const C2 = [178, 21, 85];
+  const shot = image => {
+    mctx.setTransform(1, 0, 0, 1, 0, 0);
+    mctx.clearRect(0, 0, size, size);
+    Render.drawBackground(mctx, { bgColor: `rgb(${C2.join(',')})`, wave: image });
+    return mctx.getImageData(0, 0, 400, 400).data;
+  };
+  const fromGray = shot(wave), fromMaster = shot(master);
+  let dsum = 0, dmax = 0, dn = 0;
+  for (let i = 0; i < fromGray.length; i += 4) for (let k = 0; k < 3; k++) {
+    const e = Math.abs(fromGray[i + k] - fromMaster[i + k]); dsum += e; dn++; if (e > dmax) dmax = e;
+  }
+  if (dsum / dn > 1) worst = 99;
+  lines.push(`変換後 vs カラー原版: 平均 ${(dsum / dn).toFixed(3)}階調 / 最大 ${dmax}`);
+
+  lines.push('');
+  lines.push(worst <= 2.5 ? 'RESULT: OK（実物と一致・素材のαも吸収・変換でも変わらない）' : 'RESULT: NG');
+} catch (error) {
+  lines.push(`失敗: ${error.message}`);
+}
+document.getElementById('out').textContent = lines.join('\n');
+</script>

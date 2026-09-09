@@ -609,7 +609,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   );
 
   return (
-    <GeneratorRuntimeProvider documentId={documentId} theme={themeDraft}>
+    <GeneratorRuntimeProvider documentId={documentId} theme={themeDraft} period={snapshot.document.period}>
       <div className="generator-workspace relative left-1/2 w-[calc(100vw-2rem)] max-w-[100rem] -translate-x-1/2 space-y-4">
         {/* 企画名・版・未保存件数・移動を1行に畳む。空けた縦はプレビューへ回す。 */}
         <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">

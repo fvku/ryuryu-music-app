@@ -5,7 +5,7 @@ import type { CanvasPreviewPage } from "@/lib/generator/canvas-preview";
 import type { GeneratorDocument } from "@/lib/generator/model";
 import { bodyIndexAt, hitTest, selectionRects, type FieldKey, type Rect } from "./hit-test";
 import { pngFileName } from "./bulk-export";
-import { drawPageInto, preparePage, useGeneratorRuntime, type GeneratorRuntime, type LegacyPage } from "./runtime";
+import { drawPageInto, preparePage, useGeneratorRuntime, waveWarnings, type GeneratorRuntime, type LegacyPage } from "./runtime";
 import { Chip, PrimaryButton, SecondaryButton } from "./ui";
 
 export type PreviewSelection = { slotIndex: number; key: FieldKey; start: number; end: number };
@@ -62,7 +62,8 @@ export default function GeneratorPreview({
       const context = drawPageInto(runtime, canvas, prepared, 1200);
       if (!context) { setStatus("描画領域を準備できませんでした。"); return; }
       preparedRef.current = prepared;
-      const issues = runtime.renderer.inspectPage(context, prepared);
+      // 対象月の波が無いまま描いている場合も、はみ出しと同じ「書き出せない状態」として扱う
+      const issues = [...waveWarnings(runtime), ...runtime.renderer.inspectPage(context, prepared)];
       setWarnings(issues);
       onDiagnostics({ pageId: prepared.id, warnings: issues, body: bodyDiagnostics(runtime, context, prepared) });
       const missing = page.kind === "others" ? 0 : prepared.slots.filter(slot => !slot.jacket.img).length;

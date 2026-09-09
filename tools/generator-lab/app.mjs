@@ -370,7 +370,7 @@ draftPanel = await createDraftPanel({
 if (revision > 0) draftPanel.changed();
 try {
   const [, jacket, wave] = await Promise.all([
-    Fonts.loadAll(), loadImage('./assets/jacket_2000.webp'), loadImage('./assets/wave.png'),
+    Fonts.loadAll(), loadImage('./assets/jacket_2000.webp'), loadImage('./assets/waves/wave2608.png'),
   ]);
   for (const page of Object.values(pages)) for (const slot of page.slots) {
     if (slot.jacket.source !== 'manual') slot.jacket.img = jacket;

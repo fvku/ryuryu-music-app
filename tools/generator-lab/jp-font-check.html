@@ -1,0 +1,322 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>和文書体の照合</title>
+<style>
+  body { font: 14px/1.7 system-ui; margin: 24px; max-width: 76em; }
+  pre { background: #111; color: #eee; padding: 12px; border-radius: 8px; overflow: auto; font-size: 12px; }
+</style>
+<h1>和文書体の照合</h1>
+<p>実物投稿の和文を切り出し、候補の書体・ウェイトで組んだものと<strong>インクの幅</strong>と
+<strong>塗り面積</strong>で比べる。候補は本番と同じ<strong>4倍で描いてから縮小</strong>する
+（ChromeのfillTextはそのまま描くとインクが濃く出るため。SPEC §9.5）。
+比較する重さはすべて明示的に読み込む（読み込んでいないウェイトはブラウザが近い面や合成ボールドで代用してしまう）。</p>
+<pre id="out">実行中…</pre>
+<h2>見た目の比較</h2>
+<p>いちばん上が実物。下が候補。すべて2倍に拡大している。</p>
+<div id="shots"></div>
+
+<script type="module">
+import Layout from './core/layout.mjs';
+
+const FAMILIES = {
+  'Noto Sans JP': [100, 200, 300, 350, 400, 500, 700],
+  'Zen Kaku Gothic New': [300, 400, 500, 700],
+};
+// FigmaがOswaldの和文を代替するときに使うOS側の書体の候補（Google Fontsではなくローカル）。
+// Monthlyの検証では「YuGothic Bold」だったと記録がある（layout.mjsのTYPE.titleJPコメント）。
+const LOCAL_FAMILIES = {
+  'YuGothic': [400, 500, 700],
+  'Hiragino Sans': [300, 400, 600],
+  'Noto Sans CJK JP': [400, 500, 700],
+};
+const INK = 150, SS = 4;                       // 輝度のしきい値、Layout.EXPORT_SUPER_SAMPLEと同じ倍率
+
+const load = src => new Promise((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => resolve(image); image.onerror = () => reject(new Error(`読み込めません: ${src}`));
+  image.src = src;
+});
+
+async function loadFonts() {
+  const ALL = { ...FAMILIES, Oswald: [200, 300, 350, 400] };
+  const params = Object.entries(ALL)
+    .map(([family, weights]) => `family=${family.replace(/ /g, '+')}:wght@${weights.join(';')}`).join('&');
+  await new Promise((resolve, reject) => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = `https://fonts.googleapis.com/css2?${params}&display=block`;
+    link.onload = resolve; link.onerror = () => reject(new Error('Google Fontsを読み込めません'));
+    document.head.appendChild(link);
+  });
+  for (const [family, weights] of Object.entries(ALL))
+    for (const weight of weights) await document.fonts.load(`${weight} 40px "${family}"`, 'あ一行方不明川辺素ABC');
+  await document.fonts.ready;
+  const missing = [];
+  for (const [family, weights] of Object.entries(ALL))
+    for (const weight of weights)
+      if (!document.fonts.check(`${weight} 40px "${family}"`, family === 'Oswald' ? 'A' : '一')) missing.push(`${family} ${weight}`);
+  return missing;
+}
+
+/**
+ * インクの左右端と塗りの量。
+ *
+ * 塗りは「白に対する濃さの合計」で数える（アンチエイリアスの半端な画素も重みつきで拾うため）。
+ * **地の明るさは切り出しごとに推定する。** パネルの下の写真の明るさで地の値が変わるので、
+ * 固定値にすると明るいパネルでは地そのものをインクとして数えてしまう。
+ * 文字は面積のごく一部なので、中央値をとればほぼ地の値になる。
+ */
+function measure(data, w, h) {
+  const lum = new Float32Array(w * h);
+  for (let i = 0, p = 0; i < lum.length; i++, p += 4)
+    lum[i] = 0.3 * data[p] + 0.59 * data[p + 1] + 0.11 * data[p + 2];
+  // 地は切り出しの中央値。文字は面積のごく一部なので中央値はほぼ地の値になる。
+  // ただしパネルの下の写真に明暗の差があると狂うので、**切り出しは文字のまわりだけに絞ること**
+  // （measureTight が bbox を出してから測り直す）。
+  const sorted = Float32Array.from(lum).sort();
+  const base = sorted[Math.floor(sorted.length / 2)];
+  const span = Math.max(1, 255 - base);
+  let x0 = w, x1 = -1, ink = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const v = (lum[y * w + x] - base) / span;
+    if (v > 0.46) { if (x < x0) x0 = x; if (x > x1) x1 = x; }
+    ink += Math.max(0, v);
+  }
+  return { width: x1 < 0 ? 0 : x1 - x0 + 1, ink, x0, x1 };
+}
+
+/** 一度測って文字の左右端を出し、そのまわりだけに絞って測り直す（地の推定を局所化するため） */
+function measureTight(ctx, x, y, w, h, pad) {
+  const rough = measure(ctx.getImageData(x, y, w, h).data, w, h);
+  if (rough.x1 < 0) return rough;
+  const nx = Math.max(0, x + rough.x0 - pad);
+  const nw = Math.min(ctx.canvas.width - nx, rough.x1 - rough.x0 + 1 + pad * 2);
+  return measure(ctx.getImageData(nx, y, nw, h).data, nw, h);
+}
+
+/** 本番と同じ経路：4倍で描いてから等倍へ縮める */
+function renderCandidate(text, size, family, weight, boxW, boxH, baseline, scale) {
+  const big = document.createElement('canvas');
+  big.width = Math.round(boxW * scale * SS); big.height = Math.round(boxH * scale * SS);
+  const bctx = big.getContext('2d');
+  bctx.fillStyle = 'rgb(60,60,60)'; bctx.fillRect(0, 0, big.width, big.height);
+  bctx.scale(scale * SS, scale * SS);
+  bctx.font = `${weight} ${size}px "${family}"`;
+  bctx.fillStyle = '#fff'; bctx.textBaseline = 'alphabetic';
+  bctx.fillText(text, 20, baseline);
+  const out = document.createElement('canvas');
+  out.width = Math.round(boxW * scale); out.height = Math.round(boxH * scale);
+  const octx = out.getContext('2d', { willReadFrequently: true });
+  octx.imageSmoothingQuality = 'high';
+  octx.drawImage(big, 0, 0, out.width, out.height);
+  return measureTight(octx, 0, 0, out.width, out.height, Math.round(8 * scale));
+}
+
+const lines = [];
+try {
+  const missing = await loadFonts();
+  lines.push(missing.length ? `⚠️ 読み込めなかったウェイト: ${missing.join(', ')}` : '候補のウェイトはすべて読み込めた');
+
+  const post = await load('./reference/weekly%E5%92%8C%E6%96%87%E3%82%B5%E3%83%B3%E3%83%97%E3%83%AB/2026_W-5.png');
+  const scale = post.width / Layout.CANVAS;
+  const src = document.createElement('canvas');
+  src.width = post.width; src.height = post.height;
+  const sctx = src.getContext('2d', { willReadFrequently: true });
+  sctx.drawImage(post, 0, 0);
+
+  const rows = [
+    { label: '作品名「行方不明」', text: '行方不明', baseline: Layout.WEEKLY.TITLE_BASELINE, size: Layout.WEEKLY.TYPE.title.size, top: 60, bottom: 18, crop: 230, spec: 'titleJP: Zen Kaku 700' },
+    { label: 'アーティスト「川辺素」', text: '川辺素', baseline: Layout.WEEKLY.ARTIST_BASELINE, size: Layout.WEEKLY.TYPE.artist.size, top: 46, bottom: 14, crop: 150, spec: 'artistJP: Zen Kaku 300' },
+  ];
+
+  for (const row of rows) {
+    const y0 = Math.round((row.baseline - row.top) * scale), h = Math.round((row.top + row.bottom) * scale);
+    const x0 = Math.round(206 * scale), w = Math.round(788 * scale);
+    const real = measureTight(sctx, x0, y0, w, h, Math.round(8 * scale));
+    lines.push(`\n■ ${row.label}　現行の指定: ${row.spec}`);
+    lines.push(`   実物: インク幅 ${(real.width / scale).toFixed(1)}px / 塗り ${(real.ink / (scale * scale)).toFixed(0)}`);
+
+    const results = [];
+    for (const [family, weights] of Object.entries({ ...FAMILIES, ...LOCAL_FAMILIES })) for (const weight of weights) {
+      const got = renderCandidate(row.text, row.size, family, weight, 788, row.top + row.bottom, row.top, scale);
+      results.push({ family, weight,
+        dw: (got.width - real.width) / scale,
+        dInk: (got.ink - real.ink) / real.ink * 100 });
+    }
+    results.sort((a, b) => Math.abs(a.dInk) - Math.abs(b.dInk));
+    for (const r of results)
+      lines.push(`   ${r.family.padEnd(21)} ${String(r.weight).padStart(3)}  幅差 ${r.dw >= 0 ? '+' : ''}${r.dw.toFixed(1)}px  塗り差 ${r.dInk >= 0 ? '+' : ''}${r.dInk.toFixed(1)}%`);
+    lines.push(`   → 塗りが最も近い: ${results[0].family} ${results[0].weight}`);
+  }
+
+  // ── Other Releases（2026_W-6.png、30行）──────────────────────────────
+  // 欧文はOswald、和文はフォントスタックのフォールバックでNoto Sans JPが出る。
+  // 行ごとに欧文／和文を分けて描き、どの組み合わせが実物と合うかを見る。
+  const others = await load('./reference/2026%2336/2026_W-6.png');
+  const oscale = others.width / Layout.CANVAS;
+  const ocv = document.createElement('canvas');
+  ocv.width = others.width; ocv.height = others.height;
+  const octx2 = ocv.getContext('2d', { willReadFrequently: true });
+  octx2.drawImage(others, 0, 0);
+  const O = Layout.WEEKLY.OTHERS, layout = O.layoutFor(30);
+
+  /** 欧文と和文で別のウェイトを使って1行を描く（TextEngineのmixedと同じ考え方の簡易版） */
+  function drawMixed(ctx, text, size, latin, jp, baseline) {
+    let x = 20;
+    for (const run of text.match(/[\u0000-\u007F]+|[^\u0000-\u007F]+/g) || []) {
+      const isJp = /[^\u0000-\u007F]/.test(run);
+      ctx.font = `${isJp ? jp.weight : latin.weight} ${size}px "${isJp ? jp.family : latin.family}"`;
+      ctx.fillText(run, x, baseline);
+      x += ctx.measureText(run).width;
+    }
+  }
+  // 30行は行送り29pxで詰まっているので、上下の行を拾わない窓だけを見る。
+  // 実物と候補でまったく同じ窓（ベースラインの上ABOVE・下BELOW）を使うこと。
+  const ABOVE = 21, BELOW = 4;
+  function renderLine(text, size, latin, jp, boxW, scale) {
+    const big = document.createElement('canvas');
+    big.width = Math.round(boxW * scale * SS); big.height = Math.round((ABOVE + BELOW) * scale * SS);
+    const bctx = big.getContext('2d');
+    bctx.fillStyle = 'rgb(60,60,60)'; bctx.fillRect(0, 0, big.width, big.height);
+    bctx.scale(scale * SS, scale * SS);
+    bctx.fillStyle = '#fff'; bctx.textBaseline = 'alphabetic';
+    drawMixed(bctx, text, size, latin, jp, ABOVE);
+    const out = document.createElement('canvas');
+    out.width = Math.round(boxW * scale); out.height = Math.round((ABOVE + BELOW) * scale);
+    const o = out.getContext('2d', { willReadFrequently: true });
+    o.imageSmoothingQuality = 'high';
+    o.drawImage(big, 0, 0, out.width, out.height);
+    return measureTight(o, 0, 0, out.width, out.height, Math.round(8 * scale));
+  }
+
+  const otherRows = [
+    { index: 2,  text: 'AURA / Amelie Lens', kind: '欧文だけ' },
+    { index: 23, text: 'Mabui / 石若駿', kind: '和文まじり' },
+    { index: 27, text: 'NORMAL END / ぬゆり', kind: '和文まじり' },
+    { index: 29, text: '[EP] 働くサバたち。 / サバシスター', kind: '和文まじり' },
+  ];
+  lines.push(`\n\n■ Other Releases（現行の指定: Oswald 400 + Noto Sans JP 400、${O.TYPE.body.size}px）`);
+  for (const row of otherRows) {
+    const baseline = layout.baseline + layout.lead * row.index;
+    const y0 = Math.round((baseline - ABOVE) * oscale), h = Math.round((ABOVE + BELOW) * oscale);
+    const x0 = Math.round(O.BODY.BOX.x * oscale), w = Math.round(O.BODY.BOX.w * oscale);
+    const real = measureTight(octx2, x0, y0, w, h, Math.round(8 * oscale));
+
+    const cands = [];
+    for (const lw of [300, 350, 400]) for (const jw of [200, 300, 350, 400, 500]) {
+      const got = renderLine(row.text, O.TYPE.body.size,
+        { family: 'Oswald', weight: lw }, { family: 'Noto Sans JP', weight: jw }, 900, oscale);
+      cands.push({ lw, jw, dw: (got.width - real.width) / oscale, dInk: (got.ink - real.ink) / real.ink * 100 });
+    }
+    cands.sort((a, b) => Math.abs(a.dInk) - Math.abs(b.dInk));
+    lines.push(`\n   ${row.kind}「${row.text}」 実物: 幅 ${(real.width / oscale).toFixed(1)}px / 塗り ${(real.ink / (oscale * oscale)).toFixed(0)}`);
+    const pick = (lw, jw) => cands.find(c => c.lw === lw && c.jw === jw);
+    for (const [lw, jw, tag] of [[400, 400, '（補正前）'], [350, 350, '（renderWeight:350 適用後）']]) {
+      const c = pick(lw, jw);
+      lines.push(`      Oswald ${c.lw} + Noto ${c.jw} ${tag}  塗り差 ${c.dInk >= 0 ? '+' : ''}${c.dInk.toFixed(1)}%`);
+    }
+  }
+
+  // ── Monthly／Japan（採用枠）────────────────────────────────────
+  // 作品名セル(510,50)640×454の中を行ごとに走査し、インクのかたまり（帯）を上から拾う。
+  // 1つ目が作品名、2つ目がアーティスト名。ベースラインの実測値に頼らずに切り出せる。
+  const monthly = await load('./reference/Monthly%20%E5%92%8C%E6%96%87%E3%82%B5%E3%83%B3%E3%83%97%E3%83%AB/Japan_2026_1-2.png');
+  const mscale = monthly.width / Layout.CANVAS;
+  const mcv = document.createElement('canvas');
+  mcv.width = monthly.width; mcv.height = monthly.height;
+  const mctx2 = mcv.getContext('2d', { willReadFrequently: true });
+  mctx2.drawImage(monthly, 0, 0);
+
+  const cell = Layout.CELLS.title;
+  const cx = Math.round(cell.x * mscale), cy = Math.round(cell.y * mscale);
+  const cw = Math.round(cell.w * mscale), ch = Math.round(cell.h * mscale);
+  const cellData = mctx2.getImageData(cx, cy, cw, ch).data;
+  const rowInk = [];
+  for (let y = 0; y < ch; y++) {
+    let n = 0;
+    for (let x = 0; x < cw; x++) {
+      const i = (y * cw + x) * 4;
+      if (0.3 * cellData[i] + 0.59 * cellData[i + 1] + 0.11 * cellData[i + 2] > INK) n++;
+    }
+    rowInk.push(n);
+  }
+  const bands = [];
+  for (let y = 0; y < ch; y++) {
+    if (rowInk[y] < 2) continue;
+    let end = y;
+    while (end + 1 < ch && rowInk[end + 1] >= 2) end++;
+    if (end - y > 6 * mscale) bands.push({ y0: y, y1: end });
+    y = end;
+  }
+  lines.push(`\n\n■ Monthly／Japan（採用枠、Japan_2026_1-2.png）　インクの帯を${bands.length}本検出`);
+  const mrows = [
+    { label: '作品名「死んでも一生」', text: '死んでも一生', size: Layout.TYPE.title.size, spec: 'titleJP', band: 0 },
+    { label: 'アーティスト「野口文」', text: '野口文', size: Layout.TYPE.artist.size, spec: 'artistJP', band: 1 },
+  ];
+  for (const row of mrows) {
+    const band = bands[row.band];
+    if (!band) { lines.push(`   ${row.label}: 帯を見つけられなかった`); continue; }
+    const pad = Math.round(3 * mscale);
+    const y0 = Math.max(0, band.y0 - pad), h = Math.min(ch - y0, band.y1 - band.y0 + 1 + pad * 2);
+    const real = measureTight(mctx2, cx, cy + y0, cw, h, Math.round(8 * mscale));
+    const now = Layout.TYPE[row.spec];
+    lines.push(`\n   ${row.label}　現行: ${now.family} ${now.weight}`);
+    lines.push(`      実物: インク幅 ${(real.width / mscale).toFixed(1)}px / 塗り ${(real.ink / (mscale * mscale)).toFixed(0)}`);
+    const res = [];
+    for (const [family, weights] of Object.entries({ ...FAMILIES, ...LOCAL_FAMILIES })) for (const weight of weights) {
+      // 箱の高さとベースラインは、和文の上下が切れない値にすること（切れると塗りが小さく出る）
+      const got = renderCandidate(row.text, row.size, family, weight, 640, row.size + 24, row.size + 6, mscale);
+      res.push({ family, weight, dw: (got.width - real.width) / mscale, dInk: (got.ink - real.ink) / real.ink * 100 });
+    }
+    res.sort((a, b) => Math.abs(a.dInk) - Math.abs(b.dInk));
+    for (const r of res.slice(0, 6))
+      lines.push(`      ${r.family.padEnd(21)} ${String(r.weight).padStart(3)}  幅差 ${r.dw >= 0 ? '+' : ''}${r.dw.toFixed(1)}px  塗り差 ${r.dInk >= 0 ? '+' : ''}${r.dInk.toFixed(1)}%`);
+  }
+
+  // ── 見た目の比較 ────────────────────────────────────────────────
+  const shots = document.getElementById('shots');
+  const strip = (label, canvas) => {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;align-items:center;gap:10px;margin:2px 0';
+    const tag = document.createElement('code');
+    tag.textContent = label; tag.style.cssText = 'min-width:14em;font-size:11px';
+    canvas.style.cssText = `width:${canvas.width / 2}px;image-rendering:auto;background:#3c3c3c`;
+    wrap.append(tag, canvas); shots.appendChild(wrap);
+  };
+  const cropReal = (ctx, x, y, w, h, zoom) => {
+    const out = document.createElement('canvas');
+    out.width = Math.round(w * zoom); out.height = Math.round(h * zoom);
+    const o = out.getContext('2d');
+    o.imageSmoothingEnabled = true; o.imageSmoothingQuality = 'high';
+    o.drawImage(ctx.canvas, x, y, w, h, 0, 0, out.width, out.height);
+    return out;
+  };
+  const drawCandidate = (text, size, family, weight, boxW, above, below, sc) => {
+    const big = document.createElement('canvas');
+    big.width = Math.round(boxW * sc * SS); big.height = Math.round((above + below) * sc * SS);
+    const b = big.getContext('2d');
+    b.fillStyle = 'rgb(60,60,60)'; b.fillRect(0, 0, big.width, big.height);
+    b.scale(sc * SS, sc * SS);
+    b.font = `${weight} ${size}px "${family}"`; b.fillStyle = '#fff'; b.textBaseline = 'alphabetic';
+    b.fillText(text, 2, above);
+    const out = document.createElement('canvas');
+    out.width = Math.round(boxW * sc); out.height = Math.round((above + below) * sc);
+    const o = out.getContext('2d'); o.imageSmoothingQuality = 'high';
+    o.drawImage(big, 0, 0, out.width, out.height);
+    return out;
+  };
+
+  for (const row of rows) {
+    const head = document.createElement('h3');
+    head.textContent = row.label; head.style.fontSize = '13px';
+    shots.appendChild(head);
+    const y0 = Math.round((row.baseline - row.top) * scale);
+    strip('実物', cropReal(sctx, Math.round((600 - row.crop / 2) * scale), y0, Math.round(row.crop * scale), Math.round((row.top + row.bottom) * scale), 1));
+    for (const [family, weight] of [['Noto Sans JP', 300], ['Noto Sans JP', 400], ['Noto Sans JP', 500], ['Zen Kaku Gothic New', 300], ['Zen Kaku Gothic New', 700]])
+      strip(`${family} ${weight}`, drawCandidate(row.text, row.size, family, weight, row.crop, row.top, row.bottom, scale));
+  }
+} catch (error) {
+  lines.push(`失敗: ${error.message}`);
+}
+document.getElementById('out').textContent = lines.join('\n');
+</script>

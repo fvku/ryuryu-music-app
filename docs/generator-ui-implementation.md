@@ -700,3 +700,250 @@ Codexが機能側（取り込み・テスト）を進めている間に、干渉
 - 実ブラウザでの表紙の目視確認は未実施（1階調の色差なので画面での識別は困難、数値と回帰テストで担保している）。
 - `npm test`／`npm run build`は、Codexが`lib/generator/`を編集中のため実行していない。区切りのついた時点で通してほしい。
 - 設計文書§9-3「表紙の背景写真は金曜日が属する暦月の背景を使う」は**Koheiの最終確認待ちのまま**。
+
+## 19. 2026-09-09：背景の合成をLuminosity・不透明度50%へ（実物一致を確認）
+
+Weeklyのwaveが実物投稿と合わない件を追い、**waveが月替わりの素材**であること（同梱`wave.png`は2026年8月版、
+参照画像は9月版）と、**合成がLuminosity・不透明度50%**であることをKoheiの説明で確定し、実測で裏付けた。
+
+### 経緯と根拠
+
+1. 参照画像7枚の背景の明暗パターンは互いに相関1.00だが、同梱`wave.png`とは0.13しかなかった。
+2. Koheiから9〜12月のwaveを受領。9月版で解き直すと相関0.9994へ。ただし**チャンネルごとの実効不透明度が
+   0.25/0.68/0.45とばらけ**、「色のまま50%」では説明できなかった。
+3. Rec.601の重み（0.3/0.59/0.11＝W3CのLum）でグレー化すると3チャンネルとも**0.497〜0.500**。
+   Koheiの回答「waveにLuminosityがかかっている」と一致した。
+4. W3C Compositing 1のLuminosityで合成し直すと、作品面5枚は残差**平均0.34階調・最大2**。
+
+### 変更したファイル
+
+| ファイル | 変更 |
+| --- | --- |
+| `tools/generator-lab/core/layout.mjs` | `BACKGROUND`を`{ waveOpacity: 0.5, waveBlend: 'luminosity' }`へ。旧コメント（「50%は波PNGのαに焼き込み済み」）を差し替え、月替わり素材であることを明記 |
+| `tools/generator-lab/core/render.mjs` | `drawBackground()`で`globalCompositeOperation`を設定。素材のαを測って不透明度を補正する`waveAlphaOf()`を追加。表紙のオーバーレイに残っていた🟡コメントも解消済みへ更新 |
+| `tools/generator-lab/background-check.html` | 新規。実物投稿と`Render.drawBackground()`の出力を画素比較する検証ページ |
+| `tools/generator-lab/test/layout-check.mjs` | 定数の期待値を更新 |
+| `docs/generator-weekly-design.md` | §6.1の背景行、§6.5（新規）、§9-3の書き換え、更新履歴 |
+| `docs/codex-generator-handoff.md` | 月別waveの管理・自動適用の依頼を追加 |
+
+### 検証
+
+- 実ブラウザ（`generator-lab`サーバ8778、`background-check.html`）で作品面5枚**平均0.24〜0.26階調・最大2〜4**、
+  Other Releasesのみ平均1.85・最大11。
+- `node --test tools/generator-lab/test/*.mjs`（59件成功）、`npx tsc --noEmit --incremental false`、`npm run lint`。
+
+### 未確認・引き継ぎ
+
+- 素材の世代差（カラー原版α=255／旧方式α=128焼き込み）は`Render.drawBackground()`のα補正で吸収した。
+  実ブラウザで両世代とも実効50%との差は平均0.27階調。8月のカラー原版をもらう必要はなくなった。
+- **🟡 Monthly／Japanの見た目は変わる。** 通常合成では地の色の彩度が半分に薄まっていたのが、
+  Luminosityでは保たれる。くすんだ色はほぼ同じ、鮮やかな色ほど差が大きい
+  （波の明度100で`#475569`→わずか、`#B21555`は`#8b3d5d`→`#be2161`）。Monthly実物との見比べはKoheiの確認待ち。
+- Other Releases面の残差1.85は、地の色でも不透明度でも説明できない差が残っている（§6.5の🟡）。
+- 月別waveの保管・自動適用は機能側の設計。`docs/codex-generator-handoff.md`へ依頼を書いた。
+- `npm test`／`npm run build`は、Codexが`lib/generator/`を編集中のため未実行。
+
+## 20. 2026-09-09：月別waveの保管と自動適用
+
+Koheiの決定（waveは月替わり、原版は未加工で渡す、投稿に応じて正しい波が出るようにする）を実装した。
+
+### 決めた形
+
+**原版は加工せずに受け取り、こちら側でグレースケールへ変換してリポジトリに置く。**
+背景の合成はLuminosityで波の輝度しか使わないため、色を落としても出力は変わらない
+（実測：変換後とカラー原版の差は平均0.18階調・最大1）。容量は約1/3（9.1MB→2.86MB）になる。
+半分の解像度も試したが、背景に平均1.4階調の差が出るため2400pxのまま維持した。
+
+| ファイル | 変更 |
+| --- | --- |
+| `tools/generator-lab/make-wave.mjs` | 新規。原版→8bitグレースケールPNG（`assets/waves/wave26MM.png`）。PNGの読み書きは自前（依存を増やさない） |
+| `tools/generator-lab/assets/waves/` | 新規。2026-08〜12。8月は同梱の旧`wave.png`から変換した |
+| `app/generator/runtime.tsx` | `BUNDLED_WAVES`／`waveForMonth()`。`period.start`の月で自動選択。未登録月は直近の月へ寄せて`runtime.wave.exact=false`を返す |
+| `app/generator/[id]/GeneratorWorkspace.tsx` | `GeneratorRuntimeProvider`へ`period`を渡す |
+| `app/generator/[id]/Inspectors.tsx` | 共通設定に使用中の月を表示。未登録月は警告色で知らせる |
+| `.gitignore` ／ `reference/README.md` | 参照画像と原版をGit管理外へ。READMEだけ追跡し、受け取ってからの手順を書いた |
+| `tools/generator-lab/background-check.html` | 新規。実物との一致・素材のα吸収・変換前後の同一性を1ページで検証 |
+| `tools/generator-lab/wave-blend-compare.html` | 新規。通常合成とLuminosityを並べて見るページ（Monthlyの見た目確認用） |
+
+### 維持した機能契約
+
+- `theme`のスキーマ、`generator_check_assets`、マイグレーションは変更していない。
+- `theme.waveAssetId`（アップロードによる差し替え）は従来どおり優先される。
+- 波を出すかどうかの`useWave`、合成済み背景画像`backgroundAssetId`の優先順も変えていない。
+
+### 検証
+
+- 実ブラウザ（8778番、`background-check.html`）：実物投稿との差は作品面5枚が平均0.24〜0.29階調、
+  素材のα吸収は旧方式・変換後・カラー原版のいずれも実効50%との差0.26〜0.27階調、
+  グレースケール変換の前後で平均0.18階調。
+- `node --test tools/generator-lab/test/*.mjs`（59件成功）、`npx tsc --noEmit --incremental false`、
+  `npm run lint`、`npm run build`：すべて成功。
+
+### 未確認・引き継ぎ
+
+- **Monthly／Japanの見た目の最終確認はKoheiが実施予定**（通常合成→Luminosityで地の色の彩度が保たれる）。
+  `wave-blend-compare.html`で並べて見られるようにした。
+- 実アプリでの月別自動選択の目視確認は未実施（共有文書が要るため）。ビルドと型検査は通っている。
+- 月別waveをSupabaseへ移すか、「この文書はこの月」を保存できるようにするかは`docs/codex-generator-handoff.md`へ。
+- `npm test`はCodexが`lib/generator/`を編集中のため未実行。
+
+### 20-2. 同日追記：2026年1〜12月の原版を受領
+
+- 全12か月を変換して`assets/waves/`へ（約32MB。原版は約98MB）。`BUNDLED_WAVES`も12か月ぶんに。
+- **旧`assets/wave.png`を退役。** 8月の原版と比べると別加工版（平均輝度88.4／sd47.5、原版は112.8／39.6、
+  相関0.9855）だったため、原版を正本とした。標準の波を使う`app.mjs`・`checks.mjs`・`recovery-checks.mjs`と
+  検証ページはすべて`waves/wave2608.png`を見る。**8月のMonthlyは背景がわずかに明るく・柔らかくなる。**
+- 9月の原版も受領し直したもので、実物投稿との残差は0.24〜0.29→**0.66〜0.71階調**に変わった（再書き出しの差）。
+- αを焼き込んだ旧方式の素材は同梱をやめたので、`background-check.html`は検証用にその場で作って補正を試す。
+- 再検証：テスト59件、`tsc`、`lint`、`npm run build`、`background-check.html`すべて成功。
+
+## 21. 2026-09-09（Codex継続）：月別waveの実共有受入
+
+Claude Codeの§19〜20を、実共有DBと統合画面で通し確認した。機能契約・スキーマ・API・DB・マイグレーションは
+変更していない。
+
+### 実共有文書
+
+- W36 Weekly（`e5f18e71-e2c0-4d2c-98fb-d32f65292582`）は共通設定に
+  「2026年09月の波を使っています」と表示された。出力サイズを一時的に1200pxへ変更してversion 7へ保存し、
+  version 6の共通設定をversion 8として復元した。最終値は2400px、未保存0件、ロック0件。
+- 2026年8月Monthly（`93df6cb5-6c42-41fb-9a53-07dff061aafa`）は
+  「2026年08月の波を使っています」と表示された。同じ手順でversion 14へ保存し、version 13からversion 15として
+  復元した。最終値は2400px、未保存0件、ロック0件。
+- ブラウザの一時的な復旧コピーは両文書とも破棄し、検証用ロックも明示的に解放した。
+
+### PNG／ZIP
+
+- `weekly_26_W36.zip`：7枚、47,377,064 bytes。`00`〜`06`のCRCはすべて正常、全画像2400×2400。
+  featureとOther Releasesを目視し、9月のwave、ジャケット、文字に欠落や明らかな切れがないことを確認した。
+- `monthly_26_08.zip`：9枚、59,578,423 bytes。`02`〜`10`のCRCはすべて正常、全画像2400×2400。
+  代表の採用面を目視し、8月のwave、ジャケット、本文、日本語に欠落や明らかな切れがないことを確認した。
+
+### 設計判断と検証
+
+- 月別waveは当面リポジトリ同梱を維持する。対象月の1枚だけをブラウザが取得でき、認証・共有Storage障害へ
+  新たに依存しない。容量増加は今後の年次運用を見て再評価する。
+- 使用月は`period.start`から導出する現行設計を維持する。意図的な別素材は既存の`theme.waveAssetId`で
+  差し替えられるため、文書へ月を重複保存しない。
+- `npm test -- --reporter=dot`：19ファイル320件成功。
+- `node --test tools/generator-lab/test/*.mjs`：59件成功。
+- `npx tsc --noEmit --incremental false`、`npm run lint`、`npm run build`：成功。
+- 物理iPhone実機のスリープ復帰・反復PNG／ZIP負荷、3人・別端末の同時編集は未確認のまま。
+
+## 21. 2026-09-09：和文書体をNoto Sans JPへ、Other Releasesの太さを補正
+
+Koheiの2つの依頼（①Zen Kaku→Noto Sansの再吟味、②Other Releasesが太く感じる）に対して、
+和文タイトルを含む実物投稿を受領して画素で照合し、両方を実装した。
+
+### 「Oswaldで和文を打つと何が出るのか」への答え
+
+- **このツール**：`family`が`'Oswald", "Noto Sans JP'`というスタックなので、和文グリフは**Noto Sans JP**が出る
+  （メタ帯・RECOMMEND帯は300、Other Releases本文は400）。ただし作品名とアーティスト名だけは
+  `TextEngine.isMixed`／`prepareMixed`で別指定（`titleJP`／`artistJP`）に切り替わる経路がある。
+- **Figma**：Oswaldに和文グリフが無いのでOS側がフォールバックする。過去の検証では**YuGothic Bold**だった
+  （`layout.mjs`の`TYPE.titleJP`コメント、docs/08 §4）。誰かが選んだものではない。
+  今回の実測でも、実物のアーティスト名はYuGothic 400が+3.4%と最も近く、この記録と整合している。
+
+### 測ったこと
+
+`jp-font-check.html`（新規、`generator-lab`サーバ8778番）。実物の行を切り出し、候補で組んだものと
+**インクの幅**と**塗りの量**で比べる。候補は本番と同じ4倍描画→縮小を通し、比較するウェイトは
+すべて明示的に読み込む（読み込まないとブラウザが近い面や合成ボールドで代用し、測定が無意味になる）。
+
+- **幅はどの候補も±1px以内で一致**。つまり版面・サイズは正しく、違うのは太さと字形だけ。
+- 作品名：Noto Sans JP 400が**+0.4%**（Weekly）、**−4.3%**（Japan）。旧`Zen Kaku 700`は**+48.1%**（太すぎ）。
+- アーティスト：Noto Sans JP 300が**−0.8%**（Weekly）、**+1.0%**（Japan）。旧`Zen Kaku 300`は**−25.4%**（細すぎ）。
+- Other Releases：**欧文だけの行でも+21.6%**濃い。和文まじりの行も+19.7〜20.1%と同程度。
+  → 和文固有の問題ではなく、SPEC §9.5のChrome由来のインクの濃さ。
+
+**測り方でつまずいた点（次に測る人向け）**：インクの量は「地に対する明るさの合計」で数えるが、
+地の明るさを切り出し全体で1つの値にすると、パネルの下の写真の明暗差で**地そのものをインクとして数えてしまう**。
+Monthlyのサンプルでは実物の値が2倍近くに膨らみ、どの候補も−50%という嘘の結果になった。
+**文字のまわりだけに絞ってから地を推定する**（`measureTight`）ようにして解決した。
+候補側の箱を小さく取って和文の上下が切れているのにも同じ症状が出る。
+
+### 変更したファイル
+
+| ファイル | 変更 |
+| --- | --- |
+| `tools/generator-lab/core/layout.mjs` | `TYPE.titleJP/artistJP`と`WEEKLY.TYPE.titleJP/artistJP`を`Noto Sans JP` 400／300へ。`WEEKLY.OTHERS.TYPE.body`に`renderWeight: 350` |
+| `tools/generator-lab/core/fonts.mjs` | `withRenderWeights()`が**Weeklyの書体指定も見る**ように。フォールバックスタックの**すべての書体**に、測る太さと描く太さの両方を要求する。和文の適用確認をZen Kaku→`TYPE.titleJP`基準へ |
+| `tools/generator-lab/jp-font-check.html` | 新規。数値の照合と、実物と候補を並べた見た目の比較 |
+
+`fonts.mjs`の修正がないと`renderWeight: 350`のNoto Sans JPが読み込まれず、ブラウザが近い面で
+代用したまま静かに違う太さで描かれる（Weeklyの指定はもともと`withRenderWeights()`の対象外だった）。
+
+### 維持した機能契約
+
+- `renderWeight`は**描く太さだけ**を変える。字送り・折り返し・はみ出し判定は`weight`の測定のままで変わらない。
+- 版面の座標、サイズ、字間、textCaseはいずれも変更していない。
+
+### 検証
+
+- `jp-font-check.html`で、Other Releasesの4行が補正前**+19.7〜+21.6%**→`renderWeight: 350`適用後**+4.5〜+8.0%**。
+- 同じページで、Weeklyの作品面（`2026_W-5.png`）とJapanの採用枠（`Japan_2026_1-2.png`）の
+  作品名・アーティストが**4か所すべて±4.3%以内**に収まることを確認。
+- `checks.html`（`Fonts.loadAll()`を通る）が「比較できます」まで到達することを確認。
+- `node --test tools/generator-lab/test/*.mjs`（59件）、`npx tsc --noEmit`、`npm run lint`、`npm run build`：すべて成功。
+
+### 未確認・Koheiへの確認事項
+
+- ウェイトは**作品名400／アーティスト300でKoheiが確定**（2026-09-09）。Monthlyの和文サンプルも受領し、
+  Weekly・Japanの両方で裏付けが取れた（当初は「300か400か」を残していたが解消）。
+- 実アプリでの和文の目視は未実施（共有文書が要る）。数値と見た目の比較は`jp-font-check.html`で確認済み。
+- Monthly／Japanの**掲載枠**の和文（`Japan_2026_2-2.png`の`°pbdb, 梅井美咲, 北村蕗`）はまだ測っていない。
+  採用枠と同じ`TYPE.artistJP`を使うので同じ結果になるはずだが、サイズが違うので気になれば別途。
+
+## 22. 2026-09-09：対象月の波が無いときは書き出しを止める
+
+レビューで挙げた指摘（未登録月の波でも黙ってPNGが出る）をKoheiの了承のうえ修正した。
+
+### なぜ直したか
+
+`BUNDLED_WAVES`は2026年の12か月だけで、2027年ぶんはまだ無い。この状態で2027年1月の文書を作ると、
+`waveForMonth()`が直近の2026年12月の波を返して描く。**作品名もジャケットも正しく、背景の波だけが違う**ので、
+出来上がりを見ても破綻していない。知らせていたのは共通設定タブの1行だけで、サムネイルのバッジにも
+書き出しのゲートにも出ていなかった。この企画では作品名のはみ出し・行数超過・未保存はいずれも
+「PNGを作らせない」で揃っているのに、ここだけ例外だった。毎年12月末が実質の期限になる構造でもある。
+
+### 変更したファイル
+
+| ファイル | 変更 |
+| --- | --- |
+| `app/generator/wave-month.ts` | 新規。`pickWaveMonth()`／`waveMonthWarning()`／`waveMonthLabel()`。**画像を持たない純粋なロジック**にして自動テストできるようにした |
+| `app/generator/runtime.tsx` | `waveForMonth()`を`wave-month.ts`の薄い包みへ。`runtime.wave`に「本来使うべき月」を追加し、`waveWarnings()`を公開 |
+| `app/generator/GeneratorPreview.tsx` | 警告一覧の先頭へ追加。既存の`blocked = !canExport || warnings.length > 0`にそのまま乗るので、**単枚PNGも止まる** |
+| `app/generator/BulkExportButton.tsx` | 書き出しボタンの`reason`に追加。押せなくなり、理由がそのままtitleに出る |
+| `lib/generator/__tests__/wave-month.test.ts` | 新規8件。対象月あり／未登録は直近の月／登録済みより前ならいちばん古い月／一覧が空／並び順が崩れた一覧／警告文の中身 |
+
+警告文は「2027年1月の波がまだ登録されていません（いまは2026年12月の波で描いています）。
+その月の原版を受け取って登録するまで書き出せません。」
+
+### 維持した機能契約
+
+- `theme.waveAssetId`（アップロードによる差し替え）があるときは警告を出さない。人が明示的に選んだ画像なので対象外。
+- 既存のゲート（未保存・描画準備・ページ0件・描画警告）はそのまま。順序も変えていない。
+- 波を出さない設定（`useWave: false`）のときも対象外。
+
+### 検証
+
+- `npm test`：**20ファイル・328件成功**（wave-month の8件を追加）。`npx tsc --noEmit`、`npm run lint`、`npm run build`すべて成功。
+- 実画面での確認は未実施（共有文書が要る）。境界の挙動は単体テストで固定してある。
+
+## 23. 2026-09-09：レビューで残っていた3件を修正
+
+いずれも「黙って違う絵が出る」類だったため、Koheiの了承のうえ3件とも直した。
+
+| 直したもの | 何が起きていたか | どう直したか |
+| --- | --- | --- |
+| `render.mjs` の`waveAlphaOf()` | 画像全体を1×1へ縮めてαの平均を取っていたため、**一部だけ透明な波**（周囲を抜いた素材など）でも平均が下がり、その分だけ不透明度を上げてしまう＝全体が仕様より濃く出る | 8×8で見て、**全画素が同じαのときだけ**焼き込みαとして補正する。均一でなければ素材の透明をそのまま活かす意図とみなし、0.5をそのまま掛ける |
+| `render.mjs` の`drawBackground()` | `globalCompositeOperation`は未対応の値を代入しても例外にならず黙って通常合成へ落ちる。エラーも警告も出ないまま、彩度の薄い旧来の見た目でPNGが出る | 代入後に読み返して、違っていたら日本語のエラーで止める |
+| `make-wave.mjs` | アルファを読まずRGBだけをグレー化していたため、**透明部分を持つ原版**は透明だった場所が輝度0の黒い面になる。警告も出ない | αの最小・最大を見て、**場所によって違えば変換を中止**して書き出し直しを促す。全画素同じα（旧方式の焼き込み）なら、これまでどおり落として続行し、その旨を出す |
+
+### 検証
+
+- `background-check.html`：実物との一致（0.66〜0.71階調）、αの吸収（旧方式を模した素材で0.25階調）、
+  グレースケール変換の前後（0.181階調）のいずれも修正前と同じ結果。合成モードの検査でも止まらない。
+- `make-wave.mjs`を実データで再実行し、これまでどおり変換できることを確認。
+- `npm test` 20ファイル・328件、`npx tsc --noEmit`、`npm run lint`、`npm run build`：すべて成功。
+

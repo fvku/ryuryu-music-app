@@ -7,7 +7,7 @@ const run = document.getElementById('run');
 const pages = demoPages();
 let images;
 try {
-  const [, jacket, wave] = await Promise.all([Fonts.loadAll(), loadImage('./assets/jacket_2000.webp'), loadImage('./assets/wave.png')]);
+  const [, jacket, wave] = await Promise.all([Fonts.loadAll(), loadImage('./assets/jacket_2000.webp'), loadImage('./assets/waves/wave2608.png')]);
   for (const page of Object.values(pages)) for (const slot of page.slots) slot.jacket.img = jacket;
   images = { wave };
   run.disabled = false; result.textContent = '比較できます';

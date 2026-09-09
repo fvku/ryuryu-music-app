@@ -24,9 +24,43 @@ const Render = (() => {
   }
 
   /**
+   * 波の素材に焼き込まれた不透明度を測る。1回だけ測って画像ごとに覚える。
+   *
+   * 波の素材には2世代ある。**どちらでも実効50%になるように、ここで不透明度を補正する。**
+   *   - カラー原版（α=255。2026-09以降Koheiが月ごとに提供）→ 0.5を掛けて重ねる
+   *   - 旧方式（α=128を焼き込み済みの素材。2026-09-09に同梱をやめたが、アップロードで来る可能性は残る）→ 掛けずに重ねる
+   * 素材がすべてカラー原版に揃ったら、この関数ごと消して`waveOpacity`を直接使ってよい。
+   */
+  const bakedWaveAlpha = new WeakMap();
+  function waveAlphaOf(image) {
+    if (bakedWaveAlpha.has(image)) return bakedWaveAlpha.get(image);
+    let alpha = 255;
+    try {
+      // 8×8へ縮めてαを見る。**補正するのは「全画素が同じα」の素材だけ**にする。
+      // 1×1の平均だけを見ると、一部が透明な素材（周囲を抜いた波など）でも平均が下がり、
+      // その分だけ不透明度を上げてしまう＝画像全体が仕様より濃くなる。均一でなければ
+      // 「素材が持つ透明もそのまま活かす」意図とみなし、補正せず0.5をそのまま掛ける。
+      const N = 8;
+      const probe = document.createElement('canvas');
+      probe.width = probe.height = N;
+      const probeCtx = probe.getContext('2d', { willReadFrequently: true });
+      probeCtx.drawImage(image, 0, 0, N, N);
+      const data = probeCtx.getImageData(0, 0, N, N).data;
+      let min = 255, max = 0;
+      for (let i = 3; i < data.length; i += 4) {
+        if (data[i] < min) min = data[i];
+        if (data[i] > max) max = data[i];
+      }
+      if (max - min <= 2 && max > 0) alpha = max;      // 均一なときだけ焼き込みαとして扱う
+    } catch { /* 測れない環境では原版（α=255）とみなす */ }
+    bakedWaveAlpha.set(image, alpha);
+    return alpha;
+  }
+
+  /**
    * 背景を敷く。2通りある（SPEC.md §6）。
    *   ① `background` … Figma で合成済みのPNGをアップロードした場合。そのまま貼る（Phase 0 からの経路）
-   *   ② `bgColor` ＋ `wave` … ツール側で合成する場合（案B）。色の面の上に波を**通常・不透明度50%**で重ねる
+   *   ② `bgColor` ＋ `wave` … ツール側で合成する場合（案B）。色の面の上に波を**Luminosity・不透明度50%**で重ねる
    * `background` があるときの挙動は Phase 0 と完全に同じ。
    */
   function drawBackground(ctx, img) {
@@ -36,8 +70,18 @@ const Render = (() => {
     ctx.fillStyle = img.bgColor;
     ctx.fillRect(0, 0, L.CANVAS, L.CANVAS);
     if (!img.wave) return;
+    // 地の色の上にwaveをLuminosityで50%重ねる（Figmaの版面と同じ。Layout.BACKGROUNDのコメント参照）。
+    // 直前に地の色でキャンバス全面を塗っているので、合成の相手は必ずその色になる。
+    // 素材にαが焼き込まれている場合は、実効50%になるように掛ける不透明度を減らす。
     ctx.save();
-    ctx.globalAlpha = L.BACKGROUND.waveOpacity;
+    ctx.globalAlpha = Math.min(1, L.BACKGROUND.waveOpacity * 255 / waveAlphaOf(img.wave));
+    ctx.globalCompositeOperation = L.BACKGROUND.waveBlend;
+    // 未対応の合成モードは代入しても例外にならず、黙って source-over（通常合成）に落ちる。
+    // そのまま描くと「地の色の彩度が半分に薄まった」旧来の見た目でPNGが出てしまうので、ここで止める。
+    if (ctx.globalCompositeOperation !== L.BACKGROUND.waveBlend) {
+      ctx.restore();
+      throw new Error(`このブラウザは背景の合成モード（${L.BACKGROUND.waveBlend}）に対応していません。別のブラウザで開いてください。`);
+    }
     ctx.drawImage(img.wave, 0, 0, L.CANVAS, L.CANVAS);
     ctx.restore();
   }
@@ -290,7 +334,7 @@ const Render = (() => {
   /**
    * Weekly（NEW RELEASE WEEK）の表紙（`cover`）。🔵 2026-09-08、実物投稿（2026_W-0.png）を実測して確定
    * （generator-weekly-design.md §6.2・§12、Layout.WEEKLY.COVERのコメント参照）。
-   * オーバーレイの色（🟡未検証・単一投稿からの推定）を除き、帯の順序・ロゴ・週タイトルは実測どおり。
+   * オーバーレイの色（#0040C7@60%）、帯の順序、ロゴ、週タイトルはすべて実測で確定している。
    *
    * @param {object} cover  { jackets: HTMLImageElement[5]（1〜5位の順）, year: number, week: number, logo: HTMLImageElement }
    * @param {object} images { background, wave, bgColor }

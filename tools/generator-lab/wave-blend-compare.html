@@ -1,0 +1,87 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>波の重ね方の見比べ（通常 → Luminosity）</title>
+<style>
+  body { font: 14px/1.7 system-ui; margin: 24px; max-width: 72em; }
+  .row { display: flex; gap: 16px; align-items: flex-start; margin: 18px 0; flex-wrap: wrap; }
+  figure { margin: 0; }
+  figcaption { font-size: 12px; color: #555; margin-top: 4px; }
+  canvas { width: 260px; height: 260px; display: block; border: 1px solid #ccc; }
+  code { background: #f2f2f2; padding: 1px 4px; border-radius: 3px; }
+  .swatch { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+</style>
+<h1>波の重ね方の見比べ</h1>
+<p>同じ地の色・同じ波（<code>assets/waves/wave2608.png</code>＝2026年8月の原版）で、
+<strong>これまでの通常合成</strong>と<strong>今回のLuminosity・不透明度50%</strong>を並べる。
+Figmaの版面としてはLuminosityが正。くすんだ色ではほぼ差が無く、鮮やかな色ほど差が出る。</p>
+
+<div class="swatch">
+  <label>好きな色で確かめる: <input type="color" id="pick" value="#b21555"></label>
+  <span id="pickhex">#b21555</span>
+</div>
+<div id="custom"></div>
+<hr>
+<div id="list">読み込み中…</div>
+
+<script type="module">
+import Layout from './core/layout.mjs';
+import Render from './core/render.mjs';
+
+const load = src => new Promise((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => resolve(image);
+  image.onerror = () => reject(new Error(`読み込めません: ${src}`));
+  image.src = src;
+});
+const wave = await load('./assets/waves/wave2608.png');
+const SIZE = 520;
+
+function make(bgColor, mode) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = SIZE;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(SIZE / Layout.CANVAS, 0, 0, SIZE / Layout.CANVAS, 0, 0);
+  if (mode === 'new') {
+    Render.drawBackground(ctx, { bgColor, wave });
+  } else {
+    // これまでの実装：通常合成・不透明度は素材のαまかせ
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, Layout.CANVAS, Layout.CANVAS);
+    ctx.drawImage(wave, 0, 0, Layout.CANVAS, Layout.CANVAS);
+  }
+  return canvas;
+}
+
+function row(label, bgColor) {
+  const wrap = document.createElement('div');
+  wrap.className = 'row';
+  for (const [mode, caption] of [['old', 'これまで（通常合成）'], ['new', '今回（Luminosity 50%）']]) {
+    const figure = document.createElement('figure');
+    figure.appendChild(make(bgColor, mode));
+    const cap = document.createElement('figcaption');
+    cap.textContent = `${caption}　${label} ${bgColor}`;
+    figure.appendChild(cap);
+    wrap.appendChild(figure);
+  }
+  return wrap;
+}
+
+const list = document.getElementById('list');
+list.textContent = '';
+for (const [label, color] of [
+  ['既定色', '#475569'],
+  ['鮮やかな色', '#b21555'],
+  ['実物W-1の地の色', '#748089'],
+  ['実物W-3の地の色', '#e1ebf9'],
+  ['実物W-6の地の色', '#923f3d'],
+]) list.appendChild(row(label, color));
+
+const pick = document.getElementById('pick'), custom = document.getElementById('custom');
+const redraw = () => {
+  document.getElementById('pickhex').textContent = pick.value;
+  custom.textContent = '';
+  custom.appendChild(row('自由指定', pick.value));
+};
+pick.addEventListener('input', redraw);
+redraw();
+</script>

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GeneratorHistoryEntry } from "@/lib/generator/client-types";
 import type { GeneratorDocument } from "@/lib/generator/model";
 import { Checkbox, Chip, Field, Modal, PrimaryButton, SecondaryButton, SelectInput } from "../ui";
+import { useGeneratorRuntime } from "../runtime";
 import { movePageItem, swapWeeklyFeatureItem, targetLabels, type LockKind, type OrderedPageKind } from "./workspace-types";
 
 export type TargetState = {
@@ -262,6 +263,8 @@ export function ThemeInspector({
   onImage(target: "waveAssetId" | "backgroundAssetId", file: File): Promise<void>;
 }) {
   const readOnly = !state.locked || state.disabled;
+  // 波は対象月のものが自動で選ばれる（runtime.tsxのBUNDLED_WAVES）。どの月のものが出ているかを見せる。
+  const { runtime } = useGeneratorRuntime();
   const picker = (label: string, target: "waveAssetId" | "backgroundAssetId") => (
     <Field label={label} hint="PNG・JPEG・WebP、10MB以下。共有Storageへ保存してから、保存で版に確定します。">
       <input
@@ -283,6 +286,13 @@ export function ThemeInspector({
         企画のすべての画像に効きます。保存すると全ページの見た目が変わります。
       </p>
       <Checkbox checked={theme.useWave} disabled={readOnly} onChange={event => onTheme({ ...theme, useWave: event.target.checked })} label="波を表示" />
+      {theme.useWave && !theme.waveAssetId && runtime?.wave && (
+        <p className="text-[11px] leading-5" style={{ color: runtime.wave.exact ? "var(--text-secondary)" : "#fca5a5" }}>
+          {runtime.wave.exact
+            ? `${runtime.wave.month.replace("-", "年")}月の波を使っています。`
+            : `⚠️ 対象月の波がまだ登録されていません。${runtime.wave.month.replace("-", "年")}月の波で表示しています。`}
+        </p>
+      )}
       {picker("波画像を差し替え", "waveAssetId")}
       {theme.waveAssetId && (
         <button type="button" disabled={readOnly} onClick={() => onTheme({ ...theme, waveAssetId: null })} className="text-xs text-violet-300 disabled:opacity-40">

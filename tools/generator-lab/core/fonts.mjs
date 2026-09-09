@@ -49,9 +49,24 @@ const Fonts = (() => {
     const merged = NEEDED.map(f => ({ family: f.family, weights: new Set(f.weights) }));
     const find = fam => merged.find(m => m.family === fam) || (merged.push({ family: fam, weights: new Set() }), merged[merged.length - 1]);
     if (typeof Layout !== 'undefined') {
-      for (const t of Object.values(Layout.TYPE)) {
-        const fam = t.family.split(',')[0].replace(/"/g, '').trim();
-        find(fam).weights.add(Layout.renderWeightOf(t));
+      // Monthly／Japanだけでなく**Weeklyの書体指定もすべて見る**。ここを漏らすと、そのウェイトが
+      // 読み込まれないまま描画に入り、ブラウザが近い面や合成ボールドで代用してしまう（見た目だけ静かに狂う）。
+      const specs = [
+        ...Object.values(Layout.TYPE),
+        ...Object.values(Layout.WEEKLY.TYPE),
+        ...Object.values(Layout.WEEKLY.OTHERS.TYPE),
+      ];
+      const selfHosted = new Set(SELF_HOSTED.map(f => f.family));
+      for (const t of specs) {
+        // family は 'Oswald", "Noto Sans JP' のようなフォールバック付きの指定がある。
+        // 和文グリフは後ろの書体で出るので、**スタックのすべての書体に**同じウェイトを要求する。
+        for (const raw of t.family.split(',')) {
+          const fam = raw.replace(/"/g, '').trim();
+          if (!fam || selfHosted.has(fam)) continue;      // 表紙の書体はGoogle Fontsに無い（セルフホスト）
+          // 測るときは weight、描くときは renderWeight を使うので両方が要る（SPEC.md §9.5）。
+          find(fam).weights.add(t.weight);
+          find(fam).weights.add(Layout.renderWeightOf(t));
+        }
       }
     }
     return merged.map(m => ({ family: m.family, weights: [...m.weights].sort((a, b) => a - b) }));
@@ -88,8 +103,9 @@ const Fonts = (() => {
     // 和文の全角グリフは書体を問わず送り幅がほぼ1emに揃うため、上と同じ幅の比較トリックが使えない。
     // document.fonts.check() で「その書体が実際に登録されているか」を直接確認する
     // （Figma の Oswald→和文フォールバックと同じ事故を、ここでも黙って起こさないため）。
-    if (!document.fonts.check('700 40px "Zen Kaku Gothic New"', '一'))
-      throw new Error('Zen Kaku Gothic New が適用されていません（フォールバック書体のままです）');
+    // 2026-09-09に和文をZen Kaku Gothic NewからNoto Sans JPへ変更したので、確認先もそちらへ移した。
+    if (!document.fonts.check(`${Layout.TYPE.titleJP.weight} 40px "${Layout.TYPE.titleJP.family}"`, '一'))
+      throw new Error(`${Layout.TYPE.titleJP.family} が適用されていません（フォールバック書体のままです）`);
     // Alternate Gothic No2 D は表紙（weekly cover）専用。ここでは検証しない＝失敗していても
     // Monthly／Japan／作品面／Other Releasesの生成を止めない。表紙側の検証はcoverFontReady()。
   }

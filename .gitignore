@@ -38,3 +38,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 実測用の参照画像と波の原版（1枚3〜9MBあり、履歴を膨らませる）。
+# 波はグレースケールへ変換したものだけを tools/generator-lab/assets/waves/ に置く
+# （変換: node tools/generator-lab/make-wave.mjs <原版.png>）。
+# 原版と実物投稿は各自の手元に置く。docs/generator-weekly-design.md §6.5 を参照。
+/tools/generator-lab/reference/**/*.png
