@@ -300,6 +300,25 @@ export default function AdminPage() {
   const [fillDryRun, setFillDryRun] = useState(true);
   const [fillLimit, setFillLimit] = useState(15);
 
+  // プレイリスト収録タグ
+  type PlaylistSource = { playlistId: string; label: string; enabled: boolean; addedAt: string };
+  type PlaylistChange = { rowNum: number; title: string; artist: string; before: string; after: string; matchedBy: string };
+  type PlaylistSyncResult = {
+    dryRun: boolean; written: number; unchanged: number; unmatchedAlbums: number; albumCount: number;
+    fetched: { label: string; playlistId: string; trackCount: number }[];
+    failed: { label: string; playlistId: string; error: string }[];
+    changes: PlaylistChange[]; changeCount: number;
+  };
+  const [playlistSources, setPlaylistSources] = useState<PlaylistSource[] | null>(null);
+  const [playlistSourcesLoading, setPlaylistSourcesLoading] = useState(false);
+  const [playlistUrl, setPlaylistUrl] = useState("");
+  const [playlistLabel, setPlaylistLabel] = useState("");
+  const [playlistSourceError, setPlaylistSourceError] = useState<string | null>(null);
+  const [playlistSyncLoading, setPlaylistSyncLoading] = useState(false);
+  const [playlistSyncDryRun, setPlaylistSyncDryRun] = useState(true);
+  const [playlistSyncResult, setPlaylistSyncResult] = useState<PlaylistSyncResult | null>(null);
+  const [playlistSyncError, setPlaylistSyncError] = useState<string | null>(null);
+
   // assign-uids
   type AssignUidsDetail = { row: number; no: string; title: string; artist: string };
   type AssignUidsApiResult = {
@@ -409,6 +428,7 @@ export default function AdminPage() {
       setMonthOptions(["すべて", ...months]);
     });
     checkForUidDuplicates(password);
+    loadPlaylistSources(password);
   }
 
   async function handleBulkImport() {
@@ -448,6 +468,64 @@ export default function AdminPage() {
       setFillError(err instanceof Error ? err.message : "エラーが発生しました");
     } finally {
       setFillLoading(false);
+    }
+  }
+
+  async function callPlaylistSources(body: Record<string, unknown>, pw = password) {
+    setPlaylistSourcesLoading(true);
+    setPlaylistSourceError(null);
+    try {
+      const res = await fetch("/api/admin/playlist-sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminPassword: pw, ...body }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "プレイリストの取得に失敗しました");
+      setPlaylistSources(data.sources ?? []);
+      return true;
+    } catch (err) {
+      setPlaylistSourceError(err instanceof Error ? err.message : "エラーが発生しました");
+      return false;
+    } finally {
+      setPlaylistSourcesLoading(false);
+    }
+  }
+
+  async function loadPlaylistSources(pw: string) {
+    await callPlaylistSources({ action: "list" }, pw);
+  }
+
+  async function handleAddPlaylistSource() {
+    const ok = await callPlaylistSources({ action: "add", url: playlistUrl, label: playlistLabel });
+    if (ok) { setPlaylistUrl(""); setPlaylistLabel(""); }
+  }
+
+  async function handleRemovePlaylistSource(playlistId: string) {
+    await callPlaylistSources({ action: "remove", playlistId });
+  }
+
+  async function handleTogglePlaylistSource(playlistId: string, enabled: boolean) {
+    await callPlaylistSources({ action: "toggle", playlistId, enabled });
+  }
+
+  async function handleSyncPlaylistTags() {
+    setPlaylistSyncLoading(true);
+    setPlaylistSyncError(null);
+    setPlaylistSyncResult(null);
+    try {
+      const res = await fetch("/api/admin/sync-playlist-tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminPassword: password, dryRun: playlistSyncDryRun }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "実行に失敗しました");
+      setPlaylistSyncResult(data);
+    } catch (err) {
+      setPlaylistSyncError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setPlaylistSyncLoading(false);
     }
   }
 
@@ -876,6 +954,97 @@ export default function AdminPage() {
                 className="px-4 py-2 rounded-xl text-sm font-medium border disabled:opacity-50"
                 style={{ borderColor: SECTION.weekly.accent, color: SECTION.weekly.accent }}>
                 {importLoading ? "取り込み中..." : "実行"}
+              </button>
+            </div>
+
+            {/* プレイリスト収録タグ */}
+            <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: SECTION.weekly.border }}>
+              <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>プレイリスト収録タグ</h3>
+              <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+                登録したプレイリストの収録曲を取得して、Release Master の playlist 列に「どのプレイリストに入っているか」を書き込みます。取得できるのは新しい順に各100曲まで（およそ直近1か月分）。playlist 列が無い場合は空いている列に自動で作成します。
+              </p>
+
+              <div className="rounded-xl p-3 mb-3 border" style={{ backgroundColor: "rgba(255,255,255,0.03)", borderColor: "var(--border-subtle)" }}>
+                {playlistSources === null ? (
+                  <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{playlistSourcesLoading ? "読み込み中..." : "未取得"}</p>
+                ) : playlistSources.length === 0 ? (
+                  <p className="text-xs" style={{ color: "var(--text-secondary)" }}>まだ登録されていません。下のフォームから追加してください。</p>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {playlistSources.map((s) => (
+                      <div key={s.playlistId} className="flex items-center gap-2 text-xs">
+                        <input type="checkbox" checked={s.enabled} disabled={playlistSourcesLoading}
+                          onChange={(e) => handleTogglePlaylistSource(s.playlistId, e.target.checked)} className="rounded" />
+                        <span className="font-medium" style={{ color: s.enabled ? "var(--text-primary)" : "var(--text-secondary)" }}>{s.label}</span>
+                        <a href={`https://open.spotify.com/playlist/${s.playlistId}`} target="_blank" rel="noreferrer"
+                          className="underline truncate" style={{ color: "var(--text-secondary)", maxWidth: "160px" }}>{s.playlistId}</a>
+                        <button onClick={() => handleRemovePlaylistSource(s.playlistId)} disabled={playlistSourcesLoading}
+                          className="ml-auto px-2 py-0.5 rounded-lg border disabled:opacity-50"
+                          style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>削除</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap mb-3">
+                <input value={playlistUrl} onChange={(e) => setPlaylistUrl(e.target.value)}
+                  placeholder="https://open.spotify.com/playlist/..."
+                  className="px-3 py-2 rounded-xl border text-sm focus:outline-none flex-1"
+                  style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)", minWidth: "220px" }} />
+                <input value={playlistLabel} onChange={(e) => setPlaylistLabel(e.target.value)}
+                  placeholder="表示名（例: All New Rock）"
+                  className="px-3 py-2 rounded-xl border text-sm focus:outline-none"
+                  style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)", minWidth: "180px" }} />
+                <button onClick={handleAddPlaylistSource}
+                  disabled={playlistSourcesLoading || !playlistUrl.trim() || !playlistLabel.trim()}
+                  className="px-4 py-2 rounded-xl text-sm font-medium border disabled:opacity-50"
+                  style={{ borderColor: SECTION.weekly.accent, color: SECTION.weekly.accent }}>
+                  {playlistSourcesLoading ? "処理中..." : "追加"}
+                </button>
+              </div>
+              {playlistSourceError && <p className="text-red-400 text-xs mb-3">{playlistSourceError}</p>}
+
+              <label className="flex items-center gap-2 text-sm mb-3 cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+                <input type="checkbox" checked={playlistSyncDryRun} onChange={e => setPlaylistSyncDryRun(e.target.checked)} className="rounded" />
+                Dry-run（書き込みなし）
+              </label>
+
+              {playlistSyncResult && (
+                <div className="rounded-xl p-3 mb-3 border text-xs" style={{ backgroundColor: playlistSyncResult.dryRun ? "rgba(99,102,241,0.1)" : "rgba(34,197,94,0.1)", borderColor: playlistSyncResult.dryRun ? "rgba(99,102,241,0.3)" : "rgba(34,197,94,0.3)" }}>
+                  <p className="font-medium mb-1" style={{ color: playlistSyncResult.dryRun ? "#a5b4fc" : "#4ade80" }}>
+                    {playlistSyncResult.dryRun ? "Dry-run 完了" : "書き込み完了"} — 索引 {playlistSyncResult.albumCount}枚 / 更新対象 {playlistSyncResult.changeCount}行 / 変更なし {playlistSyncResult.unchanged}行 / シート未登録 {playlistSyncResult.unmatchedAlbums}枚
+                  </p>
+                  <p style={{ color: "var(--text-secondary)" }}>
+                    {playlistSyncResult.fetched.map((f) => `${f.label} ${f.trackCount}曲`).join(" / ")}
+                  </p>
+                  {playlistSyncResult.failed.length > 0 && (
+                    <div className="mt-2 flex flex-col gap-0.5">
+                      <p className="font-semibold" style={{ color: "#fbbf24" }}>⚠ 取得できなかったプレイリスト</p>
+                      {playlistSyncResult.failed.map((f) => (
+                        <span key={f.playlistId} style={{ color: "var(--text-secondary)" }}>{f.label}: {f.error}</span>
+                      ))}
+                    </div>
+                  )}
+                  {playlistSyncResult.changes.length > 0 && (
+                    <div className="flex flex-col gap-0.5 max-h-40 overflow-y-auto mt-2">
+                      {playlistSyncResult.changes.map((c) => (
+                        <span key={c.rowNum} style={{ color: "var(--text-secondary)" }}>
+                          row{c.rowNum}: {c.artist} - {c.title} → {c.after}
+                        </span>
+                      ))}
+                      {playlistSyncResult.changeCount > playlistSyncResult.changes.length && (
+                        <span style={{ color: "var(--text-secondary)" }}>... 他 {playlistSyncResult.changeCount - playlistSyncResult.changes.length}行</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              {playlistSyncError && <p className="text-red-400 text-xs mb-3">{playlistSyncError}</p>}
+              <button onClick={handleSyncPlaylistTags} disabled={playlistSyncLoading}
+                className="px-4 py-2 rounded-xl text-sm font-medium border disabled:opacity-50"
+                style={{ borderColor: SECTION.weekly.accent, color: SECTION.weekly.accent }}>
+                {playlistSyncLoading ? "実行中..." : "実行"}
               </button>
             </div>
           </>

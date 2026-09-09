@@ -19,6 +19,7 @@
   - `scores` シート: A=reviewId, B=memberName(email), C=score, D=comment, E=submittedAt, F=albumTitle, G=artistName, H=albumUid
   - `recommendations` シート: A=id, B=recommenderId, C=albumNo, D=albumTitle, E=artistName, F=coverUrl, G=message, H=createdAt, I=mentionedEmails(カンマ区切り), J=albumUid
   - `bookmarks` シート: A=memberName(email), B=albumTitle, C=artistName, D=savedAt, E=albumUid
+  - `playlists` シート: A=playlistId, B=label, C=enabled, D=addedAt（プレイリスト収録タグの取得対象。管理画面から追加・削除）
   - アルバム紐付けは **albumUid（Release MasterのUID）優先、title+artistフォールバック**（2026-07-18〜）。albumUidが空の行は移行前の孤児データか手動追加行 → `scripts/backfill-album-uids.ts` の再実行で埋められる（冪等）
 - **Release Master**: `RELEASE_MASTER_SPREADSHEET_ID`
   - A=No., B=Date, C=Title, D=Artist, E=Body, F=洋邦, G=Time, H=#, I=リスナー, Q=M/J採用, R=ASSIGN, S=M Number, T=Track, U=Start Time, V=M/J採用（220-300）, X=Kwisoo, Y=Meri, Z=Kohei, AA=Eddie, AB=Hanawa, AC=Kaede, AD=Spotify, AE=spotifyカバー（640×640）
@@ -34,6 +35,7 @@
 - `lib/api-cache.ts` — GET APIのin-memoryキャッシュ（書き込みルートで `invalidateCache` を呼ぶこと）
 - `lib/uid.ts` / UID列 — アルバムの安定ID（改名に耐える行識別子。`scripts/assign-uids.ts` で採番）
 - `lib/ops/` — メンテ処理のコアロジック（scripts/ と app/api/admin/ の両方から呼ばれる共通実装）
+- `lib/playlist-sources.ts` — プレイリスト収録タグの取得対象（`playlists` シートのCRUD）
 - `lib/spotify.ts` — Spotify API クライアント
 - `app/page.tsx` — ホーム（アルバム一覧、フィルター）
 - `app/recommend/page.tsx` — タイムライン（レコメンド＋レビュー）
@@ -53,6 +55,7 @@
 | `refetch-spotify.ts` | Spotify URL空行の再取得（名前不一致はMISMATCHアラート） |
 | `assign-uids.ts` | Release Master のUID列採番（dry-run / --apply、冪等） |
 | `backfill-album-uids.ts` | scores/bookmarks/recommendations にRMのUIDを紐付け（dry-run / --apply、冪等） |
+| `sync-playlist-tags.ts` | 登録プレイリストの収録曲からRMの`playlist`列を更新（dry-run / --apply / --init-column） |
 
 ### fill-time-tracks.ts のオプション
 
@@ -64,6 +67,16 @@ npx tsx scripts/fill-time-tracks.ts --apply --force --from-row=915  # 指定行�
 ```
 
 書き込み形式: `13songs, 50min 4sec`
+
+## プレイリスト収録タグ
+
+Release Master の `playlist` 列に「そのアルバムがどの有名プレイリストに入っているか」を自動で書き込む。
+
+- Spotify公式（エディトリアル）プレイリストは Web API から読めない。アプリが Development mode のため 404 になる（Client Credentials でもユーザー認可トークンでも同じ。2026-09-09に実測）
+- そのため収録曲一覧は**埋め込みページ**（`open.spotify.com/embed/playlist/<id>`）から取得する。曲→アルバムの解決は公式API（`/v1/tracks`）
+- 取得上限は各プレイリスト100曲。新しい順に並ぶのでおよそ直近1か月分をカバーする
+- 照合はアルバムID優先、アルバム名+アーティスト名フォールバック
+- 取得対象は管理画面（週次リリース処理タブ）から追加・削除する。`genre/memo` 列には触れない
 
 ## フィルター状態の永続化（localStorage）
 

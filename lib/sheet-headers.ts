@@ -70,6 +70,7 @@ export const SHEET_COL = {
   // --- 書き込み対象 ---
   UID:         "UID",            // 安定ID列（改名に耐える行識別子。位置は任意）
   GENRE_MEMO:  "genre/memo",     // K列
+  PLAYLIST:    "playlist",       // 収録プレイリスト名（sync-playlist-tags.ts が自動更新）
   COUNTRY:     "国",             // L列
   WEEK_ADOPTION: "WEEK",         // O列（Weekly: 採用／掲載／不採用）
   MJ_ADOPTION: "M/J採用",        // Q列
