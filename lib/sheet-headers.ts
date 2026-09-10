@@ -69,26 +69,26 @@ export const SHEET_COL = {
 
   // --- 書き込み対象 ---
   UID:         "UID",            // 安定ID列（改名に耐える行識別子。位置は任意）
-  GENRE_MEMO:  "genre/memo",     // K列
-  PLAYLIST:    "playlist",       // 収録プレイリスト名（sync-playlist-tags.ts が自動更新）
-  COUNTRY:     "国",             // L列
-  WEEK_ADOPTION: "WEEK",         // O列（Weekly: 採用／掲載／不採用）
-  MJ_ADOPTION: "M/J採用",        // Q列
-  MJ_ASSIGN:   "ASSIGN",         // R列
-  MJ_TRACK_NO: "M Number",       // S列
-  MJ_TRACK:    "Track",               // T列
-  START_TIME:  "Start Time",          // U列
-  MJ_TEXT:     "M/J採用（220−300）",  // V列  ※要確認: 実際の列名と合わせてください
-  SPOTIFY_URL: "Spotify",             // AD列
-  COVER_URL:   "spotifyカバー",       // AE列
+  GENRE_MEMO:  "genre/memo",     // L列
+  PLAYLIST:    "playlist",       // K列（収録プレイリスト名。sync-playlist-tags.ts が自動更新）
+  COUNTRY:     "国",             // M列
+  WEEK_ADOPTION: "WEEK",         // P列（Weekly: 採用／掲載／不採用）
+  MJ_ADOPTION: "M/J採用",        // R列
+  MJ_ASSIGN:   "ASSIGN",         // S列
+  MJ_TRACK_NO: "M Number",       // T列
+  MJ_TRACK:    "Track",               // U列
+  START_TIME:  "Start Time",          // V列
+  MJ_TEXT:     "M/J採用（220−300）",  // W列
+  SPOTIFY_URL: "Spotify",             // AF列
+  COVER_URL:   "spotifyカバー",       // AG列
 
   // --- メンバースコア列（書き込み対象） ---
-  KWISOO: "Kwisoo",  // X列
-  MERI:   "Meri",    // Y列
-  KOHEI:  "Kohei",   // Z列
-  EDDIE:  "Eddie",   // AA列
-  HANAWA: "Hanawa",  // AB列
-  KAEDE:  "Kaede",   // AC列
+  KWISOO: "Kwisoo",  // Y列
+  MERI:   "Meri",    // Z列
+  KOHEI:  "Kohei",   // AA列
+  EDDIE:  "Eddie",   // AB列
+  HANAWA: "Hanawa",  // AC列
+  KAEDE:  "Kaede",   // AD列
 } as const;
 
 /** 読み取り専用列のフォールバック（header名が不一致の場合に使う 0始まりインデックス） */

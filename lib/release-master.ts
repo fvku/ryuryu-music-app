@@ -1,5 +1,4 @@
 import { google } from "googleapis";
-import { MEMBER_COLUMN_INDEX } from "./members";
 import { buildHeaderMap, findMissingColumns, indexToColumnLetter, SHEET_COL } from "./sheet-headers";
 import { getGoogleAuth } from "./google-auth";
 
@@ -93,8 +92,10 @@ export async function getReleaseMasterScoreRows(): Promise<ReleaseMasterScoreRow
     .map((row) => {
       const memberScores: Record<string, string> = {};
       for (const [memberName, email] of Object.entries(MEMBER_EMAIL)) {
-        // ヘッダーで列名検索 → 見つからなければ MEMBER_COLUMN_INDEX をフォールバック
-        const idx = col[memberName] ?? MEMBER_COLUMN_INDEX[memberName] ?? -1;
+        // 列位置ではなくヘッダー名だけで解決する。
+        // 以前は固定インデックスにフォールバックしていたが、列を移動すると
+        // 隣のメンバーの列を読んでしまうため廃止した（2026-09-11）。
+        const idx = col[memberName] ?? -1;
         const val = idx >= 0 ? (row[idx] || "") : "";
         if (val.trim()) memberScores[email] = val.trim();
       }
