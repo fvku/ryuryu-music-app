@@ -305,6 +305,16 @@ Monthlyの見た目（通常合成→Luminosity）はKoheiが確認済みで、�
   物理iPhone実機の確認はモバイル再設計まで保留。3 actorの接続分離は実共有DBと実UIで確認し、
   物理的に異なる3端末と、突然の切断から実時間3分後に失効することだけが未確認。
 
+## 報告：Weeklyの初期字間を0へ、Release Masterの再取得導線を追加（2026-09-11、Claude Code）
+
+利用者の依頼で、Weeklyの作品名の初期字間を0にし、取り込み後にRelease Master側で直した文字情報を読み直す導線を追加した。UIとローカル下書きだけで完結させてあり、API・DB・保存契約・マイグレーションは変更していない。詳細は[UI実装記録 §26](./generator-ui-implementation.md#26-2026-09-11weeklyの作品名字間を0へrelease-masterの再取得導線を追加)。
+
+### そちらへ確認・判断をお願いしたい3件
+
+1. **`/api/release-master`の60秒キャッシュ。** 再取得は既存のTime補完と同じ`/api/release-master`を使う。このルートは`lib/api-cache.ts`で60秒キャッシュされるため、Release Masterを直した直後に押すと古い値が返りうる。UI側はダイアログに「最大60秒ぶん前の内容になることがある」と書いて逃がしてある。ジェネレーター用に無キャッシュの読み取り口（`/api/generator/source`と同じ直読み）を用意するかは機能側の判断。
+2. **`item.source.fields`とカバー画像を更新できない。** 保存APIが受け取るのは`content`だけなので、再取得は`content.fields`しか書き換えない。結果として、一度取り込んだ項目は`source.fields`（取り込み時の原稿）から離れ、次の再取得では「手で修正済み」として既定チェックが外れる。またRelease Master側で`画像リンク変換`／`spotifyカバー`が差し替わっても、`source.coverUrl`は更新できない（現状の逃げ道はジャケット画像の手動アップロード）。`source`の更新を保存契約へ入れるかは機能側の判断。UI側からは提案のみ。
+3. **Weekly取り込みの初期字間。** `lib/generator/source.ts`の`typography.title.tracking`を`-0.02`から`0`にした（`leading: 72 / 54`は据え置き）。描画既定の`Layout.WEEKLY.TYPE.title.tracking`は元から0で、`fitWeeklyTitle`の自動詰めは`baseTracking`基準なので挙動は変わらない。テストは`lib/generator/__tests__/source.test.ts`を更新済み。**既に保存済みのWeekly文書は`-0.02`のまま**で、DB移行は行っていない。一括で0へ寄せる必要があるかは利用者判断。
+
 ---
 
 ## この文書の位置づけ

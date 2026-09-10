@@ -14,6 +14,8 @@ import { GeneratorRuntimeProvider } from "../runtime";
 import { Chip, Panel, SecondaryButton, SegmentedControl, SelectInput, StatusBanner, useMediaQuery, type SegmentOption, type Tone } from "../ui";
 import { PageInspector, RestoreControl, StructureDialog, TargetStatus, ThemeInspector, type TargetState } from "./Inspectors";
 import ItemInspector from "./ItemInspector";
+import SourceRefreshDialog from "./SourceRefreshDialog";
+import { applySourceRefresh, collectSourceRefresh, type RefreshFieldKey, type SourceRefreshItem } from "./source-refresh";
 import {
   cloneContent,
   derivePageBadges,
@@ -64,6 +66,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const [activeLocks, setActiveLocks] = useState<Record<string, ActiveLock>>({}), [drafts, setDrafts] = useState<Record<string, ItemContent>>({});
   const [pageColors, setPageColors] = useState<Record<string, string>>({}), [themeDraft, setThemeDraft] = useState(snapshot.document.theme);
   const [structurePages, setStructurePages] = useState<GeneratorDocument["pages"] | null>(null);
+  const [refreshResults, setRefreshResults] = useState<SourceRefreshItem[] | null>(null);
   const [history, setHistory] = useState<GeneratorHistoryEntry[]>([]), [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<Status>({ tone: "info", text: "プレビューまたは編集欄から直接調整できます。保存は対象ごとに新しいversionを作成します。" });
   const [diagnostics, setDiagnostics] = useState<PreviewDiagnostics | null>(null);
@@ -387,6 +390,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       setPageColors({});
       setStructurePages(null);
       setThemeDraft(next.document.theme);
+      setRefreshResults(null);
       pendingSaves.clear();
       setStatus({ tone: "success", text: "最新版を読み込みました。編集中だった内容は破棄されています。" });
     } catch (error) {
@@ -394,6 +398,58 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * 取り込み後にRelease Master側で直された文字情報を読み直す。
+   * 共有DBは触らず、選ばれた項目だけをローカル下書きへ入れる（確定は作品ごとの「保存」）。
+   */
+  async function refreshFromSource() {
+    setBusy(true);
+    setStatus({ tone: "info", text: "Release Masterの最新の文字情報を読み込んでいます…" });
+    try {
+      const albums = await generatorJson<ReleaseMasterAlbum[]>(await fetch("/api/release-master", { cache: "no-store" }));
+      const results = collectSourceRefresh({ document: snapshot.document, drafts, albums });
+      const total = results.reduce((count, item) => count + item.changes.length, 0);
+      const missing = results.filter(item => !item.matched).length;
+      setRefreshResults(results);
+      setStatus(total
+        ? { tone: "warn", text: `Release Masterと違う項目が${total}件あります。取り込む項目を選んでください。` }
+        : missing
+          ? { tone: "warn", text: `差分はありませんが、Release Masterで照合できない作品が${missing}件あります。` }
+          : { tone: "success", text: "Release Masterと同じ内容です。取り込む差分はありません。" });
+    } catch (error) {
+      setStatus({ tone: "error", text: `Release Masterを読み込めませんでした: ${(error as Error).message}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function applyRefresh(selected: { itemId: string; key: RefreshFieldKey; next: string }[]) {
+    if (!selected.length) return;
+    const grouped = new Map<string, { key: RefreshFieldKey; next: string }[]>();
+    for (const value of selected) {
+      const changes = grouped.get(value.itemId) || [];
+      changes.push({ key: value.key, next: value.next });
+      grouped.set(value.itemId, changes);
+    }
+    setDrafts(current => {
+      const next = { ...current };
+      for (const [itemId, changes] of grouped) {
+        const base = current[itemId] || items.get(itemId)?.content;
+        if (!base) continue;
+        next[itemId] = applySourceRefresh(cloneContent(base), changes);
+      }
+      return next;
+    });
+    const pageNumbers = [...new Set((refreshResults || [])
+      .filter(item => grouped.has(item.itemId))
+      .map(item => item.pageNo))].sort((a, b) => a - b);
+    setRefreshResults(null);
+    setStatus({
+      tone: "warn",
+      text: `Release Masterの内容を${selected.length}件、下書きへ入れました。画像 ${pageNumbers.join("・")} の作品を開き、「保存」でversionに確定してください。`,
+    });
   }
 
   function restoreRecovery() {
@@ -633,6 +689,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
               変更履歴
             </Link>
             <SecondaryButton disabled={busy} onClick={() => void reload()} className="min-h-9 px-3 text-xs">最新版を再読込</SecondaryButton>
+            {/* 共有DBの再読込とは別物。Release Master側で直した文字情報だけを下書きへ入れる。 */}
+            <SecondaryButton disabled={busy} onClick={() => void refreshFromSource()} className="min-h-9 px-3 text-xs">Release Masterから再取得</SecondaryButton>
             {/* 全ページのPNGは文書単位の操作なので、ページごとの出力ボタンとは分けてここに置く。 */}
             <BulkExportButton document={previewDocument} pages={previewPages} canExport={!dirty} onStatus={setStatus} />
           </div>
@@ -787,6 +845,15 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             </div>
           </Panel>
         </div>
+
+        {refreshResults && (
+          <SourceRefreshDialog
+            results={refreshResults}
+            disabled={busy}
+            onApply={applyRefresh}
+            onClose={() => setRefreshResults(null)}
+          />
+        )}
 
         {reorderOpen && (
           <StructureDialog

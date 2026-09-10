@@ -995,3 +995,56 @@ Simulatorとデスクトップブラウザでは確認済みだが、物理iPhon
 - ProductionはGoogle再ログイン要求まで確認した。認証後の通しスモークはユーザー操作待ち。
 - Safari／Edgeはこの実行環境の操作対象に無く、BraveはComputer Useの利用許可が得られなかったため最終受入できていない。Chrome以外を合格扱いにはしない。
 - 物理iPhoneは§24どおり、Claude側のモバイルUI・提供機能の再検討と合意後に受入する。`app/generator/uipreview-temp/page.tsx`はそれまで残す。
+
+## 26. 2026-09-11：Weeklyの作品名字間を0へ、Release Masterの再取得導線を追加
+
+利用者の依頼2件。「weeklyの作品名の字間はデフォルトで0」「Release Masterでジャンルなどを直したときに、最新の文字情報を読み直す導線が無ければ作る」。
+
+### 変更したファイルとUI
+
+- `lib/generator/source.ts`：Weekly取り込みの`typography.title.tracking`を`-0.02`から`0`にした。`leading: 72 / 54`と`kerns: {}`は変えていない。描画側の既定（`Layout.WEEKLY.TYPE.title.tracking`）は元から0なので、取り込み値だけで完結する。
+- `app/generator/[id]/source-refresh.ts`（新規）：Release Masterの最新行と現在の下書きを比べる純関数。照合はUID → No. → 作品名＋アーティスト（既存のTime補完と同じ順）。
+- `app/generator/[id]/SourceRefreshDialog.tsx`（新規）：差分を画像ごとに並べ、項目単位で選んで下書きへ入れるモーダル。
+- `app/generator/[id]/GeneratorWorkspace.tsx`：ヘッダーに「Release Masterから再取得」を追加（「最新版を再読込」の隣）。取得・差分計算・下書きへの反映・状態表示を持つ。
+- `app/generator/ui.tsx`：`Modal`を`createPortal`で`body`へ出した（下記「ついでに直した不具合」）。
+- `lib/generator/__tests__/source-refresh.test.ts`（新規、9件）。
+
+### 再取得の決めごと
+
+- 比べるのは**その画像に描かれる項目だけ**。採用＝全項目、掲載＝評価文を除く、Weeklyメイン＝作品名・アーティスト・曲数・ジャンル・国、Other Releases＝作品名・アーティストのみ。`show`を外した項目も比べない。画面に出ない項目まで書き換えると、気づけない未保存が増えてPNGの書き出しが止まるため。利用者は「その画像に出る項目だけ」を選択した。
+- 既定でチェックが入るのは、取り込み時の値のままの項目だけ。手で直した項目は「手で修正済み」を出してチェックを外しておく。
+- 反映先は**ローカル下書きだけ**。共有DB・ロック・履歴・保存APIには触っていない。確定はこれまでどおり作品ごとの「保存」で、対象別ロックと`expectedVersion`もそのまま。
+- 文字が変わると文字別字間の位置がずれるため、`ItemInspector`の入力欄と同じ`rebaseKerns`を通す。
+- 手で足した作品（`source.kind === "manual"`）は対象外。Release Masterに元の行が無く、直しようがないため。
+- Release Masterで照合できない作品は、差分ではなく「見つかりません」として別枠に並べる。
+
+### 維持した機能契約
+
+- Timeの空欄補完（画面表示時に空欄だけ埋め、共有DBは自動更新しない）はそのまま。再取得はその上位互換ではなく別操作。
+- `item.source.fields`は取り込み時の原稿として据え置き。差分の基準として読むだけで、書き換えていない。
+- 掲載画像の評価文は描画も調整もしないという扱いを守り、再取得の対象からも外した。
+- 保存・ロック・履歴・復旧の不変条件（`requestId`、`expectedVersion`、`clientId`／`token`／`generation`、対象別ロック、ローカル復旧キー）は変更なし。
+
+### ついでに直した不具合（`Modal`）
+
+編集画面の外枠は`-translate-x-1/2`で全幅にしている。transformのある祖先の中では`position: fixed`が画面ではなくその要素基準になるため、狭い画面ではモーダルがページのずっと下（実測：viewport 812pxに対して`y = 1592`）に出ていた。`createPortal`で`body`へ出して画面基準に戻した。日本語書体を保つため、ポータル側のルートにも`generator-workspace`クラスを付けている。これは新しい再取得ダイアログだけでなく、既存の「並び順を変更」にも効く。
+
+### 実行した確認
+
+- `npx tsc --noEmit --incremental false`、`npm run lint`、`npm test`（21ファイル・337件）、`npm run build`：すべて成功。
+- ブラウザ実機確認は`/generator/uipreview-temp`（共有DBを変更しない固定データ画面）で実施。ローカルプレビュー認証迂回の`next dev`を3458で起動し、`window.fetch`を差し替えてRelease Masterの応答を模した。確認後、固定データ画面の一時変更は`git checkout`で戻し、`.claude/launch.json`の一時エントリも削除した。
+  - 差分ダイアログ：画像番号・区分・作品名の見出し、項目ごとの現在値とRelease Master値、既定チェック、「すべて選ぶ／すべて外す」、件数表示。
+  - 反映後：プレビューの帯が`11SONGS, 41MIN 15SEC · JAZZ / FUSION / SOUL`へ、本文が新しい行数へ更新。ヘッダーが「未保存 2件」、サムネイルに未保存、PNGは未保存のため書き出し不可のまま。
+  - 照合できない作品が「Release Masterに見つかりません」に並ぶこと。
+  - 375×812（iPhone相当）でモーダルが画面内のシートとして出て、横スクロールが出ないこと。
+  - consoleのエラーは固定データ画面由来（存在しない文書IDのロック401・404など）のみ。
+
+### 未確認事項
+
+- 実共有DBの文書での再取得・保存は未実施（共有DBを変更する操作のため、依頼待ち）。
+- 実Release Masterの応答での照合は未実施。ブラウザ確認は模擬応答で行った。
+- 既存のWeekly文書（保存済みの`tracking: -0.02`）は変わらない。0にするには各作品で字間を0へ直して保存する必要がある。
+
+### Codexへ確認・引き継ぐ事項
+
+`docs/codex-generator-handoff.md`の該当節に3件を追記した。`/api/release-master`の60秒キャッシュ、`source.fields`とカバー画像を再取得で更新できないこと、Weekly既定字間の変更。

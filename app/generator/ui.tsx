@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 export type Tone = "info" | "success" | "warn" | "error";
 
@@ -196,8 +197,17 @@ export function Checkbox({ label, ...rest }: { label: ReactNode } & React.InputH
   );
 }
 
+const noSubscription = () => () => {};
+
 /** 並び順のように、その場で完結させたい操作を前面に出す。 */
 export function Modal({ title, description, onClose, children }: { title: string; description?: string; onClose(): void; children: ReactNode }) {
+  // 編集画面の外枠は `-translate-x-1/2` で全幅にしている。transform のある祖先の中では
+  // `position: fixed` が画面ではなくその要素を基準にするため、狭い画面ではモーダルが
+  // 画面の外（ページのずっと下）へ出てしまう。body へ出して画面基準に固定する。
+  // クラスは globals.css の日本語フォント指定を持ち込むためだけに付ける。
+  // サーバー描画では null、ブラウザでだけ body を返す（描画先は変わらないので購読はしない）。
+  const container = useSyncExternalStore(noSubscription, () => globalThis.document.body, () => null);
+
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
@@ -206,8 +216,10 @@ export function Modal({ title, description, onClose, children }: { title: string
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center overflow-y-auto bg-black/70 p-0 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-label={title}>
+  if (!container) return null;
+
+  return createPortal(
+    <div className="generator-workspace fixed inset-0 z-[60] flex items-end justify-center overflow-y-auto bg-black/70 p-0 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-label={title}>
       <div
         className="flex max-h-[88vh] w-full max-w-lg flex-col rounded-t-2xl border p-5 sm:rounded-2xl"
         style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}
@@ -225,7 +237,8 @@ export function Modal({ title, description, onClose, children }: { title: string
         </div>
         <div className="mt-4 min-h-0 flex-1 overflow-y-auto">{children}</div>
       </div>
-    </div>
+    </div>,
+    container,
   );
 }
 
