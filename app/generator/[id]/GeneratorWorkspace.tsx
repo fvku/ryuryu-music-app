@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { canvasPreviewPage, type CanvasPreviewPage } from "@/lib/generator/canvas-preview";
 import type { GeneratorHistoryEntry, GeneratorSnapshot } from "@/lib/generator/client-types";
 import { parseDocument, type GeneratorDocument, type ItemContent } from "@/lib/generator/model";
+import type { ReimportDiff } from "@/lib/generator/reimport";
 import type { ReleaseMasterAlbum } from "@/lib/types";
 import BulkExportButton from "../BulkExportButton";
 import GeneratorPreview, { type PreviewDiagnostics, type PreviewSelection } from "../GeneratorPreview";
@@ -14,6 +15,7 @@ import { GeneratorRuntimeProvider } from "../runtime";
 import { Chip, Panel, SecondaryButton, SegmentedControl, SelectInput, StatusBanner, useMediaQuery, type SegmentOption, type Tone } from "../ui";
 import { PageInspector, RestoreControl, StructureDialog, TargetStatus, ThemeInspector, type TargetState } from "./Inspectors";
 import ItemInspector from "./ItemInspector";
+import ReimportDialog from "./ReimportDialog";
 import SourceRefreshDialog from "./SourceRefreshDialog";
 import { applySourceRefresh, collectSourceRefresh, type RefreshFieldKey, type SourceRefreshItem } from "./source-refresh";
 import {
@@ -67,6 +69,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const [pageColors, setPageColors] = useState<Record<string, string>>({}), [themeDraft, setThemeDraft] = useState(snapshot.document.theme);
   const [structurePages, setStructurePages] = useState<GeneratorDocument["pages"] | null>(null);
   const [refreshResults, setRefreshResults] = useState<SourceRefreshItem[] | null>(null);
+  const [reimportDiff, setReimportDiff] = useState<ReimportDiff | null>(null);
   const [history, setHistory] = useState<GeneratorHistoryEntry[]>([]), [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<Status>({ tone: "info", text: "プレビューまたは編集欄から直接調整できます。保存は対象ごとに新しいversionを作成します。" });
   const [diagnostics, setDiagnostics] = useState<PreviewDiagnostics | null>(null);
@@ -391,6 +394,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       setStructurePages(null);
       setThemeDraft(next.document.theme);
       setRefreshResults(null);
+      setReimportDiff(null);
       pendingSaves.clear();
       setStatus({ tone: "success", text: "最新版を読み込みました。編集中だった内容は破棄されています。" });
     } catch (error) {
@@ -420,6 +424,83 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           : { tone: "success", text: "Release Masterと同じ内容です。取り込む差分はありません。" });
     } catch (error) {
       setStatus({ tone: "error", text: `Release Masterを読み込めませんでした: ${(error as Error).message}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Release Masterの採用状態を読み直し、作品集合の変更案をstructureロック下で確認する。 */
+  async function openReimport() {
+    if (dirty) {
+      setStatus({ tone: "warn", text: "未保存の下書きがあります。先に保存または最新版の再読込を行ってから、取り込み直してください。" });
+      return;
+    }
+    const lock = await acquire("structure", documentId);
+    if (!lock) return;
+    setBusy(true);
+    setStatus({ tone: "info", text: "Release Masterから作品の増減と区分を確認しています…" });
+    try {
+      const diff = await generatorJson<ReimportDiff>(await fetch(`/api/generator/documents/${documentId}/reimport`, { cache: "no-store" }));
+      setReimportDiff(diff);
+      const count = diff.added.length + diff.removed.length + diff.moved.length;
+      setStatus(count
+        ? { tone: "warn", text: `作品の追加・削除・区分移動が${count}件あります。実行内容を確認してください。` }
+        : { tone: "success", text: "作品の増減・区分移動はありません。" });
+    } catch (error) {
+      setStatus({ tone: "error", text: `取り込み差分を確認できませんでした: ${(error as Error).message}` });
+      await release("structure", documentId);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function closeReimport() {
+    setReimportDiff(null);
+    await release("structure", documentId);
+  }
+
+  async function applyReimport(value: { addKeys: string[]; removeItemIds: string[]; resort: boolean }) {
+    const lock = activeLocks[keyOf("structure", documentId)];
+    if (!lock) { setStatus({ tone: "warn", text: "取り込み直しの編集ロックを取得し直してください。" }); return; }
+    if (dirty) { setStatus({ tone: "warn", text: "未保存の下書きがあるため、取り込み直しを実行できません。" }); return; }
+    // 自分が削除対象の作品を開いていた場合、その作品ロックだけを先に返す。
+    for (const itemId of value.removeItemIds) if (activeLocks[keyOf("item", itemId)]) await release("item", itemId);
+    const change = {
+      clientId: lock.clientId, token: lock.token, generation: lock.generation,
+      expectedVersion: snapshot.structureVersion, addKeys: value.addKeys,
+      removeItemIds: value.removeItemIds, resort: value.resort,
+    };
+    const requestKey = `reimport:${documentId}`, signature = JSON.stringify(change);
+    const previousRequest = pendingSaves.get(requestKey);
+    const requestId = previousRequest?.signature === signature ? previousRequest.requestId : crypto.randomUUID();
+    pendingSaves.set(requestKey, { requestId, signature });
+    setBusy(true);
+    setStatus({ tone: "info", text: "作品構成を新しいversionとして保存しています…" });
+    try {
+      const next = await generatorJson<GeneratorSnapshot>(await fetch(`/api/generator/documents/${documentId}/reimport`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId, ...change }),
+      }));
+      pendingSaves.delete(requestKey);
+      // 保存済みならstructureロックはもう不要。失敗しても期限切れで解放される。
+      await fetch(`/api/generator/documents/${documentId}/locks`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "release", ...lockPayload(lock) }),
+      }).catch(() => undefined);
+      const removed = new Set(value.removeItemIds);
+      const retainedLocks = snapshot.locks.filter(entry => !(entry.kind === "structure" && entry.targetId === documentId)
+        && !(entry.kind === "item" && removed.has(entry.targetId)));
+      durationHydratedDocument.current = null;
+      setSnapshot(snapshotWithLocks(next, retainedLocks));
+      setActiveLocks(current => Object.fromEntries(Object.entries(current).filter(([, entry]) => entry.kind !== "structure" && !removed.has(entry.targetId))));
+      setDrafts({}); setPageColors({}); setStructurePages(null); setThemeDraft(next.document.theme); setRefreshResults(null); setReimportDiff(null);
+      setPageIndex(current => Math.min(current, Math.max(0, next.document.pages.length - 1))); setSlotIndex(0);
+      setStatus({ tone: "success", text: `Release Masterの作品構成をversion ${next.version}として取り込み直しました。既存作品の修正内容と背景設定は保持されています。` });
+    } catch (error) {
+      const apiError = error as GeneratorApiError;
+      if (apiError.status !== undefined && apiError.status < 500) pendingSaves.delete(requestKey);
+      setStatus(apiError.code === "VERSION_CONFLICT" || apiError.code === "LOCK_LOST"
+        ? { tone: "error", text: "確認中に別の変更が保存されました。最新版を再読込して、差分を確認し直してください。" }
+        : { tone: "error", text: apiError.message });
     } finally {
       setBusy(false);
     }
@@ -533,6 +614,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   }
 
   const restoreVersions = history.filter(entry => entry.version < snapshot.version);
+  const latestReimportVersion = history.find(entry => entry.operation === "reimport")?.version || 0;
   const savedPage = page ? snapshot.document.pages.find(value => value.id === page.id) || null : null;
   const itemDirty = (id: string) => Boolean(drafts[id]) && !same(drafts[id], items.get(id)?.content);
   // 未保存の背景色は表示中のページ以外にもあり得る。書き出せない理由には全ページ分を挙げる。
@@ -564,7 +646,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       dirty: isDirty,
       disabled: busy,
       direct,
-      versions: restoreVersions,
+      versions: kind === "structure" ? restoreVersions.filter(entry => entry.version >= latestReimportVersion) : restoreVersions,
       onBegin,
       onSave,
       onRelease: () => void release(kind, targetId),
@@ -691,10 +773,22 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             <SecondaryButton disabled={busy} onClick={() => void reload()} className="min-h-9 px-3 text-xs">最新版を再読込</SecondaryButton>
             {/* 共有DBの再読込とは別物。Release Master側で直した文字情報だけを下書きへ入れる。 */}
             <SecondaryButton disabled={busy} onClick={() => void refreshFromSource()} className="min-h-9 px-3 text-xs">Release Masterから再取得</SecondaryButton>
+            {/* 作品数・採用区分を共同編集の新しいversionとして変える。未保存下書きがある時はopenReimportで止める。 */}
+            <SecondaryButton disabled={busy} onClick={() => void openReimport()} className="min-h-9 px-3 text-xs">Release Masterから取り込み直す</SecondaryButton>
             {/* 全ページのPNGは文書単位の操作なので、ページごとの出力ボタンとは分けてここに置く。 */}
             <BulkExportButton document={previewDocument} pages={previewPages} canExport={!dirty} onStatus={setStatus} />
           </div>
         </header>
+
+        {reimportDiff && (
+          <ReimportDialog
+            document={snapshot.document}
+            diff={reimportDiff}
+            disabled={busy}
+            onApply={value => void applyReimport(value)}
+            onClose={() => void closeReimport()}
+          />
+        )}
 
         {/* 直前の結果・ほかの編集者・復旧保存を1本の帯へ。情報は減らさず、段だけ減らす。 */}
         <StatusBanner

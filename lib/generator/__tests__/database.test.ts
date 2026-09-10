@@ -25,6 +25,7 @@ beforeAll(async () => {
   await db.exec("create role anon; create role authenticated; create role service_role;");
   await db.exec(await readFile(new URL("../../../supabase/migrations/202609040001_generator.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../../../supabase/migrations/202609050001_generator_completion.sql", import.meta.url), "utf8"));
+  await db.exec(await readFile(new URL("../../../supabase/migrations/202609110001_generator_reimport.sql", import.meta.url), "utf8"));
 }, 30000);
 beforeEach(async () => {
   await db.exec("reset role; truncate public.generator_documents cascade;");
@@ -193,6 +194,34 @@ describe("generator database transaction contract (embedded PostgreSQL)", () => 
     expect(swapped.structureVersion).toBe(2); expect(swapped.document.pages[1].itemIds).toEqual(pages[1].itemIds);
     pages[1].itemIds.push(pages[3].itemIds.pop()!);
     await expect(query("select public.generator_structure_save($1,$2,$3,$4) as result", [doc.id, actor, randomUUID(), { ...structure, expectedVersion: 2, content: { pages } }])).rejects.toThrow("INVALID_INPUT");
+  });
+  it("re-imports the item set atomically while preserving surviving content and page colours", async () => {
+    const structure = await acquire("structure", doc.id), removed = doc.items[2], added = structuredClone(doc.items[2]);
+    added.id = randomUUID(); added.source = { ...added.source, no: "new" }; added.content = { ...added.content, fields: { ...added.content.fields, title: "New album" } };
+    const pages = doc.pages.map(page => page.kind === "listed"
+      ? { ...page, bgColor: "#000000", itemIds: [doc.items[1].id, added.id] }
+      : { ...page, bgColor: "#000000", itemIds: [...page.itemIds] });
+    const request = { ...structure, expectedVersion: 1, expectedItemVersions: Object.fromEntries(doc.items.map(item => [item.id, 1])), pages, addItems: [added], removeItemIds: [removed.id] };
+    const requestId = randomUUID();
+    const result = await query<Snapshot>("select public.generator_reimport($1,$2,$3,$4) as result", [doc.id, actor, requestId, request]);
+    expect(result.version).toBe(2); expect(result.structureVersion).toBe(2);
+    expect(result.document.items.find(item => item.id === doc.items[0].id)?.content).toEqual(doc.items[0].content);
+    expect(result.document.items.some(item => item.id === removed.id)).toBe(false);
+    expect(result.document.items.find(item => item.id === added.id)?.content.fields.title).toBe("New album");
+    expect(result.document.pages.map(page => page.bgColor)).toEqual(doc.pages.map(page => page.bgColor));
+    expect(result.itemVersions).toMatchObject({ [doc.items[0].id]: 1, [doc.items[1].id]: 1, [added.id]: 1 });
+    const history = await query<Array<{ operation: string; targetKind: string }>>("select public.generator_history($1) as result", [doc.id]);
+    expect(history[0]).toMatchObject({ operation: "reimport", targetKind: "structure" });
+    expect(await query<Snapshot>("select public.generator_reimport($1,$2,$3,$4) as result", [doc.id, actor, requestId, request])).toEqual(result);
+  });
+  it("rejects re-import when an item changed after its source snapshot", async () => {
+    const itemLock = await acquire("item", doc.items[0].id);
+    await save(itemLock, { ...doc.items[0].content, bodyMaxLead: 50 });
+    const structure = await acquire("structure", doc.id);
+    const request = { ...structure, expectedVersion: 1, expectedItemVersions: Object.fromEntries(doc.items.map(item => [item.id, 1])),
+      pages: doc.pages, addItems: [], removeItemIds: [] };
+    await expect(query("select public.generator_reimport($1,$2,$3,$4) as result", [doc.id, actor, randomUUID(), request])).rejects.toThrow("VERSION_CONFLICT");
+    expect((await read()).version).toBe(2);
   });
   it("registers an uploaded asset only while its item lock remains valid", async () => {
     const lock = await acquire("item", doc.items[0].id), id = randomUUID(), sha = "a".repeat(64);

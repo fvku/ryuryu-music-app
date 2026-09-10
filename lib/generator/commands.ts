@@ -48,3 +48,21 @@ export function parseChange(value: unknown) {
   else { const data = record(raw.content, ["bgColor"]); content = { bgColor: parseColor(data.bgColor) }; }
   return { requestId, change: { ...base, content } };
 }
+
+/** The client selects identities only; the server always rebuilds source/content/pages from Release Master. */
+export function parseReimport(value: unknown) {
+  const raw = record(value, ["requestId", "clientId", "token", "generation", "expectedVersion", "addKeys", "removeItemIds", "resort"]);
+  if (!Array.isArray(raw.addKeys) || !Array.isArray(raw.removeItemIds) || typeof raw.resort !== "boolean") invalid();
+  const addKeys = raw.addKeys.map(value => {
+    if (typeof value !== "string" || value.length < 3 || value.length > 500) invalid();
+    return value;
+  });
+  return {
+    requestId: uuid(raw.requestId),
+    clientId: uuid(raw.clientId),
+    tokenHash: typeof raw.token === "string" && /^[0-9a-f]{64}$/.test(raw.token)
+      ? createHash("sha256").update(raw.token).digest("hex") : invalid(),
+    generation: version(raw.generation), expectedVersion: version(raw.expectedVersion), addKeys,
+    removeItemIds: raw.removeItemIds.map(uuid), resort: raw.resort,
+  };
+}

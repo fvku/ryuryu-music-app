@@ -198,8 +198,8 @@ export function StructureDialog({
     <Modal
       title="並び順を変更"
       description={isWeekly
-        ? "メイン5枚の順番、Other Releasesの順番、および両者の入れ替えを行えます。表紙のジャケット順もメインに連動します。"
-        : "採用・掲載それぞれの区分の中だけで前後に動かせます。並びが変わると、画像への割り当ても入れ替わります。"}
+        ? "メイン5枚の順番、Other Releasesの順番、および両者の入れ替えを行えます。表紙のジャケット順もメインに連動します。作品構成が変わる前のversionは復元候補に出ません。"
+        : "採用・掲載それぞれの区分の中だけで前後に動かせます。並びが変わると、画像への割り当ても入れ替わります。作品構成が変わる前のversionは復元候補に出ません。"}
       onClose={onClose}
     >
       <div className="space-y-3">

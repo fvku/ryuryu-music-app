@@ -27,7 +27,7 @@ export type GeneratorSnapshot = {
 export type GeneratorHistoryEntry = {
   version: number;
   actor: string;
-  operation: "create" | "save" | "restore";
+  operation: "create" | "save" | "restore" | "reimport";
   targetKind: "item" | "page" | "theme" | "structure" | null;
   targetId: string | null;
   restoredFrom: number | null;

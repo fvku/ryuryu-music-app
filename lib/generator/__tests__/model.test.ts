@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { randomUUID } from "node:crypto";
 import { fixture } from "./fixture";
 import { parseDocument, parseItemContent, parseTheme, type ItemContent } from "../model";
-import { parseChange, parseLock } from "../commands";
+import { parseChange, parseLock, parseReimport } from "../commands";
 
 function weeklyFixture() {
   const doc = fixture();
@@ -131,5 +131,14 @@ describe("target commands", () => {
       requestId: randomUUID(), expectedVersion: 1, content: { pages: doc.pages.map(page => ({ id: page.id, itemIds: page.itemIds })) } };
     expect(parseChange(structure).change).toMatchObject({ kind: "structure", content: structure.content });
     expect(() => parseChange({ ...structure, content: { pages: [{ id: doc.pages[0].id, itemIds: Array.from({ length: 61 }, () => randomUUID()) }] } })).toThrow();
+  });
+  it("accepts only re-import identities and hashes its lock token", () => {
+    const value = { requestId: randomUUID(), clientId: randomUUID(), token: "c".repeat(64), generation: 1,
+      expectedVersion: 2, addKeys: ["uid:album-a"], removeItemIds: [randomUUID()], resort: false };
+    const parsed = parseReimport(value);
+    expect(parsed).toMatchObject({ addKeys: value.addKeys, removeItemIds: value.removeItemIds, resort: false });
+    expect(parsed.tokenHash).toHaveLength(64); expect(JSON.stringify(parsed)).not.toContain(value.token);
+    expect(() => parseReimport({ ...value, addItems: [] })).toThrow();
+    expect(() => parseReimport({ ...value, addKeys: [1] })).toThrow();
   });
 });

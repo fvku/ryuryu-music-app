@@ -118,7 +118,8 @@ export function selectWeeklyAlbums(albums: ReleaseMasterAlbum[], week: string) {
     others: sortWeeklyOthers(selected.filter(album => album.weekAdoption === "掲載")),
   };
 }
-function generatorItem(album: ReleaseMasterAlbum, series: GeneratorSeries, importedAt: string): GeneratorItem {
+/** A single Release Master row in the same editable shape used by initial import and re-import. */
+export function createGeneratorItem(album: ReleaseMasterAlbum, series: GeneratorSeries, importedAt: string): GeneratorItem {
   const sourceFields = { title: album.title, artist: album.artist, duration: album.duration, genreMemo: album.genreMemo,
     country: album.country, trackNo: album.mjTrackNo, track: album.mjTrack, text: album.mjText };
   const contentFields = { ...sourceFields, title: series === "weekly" ? album.title : album.title.replace(ep, ""), text: series === "weekly" ? "" : album.mjText };
@@ -132,7 +133,7 @@ export function importDocument(albums: ReleaseMasterAlbum[], series: MonthlyGene
   const source = [...selected.adopted, ...selected.listed];
   if (!source.length) throw new GeneratorError("NOT_FOUND", 404, "対象月・企画の採用／掲載アルバムがありません。");
   if (source.length > 200) throw new GeneratorError("INVALID_INPUT", 400, "対象アルバムが多すぎます。");
-  const items: GeneratorItem[] = source.map(album => generatorItem(album, series, importedAt));
+  const items: GeneratorItem[] = source.map(album => createGeneratorItem(album, series, importedAt));
   const pages: GeneratorDocument["pages"] = [];
   let index = 0;
   for (let i = 0; i < selected.adopted.length; i++, index++) pages.push({ id: randomUUID(), kind: "adopted", itemIds: [items[index].id], bgColor: null });
@@ -150,7 +151,7 @@ export function importWeeklyDocument(albums: ReleaseMasterAlbum[], week: string,
   if (source.length > 200 || selected.feature.length > 5 || selected.others.length > 60) {
     throw new GeneratorError("INVALID_INPUT", 400, "WEEK列の採用は5件以下、掲載は60件以下にしてください。");
   }
-  const items = source.map(album => generatorItem(album, "weekly", importedAt));
+  const items = source.map(album => createGeneratorItem(album, "weekly", importedAt));
   const pages: GeneratorDocument["pages"] = [{ id: randomUUID(), kind: "cover", itemIds: [], bgColor: null }];
   for (let index = 0; index < selected.feature.length; index++) pages.push({ id: randomUUID(), kind: "feature", itemIds: [items[index].id], bgColor: null });
   pages.push({ id: randomUUID(), kind: "others", itemIds: items.slice(selected.feature.length).map(item => item.id), bgColor: null });

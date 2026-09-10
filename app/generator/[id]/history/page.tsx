@@ -90,6 +90,8 @@ export default async function GeneratorHistoryPage({ params }: { params: Promise
                   ? "企画を作成"
                   : entry.operation === "restore"
                     ? `version ${entry.restoredFrom} から復元`
+                    : entry.operation === "reimport"
+                      ? "Release Masterから作品構成を取り込み直し"
                     : `${entry.targetKind ? targetLabels[entry.targetKind] : "内容"}を保存`}
                 {name && <span style={{ color: "var(--text-secondary)" }}>（{name}）</span>}
               </p>
