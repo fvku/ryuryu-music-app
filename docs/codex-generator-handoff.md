@@ -315,6 +315,23 @@ Monthlyの見た目（通常合成→Luminosity）はKoheiが確認済みで、�
 2. **`item.source.fields`とカバー画像を更新できない。** 保存APIが受け取るのは`content`だけなので、再取得は`content.fields`しか書き換えない。結果として、一度取り込んだ項目は`source.fields`（取り込み時の原稿）から離れ、次の再取得では「手で修正済み」として既定チェックが外れる。またRelease Master側で`画像リンク変換`／`spotifyカバー`が差し替わっても、`source.coverUrl`は更新できない（現状の逃げ道はジャケット画像の手動アップロード）。`source`の更新を保存契約へ入れるかは機能側の判断。UI側からは提案のみ。
 3. **Weekly取り込みの初期字間。** `lib/generator/source.ts`の`typography.title.tracking`を`-0.02`から`0`にした（`leading: 72 / 54`は据え置き）。描画既定の`Layout.WEEKLY.TYPE.title.tracking`は元から0で、`fitWeeklyTitle`の自動詰めは`baseTracking`基準なので挙動は変わらない。テストは`lib/generator/__tests__/source.test.ts`を更新済み。**既に保存済みのWeekly文書は`-0.02`のまま**で、DB移行は行っていない。一括で0へ寄せる必要があるかは利用者判断。
 
+## 依頼：取り込みのやり直し／作品の追加（2026-09-11、Claude Code）
+
+week37（文書 `c3f67801-8f91-4418-8475-802c622d4815`、#37、2026-09-11〜2026-09-18）で、Release Masterの`WEEK`列を`掲載`へ変えた行が画像に出ない、と利用者から報告があった。調べた結果、**取り込みが一度きりのスナップショットである**ことが原因で、取り込みロジックの不具合ではない。詳細は[UI実装記録 §27](./generator-ui-implementation.md)。
+
+- 文書は2026-09-10 17:41 UTCに作成され、version 1のまま。feature 4件・others 7件。
+- いまのRelease Masterで同じ週を取り込み直すと`採用`4件・`掲載`19件。差の12件は文書作成後に`掲載`へ変えた行。
+- `selectWeeklyAlbums`は19件すべてを拾う。日付範囲・`#`列・重複除去・60件上限のいずれにも掛かっていない。
+
+**アプリ側に回復手段が無い。** 取り込みのやり直しは`unique (series, period_start, period_end)`で弾かれ、削除APIも無い。作品の追加は`generator_structure_save`の「各ページの`itemIds`の件数不変」に阻まれる。§26の「Release Masterから再取得」は既存作品の文字情報を直すだけで、作品を増やせない。
+
+そちらで検討をお願いしたいのは次の2点。UI側からは提案だけで、APIもDBも触っていない。
+
+1. **恒久策**：対象週・対象月を取り込み直して、増えた作品を`others`／`listed`へ足せる経路。件数が変わるので`generator_structure_save`の不変条件か、別RPCの追加が要る。既存作品の編集内容とversion履歴を保つこと、ロックとの整合、消えた行の扱い（残す／外す）が論点。
+2. **今週の応急処置**：上の文書を削除して作り直してよいか。version 1で編集も画像アップロードも無いため失われるものは無い。削除RPCが無いので、実施するならDB側の直接削除になる。利用者の指示があるまで実行しない。
+
+なお、この週の文書を作り直すと、同時に修正したOther Releasesの並び（アルバム 洋楽→邦楽 → EP、各区分内はアーティスト名a-z）も反映される。既存文書の並びは`itemIds`に固定されているため変わらない。
+
 ---
 
 ## この文書の位置づけ

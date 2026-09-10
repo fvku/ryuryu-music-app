@@ -17,11 +17,20 @@ const ctx = {
 console.log('Layout.WEEKLY — 実測値（generator-weekly-design.md §12「WEEK列の発見」で罫・パネルの前提を訂正した後の値）');
 test('セル・ベースラインは実物投稿7枚の実測値のまま（勝手に丸めない）', () => {
   assert.deepStrictEqual(L.WEEKLY.CELLS.jacket, { x: 200, y: 50, w: 800, h: 800 });
-  assert.deepStrictEqual(L.WEEKLY.CELLS.panel, { x: 200, y: 850, w: 800, h: 300 });
+  assert.deepStrictEqual(L.WEEKLY.CELLS.panel, { x: 200, y: 856, w: 800, h: 294 });
   assert.strictEqual(L.WEEKLY.TITLE_BASELINE, 948.5);
   assert.strictEqual(L.WEEKLY.ARTIST_BASELINE, 1017.5);
   assert.strictEqual(L.WEEKLY.META_BASELINE, 1096);
   assert.strictEqual(L.WEEKLY.META_GAP, 16);
+});
+test('ジャケットとパネルは罫の太さぶん離れており、塗りが罫へ重ならない', () => {
+  const { jacket, panel } = L.WEEKLY.CELLS;
+  // 実測（W-1/W-2/W-3/W-5）：白罫はy850–856の6px1本、パネルの塗りはy856から。
+  assert.strictEqual(jacket.y + jacket.h, 850);
+  assert.strictEqual(jacket.y + jacket.h + L.RULE, panel.y);
+  assert.strictEqual(panel.y + panel.h, 1150);
+  assert.strictEqual(panel.x, jacket.x);
+  assert.strictEqual(panel.w, jacket.w);
 });
 test('META_CELLはbandLayoutの中央揃え式（cell.y+cell.h/2+13）でMETA_BASELINEを再現する', () => {
   const { y, h } = L.WEEKLY.META_CELL;

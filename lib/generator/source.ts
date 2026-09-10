@@ -17,9 +17,28 @@ function dateKey(value: string): number {
   const match = value.match(/(\d{4})\D+(\d{1,2})(?:\D+(\d{1,2}))?/);
   return match ? Number(match[1]) * 10000 + Number(match[2]) * 100 + Number(match[3] || 0) : Number.MAX_SAFE_INTEGER;
 }
+function byArtist(a: ReleaseMasterAlbum, b: ReleaseMasterAlbum): number {
+  const left = a.artist.trim().toLowerCase(), right = b.artist.trim().toLowerCase();
+  return left < right ? -1 : left > right ? 1 : 0;
+}
 export function sortAlbums(albums: ReleaseMasterAlbum[]): ReleaseMasterAlbum[] {
   return albums.slice().sort((a, b) => Number(ep.test(a.title)) - Number(ep.test(b.title)) || dateKey(a.date) - dateKey(b.date)
-    || (a.artist.toLowerCase() < b.artist.toLowerCase() ? -1 : a.artist.toLowerCase() > b.artist.toLowerCase() ? 1 : 0));
+    || byArtist(a, b));
+}
+/** 洋邦の並び順。空欄・想定外の値は末尾へ置き、取りこぼしに気づけるようにする。 */
+function genreRank(album: ReleaseMasterAlbum): number {
+  return album.genre === "洋楽" ? 0 : album.genre === "邦楽" ? 1 : 2;
+}
+/**
+ * Other Releasesの並び（Koheiの指示、2026-09-11）。
+ * アルバム（洋楽 → 邦楽）→ EP（洋楽 → 邦楽）の順で、各区分の中はアーティスト名のa-z順。
+ * 実運用のEPは邦楽なので、見た目は「洋楽アルバム → 邦楽アルバム → 邦楽EP」になる。
+ * 日付は見ない（発売日でメインとOther Releasesの並びが揺れるのを避ける）。
+ * アーティスト名は小文字にしてコードポイント比較するため、記号・数字が先、和文はA-Zの後になる。
+ */
+export function sortWeeklyOthers(albums: ReleaseMasterAlbum[]): ReleaseMasterAlbum[] {
+  return albums.slice().sort((a, b) => Number(ep.test(a.title)) - Number(ep.test(b.title))
+    || genreRank(a) - genreRank(b) || byArtist(a, b));
 }
 function calendarDate(value: string): string | null {
   const match = value.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
@@ -96,7 +115,7 @@ export function selectWeeklyAlbums(albums: ReleaseMasterAlbum[], week: string) {
   return {
     weekNumber: weekNumbers.size ? Number([...weekNumbers][0]) : null,
     feature: sortAlbums(selected.filter(album => album.weekAdoption === "採用")),
-    others: sortAlbums(selected.filter(album => album.weekAdoption === "掲載")),
+    others: sortWeeklyOthers(selected.filter(album => album.weekAdoption === "掲載")),
   };
 }
 function generatorItem(album: ReleaseMasterAlbum, series: GeneratorSeries, importedAt: string): GeneratorItem {

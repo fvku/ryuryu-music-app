@@ -89,6 +89,23 @@ describe("Weekly Release Master import", () => {
     expect(extra.content.typography.title).toEqual({ tracking: 0, kerns: {}, leading: 72 / 54 });
     expect(doc.theme.useWave).toBe(true);
   });
+  it("orders Other Releases as albums (Western then Japanese) followed by EPs, each by artist a-z", () => {
+    const week = { date: "2026-08-07", weekAdoption: "掲載" } as const;
+    const input = [
+      album({ no: "1", title: "Solo", artist: "Zed", genre: "洋楽", ...week }),
+      album({ no: "2", title: "[EP] Japanese EP", artist: "aoi", genre: "邦楽", ...week }),
+      album({ no: "3", title: "Domestic", artist: "Bob", genre: "邦楽", ...week }),
+      album({ no: "4", title: "Western", artist: "alpha", genre: "洋楽", ...week }),
+      album({ no: "5", title: "[EP] Western EP", artist: "Cee", genre: "洋楽", ...week }),
+      album({ no: "6", title: "Unknown", artist: "Dee", genre: "" as ReleaseMasterAlbum["genre"], ...week }),
+      album({ no: "7", title: "Feature", artist: "Main", genre: "洋楽", date: "2026-08-07", weekAdoption: "採用" }),
+    ];
+    const doc = importWeeklyDocument(input, "2026-08-07");
+    const items = new Map(doc.items.map(item => [item.id, item]));
+    const others = doc.pages.at(-1)!.itemIds.map(id => items.get(id)!.content.fields.title);
+    // アルバム（洋楽→邦楽→洋邦が空）→ EP（洋楽→邦楽）。各区分の中はアーティスト名のa-z順。
+    expect(others).toEqual(["Western", "Solo", "Domestic", "Unknown", "[EP] Western EP", "[EP] Japanese EP"]);
+  });
   it("uses exactly the WEEK groups and keeps an empty others page", () => {
     const doc = importWeeklyDocument([album({ date: "2026-08-07", weekAdoption: "採用" }), album({ no: "2", title: "Second", date: "2026-08-06", weekAdoption: "採用" })], "2026-08-07");
     expect(doc.pages.map(page => [page.kind, page.itemIds.length])).toEqual([["cover", 0], ["feature", 1], ["feature", 1], ["others", 0]]);
