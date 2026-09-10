@@ -986,3 +986,12 @@ Simulatorとデスクトップブラウザでは確認済みだが、物理iPhon
 
 失敗した場合は、該当項目、発生直前の操作、表示された文言、スクリーンショットまたは画面収録を残す。
 特にSafariの再読み込みで直るかどうかを区別する。
+
+## 25. 2026-09-11：運用整理と最終受入の現在地
+
+- 旧Vercel `fvkus-projects/prototype`は`paused:true`。残っていた`/api/cron/resolve`（毎日03:00 UTC）はCron Jobs画面で無効化し、APIの`disabledAt`も確認した。
+- Supabase project ref `jmgpepnycyyjujkrrvwy`の表示名`hyoryu-tools`は、管理画面がサインインを要求したため未確認。データ・設定は変更していない。
+- Chromeでは、実共有W36文書を3 actorで開き、別対象の同時保存、他者ロック表示、同一人物の端末引き継ぎ、旧クライアントの保存拒否を確認した。検証後は元内容へ復元し、version 14、未保存0件、ロック0件に戻した。
+- ProductionはGoogle再ログイン要求まで確認した。認証後の通しスモークはユーザー操作待ち。
+- Safari／Edgeはこの実行環境の操作対象に無く、BraveはComputer Useの利用許可が得られなかったため最終受入できていない。Chrome以外を合格扱いにはしない。
+- 物理iPhoneは§24どおり、Claude側のモバイルUI・提供機能の再検討と合意後に受入する。`app/generator/uipreview-temp/page.tsx`はそれまで残す。

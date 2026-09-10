@@ -9,6 +9,8 @@
 > **初回受入の反映**：Release Masterから空のTimeを下書き補完、字間・行送りを置換しやすい数値入力へ変更、混在字間を`Mixed`表示、作品・背景の編集ロックを自動取得、プレビュー内のおすすめ曲名を描画位置から個別選択できるようにした。保存は対象単位でversionを作る契約を維持。型検査・Lint・270テスト・本番ビルドに成功した。
 >
 > **統合完了記録（2026-09-08）**：一括ZIP実装と実データ受入を含む`wip/generator-integration`を、最新`origin/main`（Release Master APIのトークン認証・CORS・Time・Apple Music 2000pxカバー対応）と統合し、`main`へfast-forwardしてGitHubへpushした。競合解消時にGenerator取込でもApple Music大画像を優先し、従来カバーへフォールバックする接続とテストを追加した。Time 10件は共有文書のversion 4〜13として保存済み。実Monthly 9枚のZIPはCRC・命名・2400×2400寸法・一覧目視まで確認済み。全画面認証middlewareとの統合でlocalhost専用認証迂回が遮られる回帰も検出し、Generator画面だけ既存の厳格なlocalhost・非Vercel・許可メンバー判定を共有するよう修正した。型検査・Lint・18ファイル293テスト・本番ビルドに成功した。Vercel Productionには`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`GENERATOR_ENABLED=true`を暗号化登録し、再デプロイはReady。Previewには本番DB接続を登録していない。iPhone実機Safariだけは未確認。
+>
+> **運用整理（2026-09-11）**：旧Vercel `fvkus-projects/prototype`はAPIで`paused:true`を再確認した。残っていた`/api/cron/resolve`（`0 3 * * *`）は管理画面で無効化し、APIでも`disabledAt: 2026-09-10T15:02:09.987Z`を確認した。Supabase表示名`hyoryu-tools`は管理画面がサインインを要求したため未確認。Chromeでの実共有受入は完了しているが、ProductionのGoogle再ログイン後スモーク、Safari／Edge／Brave、物理iPhone、物理的に異なる3端末と突然切断後の実時間3分失効は未確認。詳細な残件は[旧プロトタイプDB再利用記録](./generator-project-reuse.md#残件)を正とする。
 
 ---
 

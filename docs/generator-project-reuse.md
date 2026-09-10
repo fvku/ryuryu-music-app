@@ -1,17 +1,17 @@
 # hyoryu-tools：旧プロトタイプDBの再利用
 
-2026-09-05。ユーザー承認に基づき、旧`hyoryu-playlist-prototype`に画像ジェネレーターのDBを追加した。**既存プレイリストと画像は削除・変更していない。共有文書、対象別共同編集、履歴、非公開画像、個別プレビュー、PNG出力までローカル接続済み。**
+2026-09-05。ユーザー承認に基づき、旧`hyoryu-playlist-prototype`に画像ジェネレーターのDBを追加した。**既存プレイリストと画像は削除・変更していない。共有文書、対象別共同編集、履歴、非公開画像、個別プレビュー、PNG出力までローカル接続済み。** 2026-09-11に旧Vercelの停止状態とCron無効化を再確認した。
 
 ## 対象と実行結果
 
 | 対象 | 状態・根拠 |
 | --- | --- |
-| Supabase | Organization `fvku's Org`、project ref `jmgpepnycyyjujkrrvwy`、東京。表示名`hyoryu-tools`への変更はユーザーへ依頼済み、完了未確認。[設定](https://supabase.com/dashboard/project/jmgpepnycyyjujkrrvwy/settings/general) |
+| Supabase | Organization `fvku's Org`、project ref `jmgpepnycyyjujkrrvwy`、東京。表示名`hyoryu-tools`への変更はユーザーへ依頼済み。2026-09-11の確認時は管理画面がサインイン画面へ遷移し、管理API認証も無いため完了未確認。[設定](https://supabase.com/dashboard/project/jmgpepnycyyjujkrrvwy/settings/general) |
 | 旧Vercel | `fvkus-projects/prototype`、ID `prj_xbRKxSjaNMm9loxkzJt2QQRmqB80`。pause API成功、再取得で`paused:true`、公開URLがHTTP 503になった。[管理画面](https://vercel.com/fvkus-projects/prototype) |
-| 旧Cron | `/api/cron/resolve`、`0 3 * * *`。公開停止後も`disabledAt:null`なので、スケジュールの無効化は未完了。アプリを再開する前に必ず確認する。[無効化手順](https://vercel.com/docs/cron-jobs/manage-cron-jobs) |
+| 旧Cron | `/api/cron/resolve`、`0 3 * * *`（UTC、JST 12:00）。2026-09-11にVercel Settings → Cron Jobsで無効化し、再取得で`disabledAt: 2026-09-10T15:02:09.987Z`を確認した。[無効化手順](https://vercel.com/docs/cron-jobs/manage-cron-jobs) |
 | 新DB | `generator_*`の5テーブル、保存・ロック・履歴・構成版・画像ライフサイクルRPCを適用済み。[初期SQL](../supabase/migrations/202609040001_generator.sql)、[追加SQL](../supabase/migrations/202609050001_generator_completion.sql) |
 | 新Storage | `generator-assets`作成済み。非公開、PNG/JPEG/WebP、1ファイル10MiBまで。サーバーで形式・寸法・40MP上限を検証してからready確定し、認可ルート経由で取得する。[画像実装](../lib/generator/image.ts) |
-| 開発環境 | Git対象外の`.env.development.local`にサーバー専用接続を設定。既存legacy service_roleキーを利用し、DBパスワードはコピーしていない。ファイル権限600。Production／Preview環境変数は未変更。[設定処理](../tools/generator-admin/configure.mjs) |
+| 環境 | Git対象外の`.env.development.local`にサーバー専用接続を設定。既存legacy service_roleキーを利用し、DBパスワードはコピーしていない。ファイル権限600。Vercel Productionには`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`GENERATOR_ENABLED=true`を暗号化登録し、再デプロイはReady。Previewには本番DB接続を登録していない。[設定処理](../tools/generator-admin/configure.mjs) |
 
 旧Vercelの停止は復旧可能で、デプロイ・環境変数・GitHubリポジトリは削除していない。Supabase自体を停止すると画像ジェネレーターも止まるので、SupabaseのPause/Deleteは今回の手順に含めない。[Vercelの停止・再開仕様](https://vercel.com/docs/projects/managing-projects)
 
@@ -66,8 +66,10 @@ DB追加前に、`pl_*`の全行、列・制約・ポリシー、Storageのバ�
 
 ## 残件
 
-1. Supabase表示名を`hyoryu-tools`に保存したことの確認。現在のツール接続では管理画面の保存操作ができず、管理API認証も未設定のためユーザーへ依頼した。
-2. Vercel Settings → Cron Jobsでスケジュールを無効化し、`disabledAt`を確認する。公開停止だけで「Cron無効化済み」としない。
-3. 旧アプリの接続資格情報の整理。旧コード・設定を残しているため、無断再開しない。
-4. Monthly／Japanの機能版はローカル実装済み。Claude Codeでページ遷移・UI／デザインを仕上げる。[画面](../app/generator/)、[取り込み](../app/api/generator/source/route.ts)
-5. 3人の別端末同時編集・切断復帰・本人端末引き継ぎ、iPhone実機の画像入力・連続PNGを受入確認する。Production／Preview設定、デプロイ、commit、pushは未実施。
+1. Supabase表示名を`hyoryu-tools`に保存したことの確認。管理画面へのユーザーのサインインが必要。
+2. 旧アプリの接続資格情報の整理。旧コード・設定を残しているため、再開要否を決めるまでは削除・ローテーションせず、旧アプリを無断再開しない。
+3. Claude側でモバイル版のUIと提供機能を再検討し、合意後に実装する。固定データの`app/generator/uipreview-temp/page.tsx`はその受入完了まで残し、最終公開前に削除する。
+4. 再設計後の物理iPhone実機で、日本語IME、写真入力、画面回転、スリープ復帰、連続PNG／ZIPを受入確認する。
+5. 物理的に異なる3端末での同時編集と、突然切断後の実時間3分失効を確認する。3 actorを分離した実共有DB／実UIでは、同時保存、他者ロック、同一人物の端末引き継ぎ、旧端末の保存拒否まで確認済み。
+6. ProductionでユーザーがGoogleへ再ログインした状態の通しスモークを行う。未ログイン画面と認証要求までは確認済み。
+7. Safari／Edge／Braveの最終受入。2026-09-10の実行環境ではSafari／Edgeを操作対象として取得できず、BraveはComputer Useの許可が得られなかった。Chromeの受入は完了済み。
