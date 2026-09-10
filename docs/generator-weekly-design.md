@@ -96,7 +96,7 @@ Monthly／Japanの画像ジェネレーターへ、毎週金曜の新譜紹介�
 - **`ItemContent`の形は変えない。** Weeklyで使わない評価文・おすすめ曲は、
   `fields.text` ＝ 空文字、`fields.trackNo`／`fields.track` ＝ 取り込み値のまま、`show.track` ＝ `false` で作る。
   `bodyLeadMode`／`bodyMaxLead`／`tracking`／`kerns`／`typography`は既存の検証範囲のまま通る。
-  作品名の字間 −2%（＝ `tracking: -0.02`）もそのまま入る。
+  作品名の初期字間もそのまま入る（当初は −2%＝`tracking: -0.02`。2026-09-11に利用者の指示で **0** へ変更）。
   → Monthly側の保存・復元・ローカル復旧の契約に一切触らずに済む。
 - **`GeneratorTheme`も変えない。** Weeklyも`useWave: true`で作る（2026-09-08のFigma実測で、Weeklyの各面にも`Backwave`が敷かれていることを確認した）。表紙の背景写真は既存の`backgroundAssetId`（非公開Storage）をそのまま使う。
 - **DBのマイグレーションは不要。**
@@ -279,8 +279,9 @@ Monthlyは版面側も0なので差が出ていないだけで、この定数は
 したがってWeeklyの作品名の−2%を`layout.mjs`のTYPEに書いても**描画に反映されない**。次のどちらかを採る。
 
 - **(a) 取り込み時のデータに入れる（推奨）。** weeklyのitemを
-  `typography.title = { tracking: -0.02, kerns: {}, leading: 72/54 }` で作る。
-  `model.ts`の検証（tracking ±0.2、leading 1〜3）を通り、UIにも−2.0%と出て編集できる。**取り込み側（Codex）の1行。**
+  `typography.title = { tracking: <初期字間>, kerns: {}, leading: 72/54 }` で作る。
+  `model.ts`の検証（tracking ±0.2、leading 1〜3）を通り、UIにもその値が出て編集できる。**取り込み側（Codex）の1行。**
+  初期字間は2026-09-08時点で`-0.02`、2026-09-11に利用者の指示で`0`にした。
 - (b) `linesOf()` を `style.tracking ?? base.tracking` へ直す。筋は通るが、`app/generator/hit-test.ts` が
   同じ計算を写し持っているため両方を同時に直す必要があり、Monthlyの描画経路にも触ることになる。
 
@@ -620,7 +621,7 @@ Monthlyと同じ方針を持ち込む。**警告が出ている間はPNGを作�
 - 2026-09-08 初版（設計）
 - 2026-09-08 Figma `Post-images` の`Weekly`ページを実測し、§6.1〜6.3を実測値へ差し替え。
   あわせて「Weeklyは波を使わない」という当初の想定を`useWave: true`へ訂正した。
-- 2026-09-08 Codexが機能契約・取り込みAPI・テストを実装。Figma実測後の確定指示により`useWave: true`へ揃え、作品名の初期字間`-0.02em`と暫定行送り`72 / 54`も取り込みデータへ追加した。
+- 2026-09-08 Codexが機能契約・取り込みAPI・テストを実装。Figma実測後の確定指示により`useWave: true`へ揃え、作品名の初期字間`-0.02em`と暫定行送り`72 / 54`も取り込みデータへ追加した。（初期字間は2026-09-11に`0`へ変更）
 - 2026-09-08 Koheiへの確認中、Release Masterに`WEEK`列（採用／掲載／不採用）が実在すると判明。§3・§9-4の「洋4邦1を機械的に決める」前提を取り下げ、§12へ修正内容を記録した。取り込みロジックの修正はCodexへ差し戻し。
 - 2026-09-08 CodexがWEEK列取り込みを修正し、表紙・作品面・Other Releasesを統合画面へ接続。ISO週表示、feature↔Othersのswap、ページ別編集項目、Weekly用ZIP名、描画警告と回帰テストを追加した。固定データの実ブラウザで全7ページと並び替えダイアログを確認した。
 - 2026-09-09 Koheiの説明により、New Music Fridayの週境界を土曜〜金曜と確定。Release Masterの`#`列を週番号の正本として型・取り込み・文書・表紙・ファイル名へ接続した。文書の`period.start`は投稿金曜のまま維持する。
@@ -641,3 +642,7 @@ Monthlyと同じ方針を持ち込む。**警告が出ている間はPNGを作�
   全7枚ZIPを確認。CRC・寸法・代表画像の目視に成功し、最終値とロックを元に戻した。
 
 月別wave変更のpush・デプロイは行っていない。
+
+- 2026-09-11 利用者の指示で、Weekly取り込みの作品名の初期字間を`-0.02`から`0`へ変更（`leading: 72 / 54`は据え置き）。
+  描画既定の`Layout.WEEKLY.TYPE.title.tracking`は元から0で、`fitWeeklyTitle`の自動詰めも`baseTracking`基準なので挙動は変わらない。
+  **保存済みのWeekly文書は`-0.02`のまま**で、DB移行は行っていない。

@@ -106,7 +106,7 @@ function generatorItem(album: ReleaseMasterAlbum, series: GeneratorSeries, impor
   return { id: randomUUID(), source: { kind: "release-master", uid: album.uid.trim() || null, no: album.no || null, date: album.date,
     importedAt, coverUrl: album.coverUrlLarge.trim() || album.coverUrl.trim() || null, fields: sourceFields }, content: { fields: contentFields, show: { title: true, artist: true, duration: true,
       genreMemo: true, country: series !== "japan", track: series !== "weekly" }, tracking: 0, kerns: {}, bodyLeadMode: "auto", bodyMaxLead: 42,
-      typography: series === "weekly" ? { title: { tracking: -.02, kerns: {}, leading: 72 / 54 } } : {}, jacketAssetId: null } };
+      typography: series === "weekly" ? { title: { tracking: 0, kerns: {}, leading: 72 / 54 } } : {}, jacketAssetId: null } };
 }
 export function importDocument(albums: ReleaseMasterAlbum[], series: MonthlyGeneratorSeries, month: string, importedAt = new Date().toISOString()): GeneratorDocument {
   const selected = selectReleaseMasterAlbums(albums, series, month), period = parseImportPeriod(month);

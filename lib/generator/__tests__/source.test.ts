@@ -86,7 +86,7 @@ describe("Weekly Release Master import", () => {
     const extra = doc.items.find(item => item.source.fields.title === "[EP] Extra")!;
     expect(extra.content.fields.title).toBe("[EP] Extra"); expect(extra.content.fields.text).toBe(""); expect(extra.content.show.track).toBe(false);
     expect(extra.source.fields.text).toBe("Text"); expect(extra.source.coverUrl).toBe("https://example.com/apple.jpg");
-    expect(extra.content.typography.title).toEqual({ tracking: -.02, kerns: {}, leading: 72 / 54 });
+    expect(extra.content.typography.title).toEqual({ tracking: 0, kerns: {}, leading: 72 / 54 });
     expect(doc.theme.useWave).toBe(true);
   });
   it("uses exactly the WEEK groups and keeps an empty others page", () => {
