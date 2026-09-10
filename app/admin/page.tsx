@@ -300,10 +300,10 @@ export default function AdminPage() {
 
   // プレイリスト収録タグ
   type PlaylistSource = { playlistId: string; label: string; enabled: boolean; addedAt: string };
-  type PlaylistChange = { rowNum: number; title: string; artist: string; before: string; after: string; added: string[]; matchedBy: string };
+  type PlaylistChange = { rowNum: number; title: string; artist: string; before: string; after: string; added: string[]; matchedBy: string[] };
   type PlaylistSyncResult = {
     dryRun: boolean; month: string; scannedRows: number;
-    written: number; unchanged: number; unmatchedAlbums: number; albumCount: number;
+    written: number; unchanged: number; unmatchedAlbums: number; albumCount: number; artistCount: number;
     fetched: { label: string; playlistId: string; trackCount: number }[];
     failed: { label: string; playlistId: string; error: string }[];
     changes: PlaylistChange[]; changeCount: number;
@@ -1028,7 +1028,7 @@ export default function AdminPage() {
               {playlistSyncResult && (
                 <div className="rounded-xl p-3 mb-3 border text-xs" style={{ backgroundColor: playlistSyncResult.dryRun ? "rgba(99,102,241,0.1)" : "rgba(34,197,94,0.1)", borderColor: playlistSyncResult.dryRun ? "rgba(99,102,241,0.3)" : "rgba(34,197,94,0.3)" }}>
                   <p className="font-medium mb-1" style={{ color: playlistSyncResult.dryRun ? "#a5b4fc" : "#4ade80" }}>
-                    {playlistSyncResult.dryRun ? "Dry-run 完了" : "書き込み完了"} — 対象 {playlistSyncResult.month === "all" ? "全期間" : playlistSyncResult.month}（{playlistSyncResult.scannedRows}行）/ 索引 {playlistSyncResult.albumCount}枚 / 更新対象 {playlistSyncResult.changeCount}行 / 変更なし {playlistSyncResult.unchanged}行
+                    {playlistSyncResult.dryRun ? "Dry-run 完了" : "書き込み完了"} — 対象 {playlistSyncResult.month === "all" ? "全期間" : playlistSyncResult.month}（{playlistSyncResult.scannedRows}行）/ 索引 アルバム{playlistSyncResult.albumCount}枚・アーティスト{playlistSyncResult.artistCount}組 / 更新対象 {playlistSyncResult.changeCount}行 / 変更なし {playlistSyncResult.unchanged}行
                   </p>
                   <p style={{ color: "var(--text-secondary)" }}>
                     {playlistSyncResult.fetched.map((f) => `${f.label} ${f.trackCount}曲`).join(" / ")}

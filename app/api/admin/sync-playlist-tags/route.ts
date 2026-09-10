@@ -25,6 +25,7 @@ export async function POST(req: NextRequest) {
       unchanged: result.unchanged,
       unmatchedAlbums: result.unmatchedAlbums,
       albumCount: result.index.byAlbumId.size,
+      artistCount: result.index.byArtistId.size,
       fetched: result.index.fetched,
       failed: result.index.failed,
       changes: result.changes.slice(0, 100),

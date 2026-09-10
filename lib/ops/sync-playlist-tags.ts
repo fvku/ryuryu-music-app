@@ -7,6 +7,10 @@
  * 曲→アルバムの解決は公式 API（/v1/tracks）で行う。
  * 埋め込みから取れるのは先頭100曲までで、新しい順に並んでいる。
  *
+ * 収録の判定基準は「そのアーティストの曲が1曲でも入っているか」。
+ * 先行シングルはアルバム版と別トラック・別アルバムIDになるため、
+ * アルバム単位で照合すると同じ曲でも取りこぼす。
+ *
  * scripts/sync-playlist-tags.ts（CLI）と app/api/admin/sync-playlist-tags（管理画面）の共通実装。
  */
 
@@ -104,7 +108,30 @@ async function fetchEmbedTracks(playlistId: string): Promise<{ name: string; tra
   return { name: entity.name ?? "", tracks };
 }
 
-interface TrackAlbum { albumId: string; albumName: string; albumArtist: string; }
+/** コンピレーション名義。特定のアーティストを指さないので照合から外す */
+const VARIOUS_ARTISTS_ID = "0LyfQWJT6nXafLPZqxe9Of";
+
+/** アーティストのクレジット（ID優先、名前は Spotify URL が無い行の保険） */
+interface Credits { artistIds: string[]; artistNames: string[]; }
+
+/** 曲・アルバムのクレジットからアーティストIDと名前を集める */
+function collectCredits(artists: { id?: string; name?: string }[]): Credits {
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  for (const a of artists ?? []) {
+    if (a?.id && a.id !== VARIOUS_ARTISTS_ID) ids.add(a.id);
+    const name = norm(a?.name ?? "");
+    if (name && name !== "various artists") names.add(name);
+  }
+  return { artistIds: [...ids], artistNames: [...names] };
+}
+
+/** Spotify のアルバムID（22文字の英数字）か。Bandcamp等のURLを弾く */
+function isAlbumId(value: string | null | undefined): value is string {
+  return !!value && /^[A-Za-z0-9]{22}$/.test(value);
+}
+
+interface TrackAlbum extends Credits { albumId: string; albumName: string; albumArtist: string; }
 
 /**
  * トラックIDからアルバム情報を引く（公式API、50件ずつ）。
@@ -142,6 +169,9 @@ async function resolveAlbums(
         albumId: track.album.id,
         albumName: track.album.name ?? "",
         albumArtist: (track.album.artists ?? []).map((a: { name: string }) => a.name).join(", "),
+        // 曲のクレジットとアルバムのクレジットの両方を見る。
+        // 客演だけの曲もそのアーティストの曲として数える
+        ...collectCredits([...(track.artists ?? []), ...(track.album.artists ?? [])]),
       });
     }
     if (i + 50 < trackIds.length) await sleep(120);
@@ -150,11 +180,60 @@ async function resolveAlbums(
   return { albums: out, errors };
 }
 
+/**
+ * Release Master 側のアルバムのクレジットを引く（公式API、20件ずつ）。
+ *
+ * 存在しないIDが1件でも混ざるとチャンク全体が400になるので、
+ * 失敗したら半分に割って追い込み、原因のIDだけを捨てる。
+ */
+async function resolveAlbumArtists(
+  albumIds: string[],
+  token: string,
+  log: (msg: string) => void = () => {}
+): Promise<Map<string, Credits>> {
+  const out = new Map<string, Credits>();
+
+  const fetchChunk = async (chunk: string[]): Promise<void> => {
+    if (chunk.length === 0) return;
+    const res = await fetchWithRetry(`https://api.spotify.com/v1/albums?ids=${chunk.join(",")}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      if (chunk.length === 1) {
+        log(`  アルバム ${chunk[0]} のクレジットを取得できませんでした (${res.status})`);
+        return;
+      }
+      const half = Math.ceil(chunk.length / 2);
+      await fetchChunk(chunk.slice(0, half));
+      await fetchChunk(chunk.slice(half));
+      return;
+    }
+
+    const data = await res.json();
+    for (const album of data.albums ?? []) {
+      if (!album?.id) continue;
+      out.set(album.id, collectCredits(album.artists ?? []));
+    }
+  };
+
+  for (let i = 0; i < albumIds.length; i += 20) {
+    await fetchChunk(albumIds.slice(i, i + 20));
+    if (i + 20 < albumIds.length) await sleep(120);
+  }
+
+  return out;
+}
+
 export interface PlaylistIndex {
   /** アルバムID → プレイリスト表示名 */
   byAlbumId: Map<string, Set<string>>;
   /** アルバム名::アーティスト名 → プレイリスト表示名 */
   byAlbumKey: Map<string, Set<string>>;
+  /** アーティストID → プレイリスト表示名 */
+  byArtistId: Map<string, Set<string>>;
+  /** アーティスト名（正規化） → プレイリスト表示名 */
+  byArtistName: Map<string, Set<string>>;
   /** 取得できたプレイリストごとの曲数 */
   fetched: { label: string; playlistId: string; trackCount: number }[];
   /** 取得に失敗したプレイリスト */
@@ -174,7 +253,9 @@ export async function buildPlaylistIndex(
 ): Promise<PlaylistIndex> {
   const token = await getAccessToken();
   const index: PlaylistIndex = {
-    byAlbumId: new Map(), byAlbumKey: new Map(), fetched: [], failed: [],
+    byAlbumId: new Map(), byAlbumKey: new Map(),
+    byArtistId: new Map(), byArtistName: new Map(),
+    fetched: [], failed: [],
   };
 
   const add = (map: Map<string, Set<string>>, key: string, label: string) => {
@@ -224,15 +305,21 @@ export async function buildPlaylistIndex(
   // 3) プレイリストごとに索引へ流し込む
   for (const { source, playlistId, tracks } of fetchedPlaylists) {
     const albumIds = new Set<string>();
+    const artistIds = new Set<string>();
     for (const track of tracks) {
-      for (const { albumId, albumName, albumArtist } of resolved.get(track.trackId) ?? []) {
-        albumIds.add(albumId);
-        add(index.byAlbumId, albumId, source.label);
-        add(index.byAlbumKey, albumKey(albumName, albumArtist), source.label);
+      for (const entry of resolved.get(track.trackId) ?? []) {
+        albumIds.add(entry.albumId);
+        add(index.byAlbumId, entry.albumId, source.label);
+        add(index.byAlbumKey, albumKey(entry.albumName, entry.albumArtist), source.label);
+        for (const id of entry.artistIds) {
+          artistIds.add(id);
+          add(index.byArtistId, id, source.label);
+        }
+        for (const name of entry.artistNames) add(index.byArtistName, name, source.label);
       }
     }
     index.fetched.push({ label: source.label, playlistId, trackCount: tracks.length });
-    log(`  ${source.label}: ${tracks.length}曲 / アルバム ${albumIds.size}枚`);
+    log(`  ${source.label}: ${tracks.length}曲 / アルバム ${albumIds.size}枚 / アーティスト ${artistIds.size}組`);
   }
 
   index.fetched.sort((a, b) => a.label.localeCompare(b.label));
@@ -247,7 +334,8 @@ export interface PlaylistTagChange {
   after: string;
   /** 今回新しく追加されたプレイリスト名 */
   added: string[];
-  matchedBy: "albumId" | "titleArtist";
+  /** 一致した経路。複数の経路で当たることがある */
+  matchedBy: ("albumId" | "titleArtist" | "artistId" | "artistName")[];
 }
 
 /** セルの値をプレイリスト名の配列に分解する */
@@ -351,29 +439,52 @@ export async function syncPlaylistTags(
   const inScope = (row: string[]) =>
     month === "all" || (row[dateIdx] ?? "").trim().startsWith(month);
 
+  // 対象行を先に確定させ、そのアルバムのクレジットをまとめて引く。
+  // 収録タグは「そのアーティストの曲が1曲でも入っているか」で判定するので、
+  // Release Master 側もアルバム名ではなくアーティストIDで持つ必要がある
+  const scoped = dataRows
+    .map((row, i) => ({ row, rowNum: i + 2 }))
+    .filter(({ row }) => inScope(row));
+  const scannedRows = scoped.length;
+
+  const scopedAlbumIds = [...new Set(
+    scoped.map(({ row }) => parseAlbumId(row[spotifyIdx] ?? "")).filter(isAlbumId)
+  )];
+  log(`対象行のアルバム ${scopedAlbumIds.length}枚のクレジットを取得中...`);
+  const albumCredits = await resolveAlbumArtists(scopedAlbumIds, await getAccessToken(), log);
+
   const matchedAlbumIds = new Set<string>();
   const changes: PlaylistTagChange[] = [];
   let unchanged = 0;
 
-  let scannedRows = 0;
-  dataRows.forEach((row, i) => {
-    if (!inScope(row)) return;
-    scannedRows += 1;
-
+  for (const { row, rowNum } of scoped) {
     const title  = (row[titleIdx] ?? "").trim();
     const artist = (row[artistIdx] ?? "").trim();
     const before = (row[playlistIdx] ?? "").trim();
 
+    const labels = new Set<string>();
+    const matchedBy: PlaylistTagChange["matchedBy"] = [];
+    const collect = (from: Set<string> | undefined, reason: PlaylistTagChange["matchedBy"][number]) => {
+      if (!from || from.size === 0) return;
+      for (const label of from) labels.add(label);
+      if (!matchedBy.includes(reason)) matchedBy.push(reason);
+    };
+
     const albumId = parseAlbumId(row[spotifyIdx] ?? "");
-    let labels = albumId ? index.byAlbumId.get(albumId) : undefined;
-    let matchedBy: PlaylistTagChange["matchedBy"] = "albumId";
+    if (albumId) collect(index.byAlbumId.get(albumId), "albumId");
+    if (title || artist) collect(index.byAlbumKey.get(albumKey(title, artist)), "titleArtist");
 
-    if (!labels && (title || artist)) {
-      labels = index.byAlbumKey.get(albumKey(title, artist));
-      matchedBy = "titleArtist";
+    // アーティスト照合。IDが引けた行はIDだけで判定し、
+    // Spotify URL が無い行（Bandcamp等）に限って名前で拾う
+    const credits = isAlbumId(albumId) ? albumCredits.get(albumId) : undefined;
+    if (credits) {
+      for (const id of credits.artistIds) collect(index.byArtistId.get(id), "artistId");
+    } else if (artist) {
+      collect(index.byArtistName.get(norm(artist)), "artistName");
+      collect(index.byArtistName.get(normArtist(artist)), "artistName");
     }
-    if (!labels || labels.size === 0) return;
 
+    if (labels.size === 0) continue;
     if (albumId) matchedAlbumIds.add(albumId);
 
     // 追記方式: 既に書かれている名前は消さない。
@@ -388,13 +499,13 @@ export async function syncPlaylistTags(
     }
 
     const after = merged.join(", ");
-    if (after === before) { unchanged += 1; return; }
+    if (after === before) { unchanged += 1; continue; }
 
-    changes.push({ rowNum: i + 2, title, artist, before, after, added, matchedBy });
-  });
+    changes.push({ rowNum, title, artist, before, after, added, matchedBy });
+  }
 
   log(`\n対象: ${month === "all" ? "全期間" : month}（${scannedRows}行）`);
-  log(`索引: アルバム ${index.byAlbumId.size}枚 / 更新対象 ${changes.length}行 / 変更なし ${unchanged}行`);
+  log(`索引: アルバム ${index.byAlbumId.size}枚 / アーティスト ${index.byArtistId.size}組 / 更新対象 ${changes.length}行 / 変更なし ${unchanged}行`);
 
   let written = 0;
   if (apply && changes.length > 0) {
