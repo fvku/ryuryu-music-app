@@ -68,6 +68,17 @@ npx tsx scripts/fill-time-tracks.ts --apply --force --from-row=915  # 指定行�
 
 書き込み形式: `13songs, 50min 4sec`
 
+## 管理画面の認可
+
+`/admin` と `/api/admin/*` は Google ログインで認可する（2026-09-11に管理者パスワードから移行）。
+
+- 判定は3段構え: 同一オリジンか → Googleログイン済みの許可メンバーか → 管理者か
+- 管理者は `ADMIN_EMAILS`（カンマ区切り）。未設定なら Kohei のみ
+- 実装は `lib/admin-auth.ts` の `guardAdmin(req, action, detail)`。各ルートの先頭で呼ぶ
+- 実行者と操作は `admin_logs` シート（A=timestamp, B=email, C=action, D=result, E=detail）に追記
+- 権限不足のログだけ記録する。未ログインや外部オリジンからの呼び出しは誰でも起こせるので残さない
+- `ADMIN_PASSWORD` は未使用（Vercelの環境変数から削除してよい）
+
 ## プレイリスト収録タグ
 
 Release Master の `playlist` 列に「そのアルバムがどの有名プレイリストに入っているか」を自動で書き込む。
@@ -78,6 +89,7 @@ Release Master の `playlist` 列に「そのアルバムがどの有名プレ�
 - 照合はアルバムID優先、アルバム名+アーティスト名フォールバック。アルバムIDは market 指定あり／なしの両方を索引に入れる（Track Relinkingでズレるため）
 - 書き込みは**追記**。既存の名前は消さない（100曲の窓から外れたプレイリストのタグを失わないため）。誤ったタグは手でセルを編集する
 - 収録曲の取得は並列、アルバム解決は全プレイリスト分をまとめて直列（公式APIを並列で叩くと429になる）
+- 対象は既定で**当月のみ**（Date列の "YYYY/MM" 前方一致）。管理画面の「対象月」で変更、CLIは `--month=2026/08` / `--all`。プレイリスト側の取得量は月を絞っても変わらない
 - 取得対象は管理画面（週次リリース処理タブ）から追加・削除する。`genre/memo` 列には触れない
 
 ## フィルター状態の永続化（localStorage）

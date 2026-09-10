@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
-import { checkAdminPassword } from "@/lib/admin-auth";
+import { guardAdmin } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -33,10 +33,9 @@ function getSheetsClient() {
 }
 
 export async function POST(req: NextRequest) {
-  const { adminPassword } = await req.json();
-  if (!checkAdminPassword(adminPassword)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const body = await req.json();
+  const gate = await guardAdmin(req, "dedup-scores", body);
+  if (!gate.ok) return gate.response;
 
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
   if (!spreadsheetId) return NextResponse.json({ error: "GOOGLE_SPREADSHEET_ID is not set" }, { status: 500 });

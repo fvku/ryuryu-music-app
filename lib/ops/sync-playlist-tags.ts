@@ -255,15 +255,34 @@ function splitLabels(value: string): string[] {
   return value.split(",").map((v) => v.trim()).filter(Boolean);
 }
 
+/** 日本時間の当月を "YYYY/MM" で返す */
+export function currentMonth(): string {
+  const parts = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((p) => p.type === "year")?.value ?? "";
+  const month = parts.find((p) => p.type === "month")?.value ?? "";
+  return `${year}/${month.padStart(2, "0")}`;
+}
+
 export interface SyncPlaylistTagsOptions {
   /** false = dry-run（書き込まない） */
   apply: boolean;
+  /**
+   * 対象月（"YYYY/MM"）。既定は当月。"all" で全期間。
+   * プレイリスト側の取得量は変わらないが、書き込み対象を当月に絞れる。
+   */
+  month?: string;
   /** playlist列が無いときにヘッダーを作る */
   initColumn?: boolean;
   log?: (msg: string) => void;
 }
 
 export interface SyncPlaylistTagsResult {
+  /** 実際に対象とした月（"all" ならば全期間） */
+  month: string;
+  /** 照合対象になった行数 */
+  scannedRows: number;
   index: PlaylistIndex;
   changes: PlaylistTagChange[];
   unchanged: number;
@@ -276,6 +295,7 @@ export async function syncPlaylistTags(
   options: SyncPlaylistTagsOptions
 ): Promise<SyncPlaylistTagsResult> {
   const { apply, initColumn = false, log = () => {} } = options;
+  const month = options.month?.trim() || currentMonth();
 
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
   if (!spreadsheetId) throw new Error("RELEASE_MASTER_SPREADSHEET_ID is not set");
@@ -324,13 +344,22 @@ export async function syncPlaylistTags(
   const spotifyIdx = col[SHEET_COL.SPOTIFY_URL];
   const titleIdx   = col["Title"]  ?? col["アルバム名"] ?? 2;
   const artistIdx  = col["Artist"] ?? col["アーティスト"] ?? 3;
+  const dateIdx    = col["Date"]   ?? col["日付"]       ?? 1;
   if (spotifyIdx === undefined) throw new Error(`"${SHEET_COL.SPOTIFY_URL}" 列が見つかりません`);
+
+  // 日付は "YYYY/MM/DD" 形式。当月だけを対象にすると、過去分を毎回なぞらずに済む
+  const inScope = (row: string[]) =>
+    month === "all" || (row[dateIdx] ?? "").trim().startsWith(month);
 
   const matchedAlbumIds = new Set<string>();
   const changes: PlaylistTagChange[] = [];
   let unchanged = 0;
 
+  let scannedRows = 0;
   dataRows.forEach((row, i) => {
+    if (!inScope(row)) return;
+    scannedRows += 1;
+
     const title  = (row[titleIdx] ?? "").trim();
     const artist = (row[artistIdx] ?? "").trim();
     const before = (row[playlistIdx] ?? "").trim();
@@ -364,7 +393,8 @@ export async function syncPlaylistTags(
     changes.push({ rowNum: i + 2, title, artist, before, after, added, matchedBy });
   });
 
-  log(`\n索引: アルバム ${index.byAlbumId.size}枚 / 更新対象 ${changes.length}行 / 変更なし ${unchanged}行`);
+  log(`\n対象: ${month === "all" ? "全期間" : month}（${scannedRows}行）`);
+  log(`索引: アルバム ${index.byAlbumId.size}枚 / 更新対象 ${changes.length}行 / 変更なし ${unchanged}行`);
 
   let written = 0;
   if (apply && changes.length > 0) {
@@ -387,6 +417,8 @@ export async function syncPlaylistTags(
   }
 
   return {
+    month,
+    scannedRows,
     index,
     changes,
     unchanged,

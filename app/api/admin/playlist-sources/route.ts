@@ -5,13 +5,12 @@ import {
   removePlaylistSource,
   setPlaylistSourceEnabled,
 } from "@/lib/playlist-sources";
-import { checkAdminPassword } from "@/lib/admin-auth";
+import { guardAdmin } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 type Body = {
-  adminPassword?: string;
   action?: "list" | "add" | "remove" | "toggle";
   url?: string;
   label?: string;
@@ -20,10 +19,10 @@ type Body = {
 };
 
 export async function POST(req: NextRequest) {
-  const { adminPassword, action = "list", url, label, playlistId, enabled } = (await req.json()) as Body;
-  if (!checkAdminPassword(adminPassword)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const body = (await req.json()) as Body;
+  const gate = await guardAdmin(req, "playlist-sources", body);
+  if (!gate.ok) return gate.response;
+  const { action = "list", url, label, playlistId, enabled } = body;
 
   try {
     switch (action) {

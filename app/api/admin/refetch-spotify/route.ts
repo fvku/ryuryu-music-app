@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { refetchSpotifyUrls } from "@/lib/ops/refetch-spotify";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
-import { checkAdminPassword } from "@/lib/admin-auth";
+import { guardAdmin } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -9,10 +9,10 @@ export const maxDuration = 60;
 export type { RefetchMismatch } from "@/lib/ops/refetch-spotify";
 
 export async function POST(req: NextRequest) {
-  const { adminPassword, limit = 30 } = await req.json();
-  if (!checkAdminPassword(adminPassword)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const body = await req.json();
+  const gate = await guardAdmin(req, "refetch-spotify", body);
+  if (!gate.ok) return gate.response;
+  const { limit = 30 } = body;
 
   try {
     const result = await refetchSpotifyUrls({ apply: true, limit });

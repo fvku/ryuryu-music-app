@@ -6,8 +6,10 @@
  * 対象プレイリストは lib/playlist-sources.ts で管理する。
  *
  * 実行方法:
- *   npx tsx scripts/sync-playlist-tags.ts                      # dry-run（確認のみ）
- *   npx tsx scripts/sync-playlist-tags.ts --apply              # 書き込み
+ *   npx tsx scripts/sync-playlist-tags.ts                      # dry-run（当月のみ）
+ *   npx tsx scripts/sync-playlist-tags.ts --apply              # 書き込み（当月のみ）
+ *   npx tsx scripts/sync-playlist-tags.ts --apply --month=2026/08  # 指定月
+ *   npx tsx scripts/sync-playlist-tags.ts --apply --all        # 全期間
  *   npx tsx scripts/sync-playlist-tags.ts --apply --init-column # playlist列を新設してから書き込み
  */
 
@@ -20,6 +22,11 @@ config({ path: path.resolve(__dirname, "../.env.local") });
 
 const APPLY = process.argv.includes("--apply");
 const INIT_COLUMN = process.argv.includes("--init-column");
+const MONTH = (() => {
+  if (process.argv.includes("--all")) return "all";
+  const arg = process.argv.find((a) => a.startsWith("--month="));
+  return arg ? arg.split("=")[1] : undefined;
+})();
 
 async function main() {
   const { syncPlaylistTags } = await import("../lib/ops/sync-playlist-tags");
@@ -27,6 +34,7 @@ async function main() {
   const result = await syncPlaylistTags({
     apply: APPLY,
     initColumn: INIT_COLUMN,
+    month: MONTH,
     log: console.log,
   });
 
@@ -45,7 +53,7 @@ async function main() {
   }
 
   console.log("\n========================================");
-  console.log(`書き込み ${result.written}行 / 変更なし ${result.unchanged}行 / シート未登録のアルバム ${result.unmatchedAlbums}枚`);
+  console.log(`対象 ${result.month === "all" ? "全期間" : result.month} ${result.scannedRows}行 / 書き込み ${result.written}行 / 変更なし ${result.unchanged}行 / シート未登録のアルバム ${result.unmatchedAlbums}枚`);
 
   if (!APPLY) {
     console.log("\n(dry-run) --apply を付けて実行すると書き込みます");

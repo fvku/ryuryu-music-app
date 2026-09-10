@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { cached, invalidateCache, CACHE_KEY, CACHE_TTL } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
-import { checkAdminPassword } from "@/lib/admin-auth";
+import { guardAdmin } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -57,10 +57,10 @@ export async function GET() {
 // PATCH — 設定を更新（管理者のみ）
 export async function PATCH(req: NextRequest) {
   try {
-    const { adminPassword, key, value } = await req.json() as { adminPassword: string; key: string; value: string };
-    if (!checkAdminPassword(adminPassword)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const body = await req.json() as { key: string; value: string };
+    const gate = await guardAdmin(req, "settings", body);
+    if (!gate.ok) return gate.response;
+    const { key, value } = body;
     if (!key) return NextResponse.json({ error: "key is required" }, { status: 400 });
 
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;

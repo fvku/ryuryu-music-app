@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { repairSpotifyUrls } from "@/lib/ops/repair-spotify";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
-import { checkAdminPassword } from "@/lib/admin-auth";
+import { guardAdmin } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const { adminPassword } = await req.json();
-  if (!checkAdminPassword(adminPassword)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const body = await req.json();
+  const gate = await guardAdmin(req, "repair-spotify", body);
+  if (!gate.ok) return gate.response;
 
   try {
     const result = await repairSpotifyUrls();

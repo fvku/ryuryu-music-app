@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 
-type Step = "auth" | "main";
 type TabKey = "weekly" | "monthly" | "maintenance";
 
 // 区分ごとのアクセントカラー（タブ・枠線・ボタン共通）
@@ -43,7 +42,7 @@ function matchColors(match: boolean | null) {
   return { bg: "rgba(255,255,255,0.08)", fg: "var(--text-secondary)", border: "var(--border-subtle)" };
 }
 
-function MismatchQueueModal({ mismatches, password, onClose }: { mismatches: RefetchMismatch[]; password: string; onClose: () => void }) {
+function MismatchQueueModal({ mismatches, onClose }: { mismatches: RefetchMismatch[]; onClose: () => void }) {
   const [index, setIndex] = useState(0);
   const [statuses, setStatuses] = useState<Record<number, "resolved" | "deleted">>({});
   const [candidatesByRow, setCandidatesByRow] = useState<Record<number, SpotifyCandidate[]>>({});
@@ -94,7 +93,7 @@ function MismatchQueueModal({ mismatches, password, onClose }: { mismatches: Ref
       const res = await fetch("/api/admin/resolve-spotify-mismatch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password, rowNum: current.rowNum, spotifyUrl: c.spotifyUrl, coverUrl: c.coverUrl }),
+        body: JSON.stringify({ rowNum: current.rowNum, spotifyUrl: c.spotifyUrl, coverUrl: c.coverUrl }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "保存に失敗しました");
@@ -116,7 +115,7 @@ function MismatchQueueModal({ mismatches, password, onClose }: { mismatches: Ref
       const res = await fetch("/api/admin/resolve-spotify-mismatch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password, rowNum: current.rowNum, spotifyUrl: url, coverUrl: "" }),
+        body: JSON.stringify({ rowNum: current.rowNum, spotifyUrl: url, coverUrl: "" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "保存に失敗しました");
@@ -137,7 +136,7 @@ function MismatchQueueModal({ mismatches, password, onClose }: { mismatches: Ref
       const res = await fetch("/api/admin/clear-release-master-row", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password, rowNum: current.rowNum }),
+        body: JSON.stringify({ rowNum: current.rowNum }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "削除に失敗しました");
@@ -280,11 +279,10 @@ function MismatchQueueModal({ mismatches, password, onClose }: { mismatches: Ref
 }
 
 export default function AdminPage() {
-  const [step, setStep] = useState<Step>("auth");
   const [tab, setTab] = useState<TabKey>("weekly");
-  const [password, setPassword] = useState("");
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
+  type Viewer = { email: string; isMember: boolean; googleVerified: boolean; isAdmin: boolean };
+  const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [viewerLoading, setViewerLoading] = useState(true);
 
   // Bulk import
   const [importLoading, setImportLoading] = useState(false);
@@ -304,7 +302,8 @@ export default function AdminPage() {
   type PlaylistSource = { playlistId: string; label: string; enabled: boolean; addedAt: string };
   type PlaylistChange = { rowNum: number; title: string; artist: string; before: string; after: string; added: string[]; matchedBy: string };
   type PlaylistSyncResult = {
-    dryRun: boolean; written: number; unchanged: number; unmatchedAlbums: number; albumCount: number;
+    dryRun: boolean; month: string; scannedRows: number;
+    written: number; unchanged: number; unmatchedAlbums: number; albumCount: number;
     fetched: { label: string; playlistId: string; trackCount: number }[];
     failed: { label: string; playlistId: string; error: string }[];
     changes: PlaylistChange[]; changeCount: number;
@@ -316,6 +315,7 @@ export default function AdminPage() {
   const [playlistSourceError, setPlaylistSourceError] = useState<string | null>(null);
   const [playlistSyncLoading, setPlaylistSyncLoading] = useState(false);
   const [playlistSyncDryRun, setPlaylistSyncDryRun] = useState(true);
+  const [playlistSyncMonth, setPlaylistSyncMonth] = useState("");
   const [playlistSyncResult, setPlaylistSyncResult] = useState<PlaylistSyncResult | null>(null);
   const [playlistSyncError, setPlaylistSyncError] = useState<string | null>(null);
 
@@ -392,13 +392,13 @@ export default function AdminPage() {
   const [uidDuplicates, setUidDuplicates] = useState<UidDuplicateGroup[]>([]);
   const [uidDuplicatesChecking, setUidDuplicatesChecking] = useState(false);
 
-  async function checkForUidDuplicates(pw: string) {
+  async function checkForUidDuplicates() {
     setUidDuplicatesChecking(true);
     try {
       const res = await fetch("/api/admin/uid-duplicates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: pw }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (res.ok) setUidDuplicates(data.duplicates ?? []);
@@ -409,28 +409,6 @@ export default function AdminPage() {
     }
   }
 
-  async function handleAuth(e: React.FormEvent) {
-    e.preventDefault();
-    if (!password.trim()) { setAuthError("パスワードを入力してください"); return; }
-    setAuthLoading(true);
-    setStep("main");
-    setAuthLoading(false);
-    // 設定と月一覧を並行取得
-    Promise.all([
-      fetch("/api/admin/settings").then(r => r.json()).catch(() => ({})),
-      fetch("/api/release-master").then(r => r.json()).catch(() => []),
-    ]).then(([settings, albums]: [Record<string, string>, Array<{ date: string }>]) => {
-      if (settings.default_month) setDefaultMonth(settings.default_month);
-      const months = Array.from(new Set(albums.map((a) => {
-        const key = a.date?.substring(0, 7) ?? "";
-        return key.length === 7 ? key : "";
-      }).filter(Boolean))).sort().reverse() as string[];
-      setMonthOptions(["すべて", ...months]);
-    });
-    checkForUidDuplicates(password);
-    loadPlaylistSources(password);
-  }
-
   async function handleBulkImport() {
     setImportLoading(true);
     setImportError(null);
@@ -439,7 +417,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/bulk-import-release-master", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "取り込みに失敗しました");
@@ -459,7 +437,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/fill-time-tracks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password, dryRun: fillDryRun, limit: fillLimit }),
+        body: JSON.stringify({ dryRun: fillDryRun, limit: fillLimit }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "実行に失敗しました");
@@ -471,14 +449,14 @@ export default function AdminPage() {
     }
   }
 
-  async function callPlaylistSources(body: Record<string, unknown>, pw = password) {
+  async function callPlaylistSources(body: Record<string, unknown>) {
     setPlaylistSourcesLoading(true);
     setPlaylistSourceError(null);
     try {
       const res = await fetch("/api/admin/playlist-sources", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: pw, ...body }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "プレイリストの取得に失敗しました");
@@ -492,9 +470,43 @@ export default function AdminPage() {
     }
   }
 
-  async function loadPlaylistSources(pw: string) {
-    await callPlaylistSources({ action: "list" }, pw);
+  async function loadPlaylistSources() {
+    await callPlaylistSources({ action: "list" });
   }
+
+  const loadInitialData = useCallback(() => {
+    // 設定と月一覧を並行取得
+    Promise.all([
+      fetch("/api/admin/settings").then(r => r.json()).catch(() => ({})),
+      fetch("/api/release-master").then(r => r.json()).catch(() => []),
+    ]).then(([settings, albums]: [Record<string, string>, Array<{ date: string }>]) => {
+      if (settings.default_month) setDefaultMonth(settings.default_month);
+      const months = Array.from(new Set(albums.map((a) => {
+        const key = a.date?.substring(0, 7) ?? "";
+        return key.length === 7 ? key : "";
+      }).filter(Boolean))).sort().reverse() as string[];
+      setMonthOptions(["すべて", ...months]);
+    });
+    checkForUidDuplicates();
+    loadPlaylistSources();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin/whoami")
+      .then((r) => r.json())
+      .then((data: Viewer) => {
+        if (cancelled) return;
+        setViewer(data);
+        if (data.isAdmin) loadInitialData();
+      })
+      .catch(() => {
+        if (!cancelled) setViewer({ email: "", isMember: false, googleVerified: false, isAdmin: false });
+      })
+      .finally(() => { if (!cancelled) setViewerLoading(false); });
+    return () => { cancelled = true; };
+  }, [loadInitialData]);
 
   async function handleAddPlaylistSource() {
     const ok = await callPlaylistSources({ action: "add", url: playlistUrl, label: playlistLabel });
@@ -517,7 +529,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/sync-playlist-tags", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password, dryRun: playlistSyncDryRun }),
+        body: JSON.stringify({ dryRun: playlistSyncDryRun, month: playlistSyncMonth || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "実行に失敗しました");
@@ -537,7 +549,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/assign-uids", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password, dryRun: assignUidsDryRun }),
+        body: JSON.stringify({ dryRun: assignUidsDryRun }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "実行に失敗しました");
@@ -557,7 +569,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/backfill-album-uids", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password, dryRun: backfillDryRun }),
+        body: JSON.stringify({ dryRun: backfillDryRun }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "実行に失敗しました");
@@ -577,7 +589,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/dedup-scores", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "実行に失敗しました");
@@ -597,7 +609,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/repair-covers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password, limit: coversLimit }),
+        body: JSON.stringify({ limit: coversLimit }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "実行に失敗しました");
@@ -617,7 +629,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password, key: "default_month", value: defaultMonth }),
+        body: JSON.stringify({ key: "default_month", value: defaultMonth }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "保存に失敗しました");
@@ -637,7 +649,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/refetch-spotify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password, limit: refetchLimit }),
+        body: JSON.stringify({ limit: refetchLimit }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "実行に失敗しました");
@@ -657,7 +669,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/repair-spotify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "実行に失敗しました");
@@ -677,7 +689,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/test-spotify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "実行に失敗しました");
@@ -697,7 +709,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/sync-scores-to-rm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminPassword: password, force: syncForce }),
+        body: JSON.stringify({ force: syncForce }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "実行に失敗しました");
@@ -709,34 +721,30 @@ export default function AdminPage() {
     }
   }
 
-  if (step === "auth") {
+  if (viewerLoading) {
+    return (
+      <div className="max-w-sm mx-auto mt-16 text-center text-sm" style={{ color: "var(--text-secondary)" }}>
+        確認中...
+      </div>
+    );
+  }
+
+  if (!viewer?.isAdmin) {
     return (
       <div className="max-w-sm mx-auto mt-16">
-        <div className="rounded-2xl p-8 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
-          <div className="text-center mb-6">
-            <span className="text-4xl">🔐</span>
-            <h1 className="mt-3 text-xl font-bold" style={{ color: "var(--text-primary)" }}>管理者ログイン</h1>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>管理者パスワードを入力してください</p>
-          </div>
-          <form onSubmit={handleAuth} className="flex flex-col gap-4">
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="パスワード"
-              className="w-full px-4 py-3 rounded-xl border text-sm focus:outline-none"
-              style={{ backgroundColor: "#12121a", borderColor: authError ? "rgba(239,68,68,0.5)" : "var(--border-subtle)", color: "var(--text-primary)" }}
-            />
-            {authError && <p className="text-red-400 text-sm">{authError}</p>}
-            <button
-              type="submit"
-              disabled={authLoading}
-              className="w-full py-3 rounded-xl font-medium text-sm disabled:opacity-50"
-              style={{ backgroundColor: "var(--accent)", color: "white" }}
-            >
-              {authLoading ? "確認中..." : "ログイン"}
-            </button>
-          </form>
+        <div className="rounded-2xl p-8 border text-center" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
+          <span className="text-4xl">🔐</span>
+          <h1 className="mt-3 text-xl font-bold" style={{ color: "var(--text-primary)" }}>管理者ページ</h1>
+          <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+            {!viewer?.email
+              ? "Googleでログインしてください。"
+              : !viewer.googleVerified
+                ? "Googleで再ログインしてください。"
+                : "このアカウントには管理者権限がありません。"}
+          </p>
+          {viewer?.email && (
+            <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>ログイン中: {viewer.email}</p>
+          )}
         </div>
       </div>
     );
@@ -748,20 +756,16 @@ export default function AdminPage() {
     <div className="max-w-3xl mx-auto">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>管理者ページ</h1>
-        <button
-          onClick={() => { setStep("auth"); setPassword(""); }}
-          className="text-sm px-4 py-2 rounded-xl border"
-          style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
-        >
-          ログアウト
-        </button>
+        <span className="text-xs px-3 py-2 rounded-xl border" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>
+          {viewer.email}
+        </span>
       </div>
 
       {uidDuplicates.length > 0 && (
         <div className="mb-4 rounded-2xl p-4 border" style={{ backgroundColor: "rgba(239,68,68,0.08)", borderColor: "rgba(239,68,68,0.4)" }}>
           <div className="flex items-center justify-between gap-3 mb-2">
             <p className="text-sm font-bold" style={{ color: "#f87171" }}>⚠ Release MasterにUIDの重複が{uidDuplicates.length}件あります</p>
-            <button onClick={() => checkForUidDuplicates(password)} disabled={uidDuplicatesChecking}
+            <button onClick={() => checkForUidDuplicates()} disabled={uidDuplicatesChecking}
               className="text-xs px-3 py-1.5 rounded-lg border disabled:opacity-50 flex-shrink-0"
               style={{ borderColor: "rgba(239,68,68,0.4)", color: "#f87171" }}>
               {uidDuplicatesChecking ? "確認中..." : "再チェック"}
@@ -863,7 +867,6 @@ export default function AdminPage() {
               {mismatchModalOpen && refetchResult && refetchResult.mismatches.length > 0 && (
                 <MismatchQueueModal
                   mismatches={refetchResult.mismatches}
-                  password={password}
                   onClose={() => setMismatchModalOpen(false)}
                 />
               )}
@@ -961,7 +964,7 @@ export default function AdminPage() {
             <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: SECTION.weekly.border }}>
               <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>プレイリスト収録タグ</h3>
               <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                登録したプレイリストの収録曲を取得して、Release Master の playlist 列に「どのプレイリストに入っているか」を書き込みます。取得できるのは新しい順に各100曲まで（およそ直近1か月分）。既に書かれている名前は消さず追記していきます。playlist 列が無い場合は空いている列に自動で作成します。
+                登録したプレイリストの収録曲を取得して、Release Master の playlist 列に「どのプレイリストに入っているか」を書き込みます。取得できるのは新しい順に各100曲まで（およそ直近1か月分）。既定では当月の行だけを対象にします。既に書かれている名前は消さず追記していきます。
               </p>
 
               <div className="rounded-xl p-3 mb-3 border" style={{ backgroundColor: "rgba(255,255,255,0.03)", borderColor: "var(--border-subtle)" }}>
@@ -1005,15 +1008,27 @@ export default function AdminPage() {
               </div>
               {playlistSourceError && <p className="text-red-400 text-xs mb-3">{playlistSourceError}</p>}
 
-              <label className="flex items-center gap-2 text-sm mb-3 cursor-pointer" style={{ color: "var(--text-secondary)" }}>
-                <input type="checkbox" checked={playlistSyncDryRun} onChange={e => setPlaylistSyncDryRun(e.target.checked)} className="rounded" />
-                Dry-run（書き込みなし）
-              </label>
+              <div className="flex items-center gap-4 flex-wrap mb-3">
+                <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+                  <input type="checkbox" checked={playlistSyncDryRun} onChange={e => setPlaylistSyncDryRun(e.target.checked)} className="rounded" />
+                  Dry-run（書き込みなし）
+                </label>
+                <label className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+                  対象月
+                  <select value={playlistSyncMonth} onChange={e => setPlaylistSyncMonth(e.target.value)}
+                    className="px-3 py-1.5 rounded-xl border text-sm focus:outline-none"
+                    style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>
+                    <option value="">当月</option>
+                    <option value="all">すべて</option>
+                    {monthOptions.filter((m) => m !== "すべて").map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </label>
+              </div>
 
               {playlistSyncResult && (
                 <div className="rounded-xl p-3 mb-3 border text-xs" style={{ backgroundColor: playlistSyncResult.dryRun ? "rgba(99,102,241,0.1)" : "rgba(34,197,94,0.1)", borderColor: playlistSyncResult.dryRun ? "rgba(99,102,241,0.3)" : "rgba(34,197,94,0.3)" }}>
                   <p className="font-medium mb-1" style={{ color: playlistSyncResult.dryRun ? "#a5b4fc" : "#4ade80" }}>
-                    {playlistSyncResult.dryRun ? "Dry-run 完了" : "書き込み完了"} — 索引 {playlistSyncResult.albumCount}枚 / 更新対象 {playlistSyncResult.changeCount}行 / 変更なし {playlistSyncResult.unchanged}行 / シート未登録 {playlistSyncResult.unmatchedAlbums}枚
+                    {playlistSyncResult.dryRun ? "Dry-run 完了" : "書き込み完了"} — 対象 {playlistSyncResult.month === "all" ? "全期間" : playlistSyncResult.month}（{playlistSyncResult.scannedRows}行）/ 索引 {playlistSyncResult.albumCount}枚 / 更新対象 {playlistSyncResult.changeCount}行 / 変更なし {playlistSyncResult.unchanged}行
                   </p>
                   <p style={{ color: "var(--text-secondary)" }}>
                     {playlistSyncResult.fetched.map((f) => `${f.label} ${f.trackCount}曲`).join(" / ")}

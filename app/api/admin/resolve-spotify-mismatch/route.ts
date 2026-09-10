@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeManualSpotifyMatch } from "@/lib/ops/refetch-spotify";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
-import { checkAdminPassword } from "@/lib/admin-auth";
+import { guardAdmin } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const { adminPassword, rowNum, spotifyUrl, coverUrl } = await req.json();
-  if (!checkAdminPassword(adminPassword)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const body = await req.json();
+  const gate = await guardAdmin(req, "resolve-spotify-mismatch", body);
+  if (!gate.ok) return gate.response;
+  const { rowNum, spotifyUrl, coverUrl } = body;
   if (!rowNum || !spotifyUrl) {
     return NextResponse.json({ error: "rowNum, spotifyUrl は必須です" }, { status: 400 });
   }

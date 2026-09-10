@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clearReleaseMasterRow } from "@/lib/release-master";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
-import { checkAdminPassword } from "@/lib/admin-auth";
+import { guardAdmin } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const { adminPassword, rowNum } = await req.json();
-  if (!checkAdminPassword(adminPassword)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const body = await req.json();
+  const gate = await guardAdmin(req, "clear-release-master-row", body);
+  if (!gate.ok) return gate.response;
+  const { rowNum } = body;
   if (!rowNum) {
     return NextResponse.json({ error: "rowNum は必須です" }, { status: 400 });
   }
