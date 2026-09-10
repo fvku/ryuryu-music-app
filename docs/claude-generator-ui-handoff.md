@@ -34,7 +34,7 @@
 7. `docs/generator-project-reuse.md`（環境と未完了事項）
 8. `app/generator/`、`lib/generator/`、`tools/generator-lab/`の実コード
 
-ジェネレーター一式は2026-09-07に `wip/generator-integration` へ退避済み（上の追記）。相手側の変更を削除・置換したり、作り直したりせず、現在の実装へ差分を重ねてください。ブランチの切り替え・`git checkout .`・`git clean` で相手の作業を巻き戻さないでください。`app/generator/uipreview-temp/page.tsx`は固定データの見た目確認用で、作業中は利用してよいがコミット前には削除候補です。
+ジェネレーター一式は2026-09-07に `wip/generator-integration` へ退避済み（上の追記）。相手側の変更を削除・置換したり、作り直したりせず、現在の実装へ差分を重ねてください。ブランチの切り替え・`git checkout .`・`git clean` で相手の作業を巻き戻さないでください。`app/generator/uipreview-temp/page.tsx`は共有DBを変更しない固定データの見た目確認用です。2026-09-09の利用者指示により、モバイル再設計と受入が終わるまでは残し、その後の最終公開前に削除してください。
 
 ## Claude Codeの担当範囲
 
