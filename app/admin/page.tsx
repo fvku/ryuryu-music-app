@@ -302,7 +302,7 @@ export default function AdminPage() {
 
   // プレイリスト収録タグ
   type PlaylistSource = { playlistId: string; label: string; enabled: boolean; addedAt: string };
-  type PlaylistChange = { rowNum: number; title: string; artist: string; before: string; after: string; matchedBy: string };
+  type PlaylistChange = { rowNum: number; title: string; artist: string; before: string; after: string; added: string[]; matchedBy: string };
   type PlaylistSyncResult = {
     dryRun: boolean; written: number; unchanged: number; unmatchedAlbums: number; albumCount: number;
     fetched: { label: string; playlistId: string; trackCount: number }[];
@@ -961,7 +961,7 @@ export default function AdminPage() {
             <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: SECTION.weekly.border }}>
               <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>プレイリスト収録タグ</h3>
               <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                登録したプレイリストの収録曲を取得して、Release Master の playlist 列に「どのプレイリストに入っているか」を書き込みます。取得できるのは新しい順に各100曲まで（およそ直近1か月分）。playlist 列が無い場合は空いている列に自動で作成します。
+                登録したプレイリストの収録曲を取得して、Release Master の playlist 列に「どのプレイリストに入っているか」を書き込みます。取得できるのは新しい順に各100曲まで（およそ直近1か月分）。既に書かれている名前は消さず追記していきます。playlist 列が無い場合は空いている列に自動で作成します。
               </p>
 
               <div className="rounded-xl p-3 mb-3 border" style={{ backgroundColor: "rgba(255,255,255,0.03)", borderColor: "var(--border-subtle)" }}>
@@ -1030,7 +1030,7 @@ export default function AdminPage() {
                     <div className="flex flex-col gap-0.5 max-h-40 overflow-y-auto mt-2">
                       {playlistSyncResult.changes.map((c) => (
                         <span key={c.rowNum} style={{ color: "var(--text-secondary)" }}>
-                          row{c.rowNum}: {c.artist} - {c.title} → {c.after}
+                          row{c.rowNum}: {c.artist} - {c.title} → {c.added.join(", ")} を追加{c.before ? `（既存: ${c.before}）` : ""}
                         </span>
                       ))}
                       {playlistSyncResult.changeCount > playlistSyncResult.changes.length && (

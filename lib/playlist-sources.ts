@@ -123,6 +123,8 @@ export async function addPlaylistSource(urlOrId: string, label: string): Promise
   const playlistId = parsePlaylistId(urlOrId);
   if (!playlistId) throw new Error("プレイリストURLが読み取れません");
   if (!label.trim()) throw new Error("表示名を入力してください");
+  // playlist列はカンマ区切りで複数のプレイリスト名を持つため、名前にカンマは使えない
+  if (label.includes(",")) throw new Error("表示名にカンマは使えません");
 
   const sources = await readPlaylistSources();
   const existing = sources.find((s) => s.playlistId === playlistId);

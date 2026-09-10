@@ -4,7 +4,7 @@ import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 import { checkAdminPassword } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const { adminPassword, dryRun = true } = await req.json();

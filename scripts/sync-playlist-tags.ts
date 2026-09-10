@@ -38,8 +38,8 @@ async function main() {
   if (result.changes.length > 0) {
     console.log(`\n--- 更新内容（${result.changes.length}行） ---`);
     for (const c of result.changes.slice(0, 50)) {
-      const from = c.before ? `"${c.before}" → ` : "";
-      console.log(`  行${c.rowNum} [${c.matchedBy}] ${c.artist} / ${c.title}: ${from}"${c.after}"`);
+      const existing = c.before ? `（既存: "${c.before}"）` : "";
+      console.log(`  行${c.rowNum} [${c.matchedBy}] ${c.artist} / ${c.title}: +${c.added.join(", ")}${existing}`);
     }
     if (result.changes.length > 50) console.log(`  ... 他 ${result.changes.length - 50}行`);
   }

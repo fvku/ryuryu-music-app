@@ -30,6 +30,30 @@ const EMBED_UA =
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
+/** 429（レート制限）は Retry-After に従って数回まで待ち直す */
+async function fetchWithRetry(url: string, init?: RequestInit, attempts = 3): Promise<Response> {
+  let res = await fetch(url, init);
+  for (let i = 0; i < attempts && res.status === 429; i++) {
+    const header = Number(res.headers.get("retry-after"));
+    const wait = Number.isFinite(header) && header > 0 ? header : 2 ** i;
+    await sleep(Math.min(wait, 15) * 1000);
+    res = await fetch(url, init);
+  }
+  return res;
+}
+
+/** 同時実行数を絞って順に処理する */
+async function runPooled<T>(items: T[], size: number, task: (item: T) => Promise<void>) {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(size, items.length) }, async () => {
+    while (cursor < items.length) {
+      const item = items[cursor++];
+      await task(item);
+    }
+  });
+  await Promise.all(workers);
+}
+
 function norm(s: string) { return (s ?? "").trim().toLowerCase(); }
 
 /** [EP], [Single] 等のプレフィックスを除去（refetch-spotify と同じ扱い） */
@@ -52,7 +76,7 @@ interface EmbedTrack { trackId: string; title: string; subtitle: string; }
  * 公式 API では読めないプレイリストが対象。取得上限は100曲。
  */
 async function fetchEmbedTracks(playlistId: string): Promise<{ name: string; tracks: EmbedTrack[] }> {
-  const res = await fetch(`https://open.spotify.com/embed/playlist/${playlistId}`, {
+  const res = await fetchWithRetry(`https://open.spotify.com/embed/playlist/${playlistId}`, {
     headers: { "User-Agent": EMBED_UA },
     cache: "no-store",
   });
@@ -82,17 +106,34 @@ async function fetchEmbedTracks(playlistId: string): Promise<{ name: string; tra
 
 interface TrackAlbum { albumId: string; albumName: string; albumArtist: string; }
 
-/** トラックIDからアルバム情報を引く（公式API、50件ずつ） */
-async function resolveAlbums(trackIds: string[], token: string): Promise<Map<string, TrackAlbum>> {
+/**
+ * トラックIDからアルバム情報を引く（公式API、50件ずつ）。
+ *
+ * market を指定すると Track Relinking が働き、その市場で配信されている版の
+ * アルバムIDが返る。Release Master の Spotify URL は market=JP の検索で
+ * 取得しているため、market なしの結果だけだと同じ作品でもIDが食い違うことがある。
+ * 呼び出し側で両方を索引に入れて取りこぼしを防ぐ。
+ */
+async function resolveAlbums(
+  trackIds: string[],
+  token: string,
+  market?: string
+): Promise<{ albums: Map<string, TrackAlbum>; errors: string[] }> {
   const out = new Map<string, TrackAlbum>();
+  const errors: string[] = [];
 
   for (let i = 0; i < trackIds.length; i += 50) {
     const chunk = trackIds.slice(i, i + 50);
-    const res = await fetch(`https://api.spotify.com/v1/tracks?ids=${chunk.join(",")}`, {
+    const marketParam = market ? `&market=${market}` : "";
+    const res = await fetchWithRetry(`https://api.spotify.com/v1/tracks?ids=${chunk.join(",")}${marketParam}`, {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     });
-    if (!res.ok) throw new Error(`トラック情報の取得に失敗しました (${res.status})`);
+    if (!res.ok) {
+      // 1チャンク落ちても全体は続行する（追記方式なので再実行で埋まる）
+      errors.push(`トラック情報の取得に失敗しました (${res.status})`);
+      continue;
+    }
 
     const data = await res.json();
     for (const track of data.tracks ?? []) {
@@ -103,10 +144,10 @@ async function resolveAlbums(trackIds: string[], token: string): Promise<Map<str
         albumArtist: (track.album.artists ?? []).map((a: { name: string }) => a.name).join(", "),
       });
     }
-    if (i + 50 < trackIds.length) await sleep(300);
+    if (i + 50 < trackIds.length) await sleep(120);
   }
 
-  return out;
+  return { albums: out, errors };
 }
 
 export interface PlaylistIndex {
@@ -120,7 +161,13 @@ export interface PlaylistIndex {
   failed: { label: string; playlistId: string; error: string }[];
 }
 
-/** 登録済みプレイリストを走査して、アルバム→プレイリスト名の索引を作る */
+/**
+ * 登録済みプレイリストを走査して、アルバム→プレイリスト名の索引を作る。
+ *
+ * 収録曲の取得（埋め込みページ）は並列で行い、
+ * アルバムの解決（公式API）は全プレイリスト分をまとめて1本の直列処理にする。
+ * 公式APIを並列で叩くとレート制限（429）に当たるため。
+ */
 export async function buildPlaylistIndex(
   sources: PlaylistSource[],
   log: (msg: string) => void = () => {}
@@ -136,28 +183,59 @@ export async function buildPlaylistIndex(
     map.get(key)!.add(label);
   };
 
-  for (const source of sources) {
+  // 1) 埋め込みページを並列取得（公式APIではないのでレート制限とは無関係）
+  const fetchedPlaylists: { source: PlaylistSource; playlistId: string; tracks: EmbedTrack[] }[] = [];
+  await runPooled(sources, 5, async (source) => {
     const playlistId = parsePlaylistId(source.playlistId);
     try {
       const { tracks } = await fetchEmbedTracks(playlistId);
       if (tracks.length === 0) throw new Error("収録曲を取得できませんでした");
-
-      const albums = await resolveAlbums(tracks.map((t) => t.trackId), token);
-      for (const { albumId, albumName, albumArtist } of albums.values()) {
-        add(index.byAlbumId, albumId, source.label);
-        add(index.byAlbumKey, albumKey(albumName, albumArtist), source.label);
-      }
-
-      index.fetched.push({ label: source.label, playlistId, trackCount: tracks.length });
-      log(`  ${source.label}: ${tracks.length}曲 / アルバム ${new Set([...albums.values()].map((a) => a.albumId)).size}枚`);
+      fetchedPlaylists.push({ source, playlistId, tracks });
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
       index.failed.push({ label: source.label, playlistId, error });
       log(`  ${source.label}: 取得失敗 (${error})`);
     }
-    await sleep(300);
+  });
+
+  // 2) 全プレイリスト分のトラックをまとめて解決する
+  const uniqueTrackIds = [...new Set(fetchedPlaylists.flatMap((p) => p.tracks.map((t) => t.trackId)))];
+  log(`  収録曲 ${uniqueTrackIds.length}件のアルバムを解決中...`);
+
+  const resolved = new Map<string, TrackAlbum[]>();
+  const resolveErrors: string[] = [];
+  for (const market of [undefined, "JP"]) {
+    const { albums, errors } = await resolveAlbums(uniqueTrackIds, token, market);
+    resolveErrors.push(...errors);
+    for (const [trackId, album] of albums) {
+      const list = resolved.get(trackId) ?? [];
+      if (!list.some((a) => a.albumId === album.albumId)) list.push(album);
+      resolved.set(trackId, list);
+    }
+  }
+  if (resolveErrors.length > 0) {
+    index.failed.push({
+      label: "アルバム解決",
+      playlistId: "-",
+      error: `${resolveErrors.length}件のリクエストが失敗しました（${resolveErrors[0]}）。再実行すると埋まります`,
+    });
   }
 
+  // 3) プレイリストごとに索引へ流し込む
+  for (const { source, playlistId, tracks } of fetchedPlaylists) {
+    const albumIds = new Set<string>();
+    for (const track of tracks) {
+      for (const { albumId, albumName, albumArtist } of resolved.get(track.trackId) ?? []) {
+        albumIds.add(albumId);
+        add(index.byAlbumId, albumId, source.label);
+        add(index.byAlbumKey, albumKey(albumName, albumArtist), source.label);
+      }
+    }
+    index.fetched.push({ label: source.label, playlistId, trackCount: tracks.length });
+    log(`  ${source.label}: ${tracks.length}曲 / アルバム ${albumIds.size}枚`);
+  }
+
+  index.fetched.sort((a, b) => a.label.localeCompare(b.label));
   return index;
 }
 
@@ -167,7 +245,14 @@ export interface PlaylistTagChange {
   artist: string;
   before: string;
   after: string;
+  /** 今回新しく追加されたプレイリスト名 */
+  added: string[];
   matchedBy: "albumId" | "titleArtist";
+}
+
+/** セルの値をプレイリスト名の配列に分解する */
+function splitLabels(value: string): string[] {
+  return value.split(",").map((v) => v.trim()).filter(Boolean);
 }
 
 export interface SyncPlaylistTagsOptions {
@@ -262,10 +347,21 @@ export async function syncPlaylistTags(
 
     if (albumId) matchedAlbumIds.add(albumId);
 
-    const after = [...labels].sort().join(", ");
+    // 追記方式: 既に書かれている名前は消さない。
+    // 埋め込みから取れるのは新しい順に100曲までなので、窓から外れたプレイリストを
+    // 上書きで消してしまわないようにする。並び順も既存のものを保つ。
+    const merged = splitLabels(before);
+    const added: string[] = [];
+    for (const label of [...labels].sort()) {
+      if (merged.includes(label)) continue;
+      merged.push(label);
+      added.push(label);
+    }
+
+    const after = merged.join(", ");
     if (after === before) { unchanged += 1; return; }
 
-    changes.push({ rowNum: i + 2, title, artist, before, after, matchedBy });
+    changes.push({ rowNum: i + 2, title, artist, before, after, added, matchedBy });
   });
 
   log(`\n索引: アルバム ${index.byAlbumId.size}枚 / 更新対象 ${changes.length}行 / 変更なし ${unchanged}行`);
