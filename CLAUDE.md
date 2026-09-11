@@ -20,6 +20,7 @@
   - `recommendations` シート: A=id, B=recommenderId, C=albumNo, D=albumTitle, E=artistName, F=coverUrl, G=message, H=createdAt, I=mentionedEmails(カンマ区切り), J=albumUid
   - `bookmarks` シート: A=memberName(email), B=albumTitle, C=artistName, D=savedAt, E=albumUid
   - `playlists` シート: A=playlistId, B=label, C=enabled, D=addedAt（プレイリスト収録タグの取得対象。管理画面から追加・削除）
+  - `playlist_archive` シート: A=playlistId, B=label, C=kind, D=key, E=name, F=months, G=firstSeenAt, H=lastSeenAt（プレイリスト収録の観測履歴。`lib/ops/playlist-archive.ts` が自動更新するので手で触らない）
   - アルバム紐付けは **albumUid（Release MasterのUID）優先、title+artistフォールバック**（2026-07-18〜）。albumUidが空の行は移行前の孤児データか手動追加行 → `scripts/backfill-album-uids.ts` の再実行で埋められる（冪等）
 - **Release Master**: `RELEASE_MASTER_SPREADSHEET_ID`
   - A=No., B=Date, C=Title, D=Artist, E=Body, F=洋邦, G=Time, H=#, I=リスナー, K=playlist, L=genre/memo, M=国, P=WEEK, R=M/J採用, S=ASSIGN, T=M Number, U=Track, V=Start Time, W=M/J採用（220-300）, Y=Kwisoo, Z=Meri, AA=Kohei, AB=Eddie, AC=Hanawa, AD=Kaede, AF=Spotify, AG=spotifyカバー（640×640）, AJ=UID
@@ -37,6 +38,7 @@
 - `lib/uid.ts` / UID列 — アルバムの安定ID（改名に耐える行識別子。`scripts/assign-uids.ts` で採番）
 - `lib/ops/` — メンテ処理のコアロジック（scripts/ と app/api/admin/ の両方から呼ばれる共通実装）
 - `lib/playlist-sources.ts` — プレイリスト収録タグの取得対象（`playlists` シートのCRUD）
+- `lib/ops/playlist-archive.ts` — プレイリスト収録の観測履歴（100曲の窓から外れた分を後から拾うための蓄積）
 - `lib/spotify.ts` — Spotify API クライアント
 - `app/page.tsx` — ホーム（アルバム一覧、フィルター）
 - `app/recommend/page.tsx` — タイムライン（レコメンド＋レビュー）
@@ -86,13 +88,30 @@ Release Master の `playlist` 列に「そのアルバムがどの有名プレ�
 
 - Spotify公式（エディトリアル）プレイリストは Web API から読めない。アプリが Development mode のため 404 になる（Client Credentials でもユーザー認可トークンでも同じ。2026-09-09に実測）
 - そのため収録曲一覧は**埋め込みページ**（`open.spotify.com/embed/playlist/<id>`）から取得する。曲→アルバムの解決は公式API（`/v1/tracks`）
-- 取得上限は各プレイリスト100曲。新しい順に並ぶのでおよそ直近1か月分をカバーする
+- 取得は3段構え（2026-09-12〜）
+  1. 埋め込みページに同梱されている**匿名トークン**（`__NEXT_DATA__` の `state.settings.session.accessToken`）で `/v1/playlists/<id>/tracks` を全件ページング。これが通れば101曲目以降も読める
+  2. 通らなければ埋め込みページの先頭100曲だけ
+  3. どちらでも取れなかった分は**アーカイブ**（過去の観測）から拾う
+- 埋め込みの取得上限は100曲ちょうど。`?offset=` は効かない（250曲級のプレイリストでも100で頭打ちになるのを2026-09-12に実測）
+- **100曲は日付順ではない。** All New Indie の実測で、その日の最新リリースが3位・9位・13位などに散らばり、100位は3週間前だった。RapCaviar には2016年の曲も混ざる。今日リリースの作品が101曲目以降に埋もれることがあり、その回のクロールでは原理的に見えない
+- 匿名トークンは**共有クォータ**で動いており、枯渇していると全エンドポイントが 429 QUOTA_EXCEEDED を返す（`retry-after` が十数時間。2026-09-12は塞がっていた）。待っても無駄なので、失敗したら即座に埋め込みへフォールバックする
 - 判定基準は「そのアーティストの曲が1曲でも入っているか」。アルバム自体が入っている必要はない（2026-09-11に変更）。先行シングルはアルバム版と別トラック・別アルバムIDになるため、アルバム単位の照合だけだと同じ曲でも取りこぼす
 - 照合は Spotify の**アーティストID**で行う。名前だと表記揺れ（石若駿 / Shun Ishiwaka）や「Blu & Sndtrak」のような&入りの名義で外れる。Release Master 側は対象行のアルバムを `/v1/albums`（20件ずつ）で引いてIDを得る。Spotify URL が無い行だけアーティスト名で照合する
 - 客演も1曲として数える。アルバムに共演者がクレジットされていれば、その共演者の別作品の曲でもタグが付く
 - コンピレーション名義（Various Artists）は照合から外す
 - アルバムID・アルバム名+アーティスト名の照合も残している。アルバムIDは market 指定あり／なしの両方を索引に入れる（Track Relinkingでズレるため）
 - 書き込みは**追記**。既存の名前は消さない（100曲の窓から外れたプレイリストのタグを失わないため）。誤ったタグは手でセルを編集する
+
+### 収録アーカイブ（101曲目以降の取りこぼし対策）
+
+- 実行のたびに「どのプレイリストにどのアルバム・アーティストが載っていたか」を `playlist_archive` シートへ追記する（`lib/ops/playlist-archive.ts`）
+- プレイリストは随時入れ替わるので、今日101曲目にある新譜も後日100曲の窓へ入ってくる。その時点で観測してアーカイブに残せば、以後は窓から外れても拾える
+- キーは playlistId + kind + key で冪等。kind は `albumId` / `albumKey` / `artistId` / `artistName` の4種（照合経路と1対1）
+- `months` はその収録曲の**アルバムのリリース月**。照合時、Release Master の行の月と**±1か月**に収まるエントリだけ採用する。判定基準が「そのアーティストの曲が1曲でも入っているか」なので、月で絞らないと何年も前に載ったアーティストの新作にまでタグが付く
+- 保持期間は15か月。それより古い月しか持たないエントリは書き込み時に捨てる。入れてもその場で期限切れになる旧譜は最初から入れない（毎回シート全体を書き直さないため）
+- dry-run ではシートに書かないが、マージ結果は本番と同じものを使って照合する
+- 日次クロール: `/api/cron/sync-playlist-tags` を Vercel Cron が毎日 15:30 UTC（JST 0:30）に叩く。設定は `vercel.json`、認証は `CRON_SECRET`（Vercelの環境変数。未設定だと500を返す）
+- 2026-09-12 の初回投入で13,776件。38本のプレイリストで1回あたり60秒弱
 - 収録曲の取得は並列、アルバム解決は全プレイリスト分をまとめて直列（公式APIを並列で叩くと429になる）
 - 対象は既定で**当月のみ**（Date列の "YYYY/MM" 前方一致）。管理画面の「対象月」で変更、CLIは `--month=2026/08` / `--all`。プレイリスト側の取得量は月を絞っても変わらない
 - 取得対象は管理画面（週次リリース処理タブ）から追加・削除する。`genre/memo` 列には触れない

@@ -26,6 +26,8 @@ export async function POST(req: NextRequest) {
       unmatchedAlbums: result.unmatchedAlbums,
       albumCount: result.index.byAlbumId.size,
       artistCount: result.index.byArtistId.size,
+      archive: result.archive,
+      webTokenBlocked: result.index.webTokenBlocked,
       fetched: result.index.fetched,
       failed: result.index.failed,
       changes: result.changes.slice(0, 100),

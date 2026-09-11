@@ -5,7 +5,13 @@
  * Spotify公式プレイリストは Web API から読めない（Development mode のアプリは 404）。
  * そのため収録曲一覧だけは埋め込みページから取得し、
  * 曲→アルバムの解決は公式 API（/v1/tracks）で行う。
- * 埋め込みから取れるのは先頭100曲までで、新しい順に並んでいる。
+ *
+ * 取得は3段構え。
+ *   1. 埋め込みページに同梱されている匿名トークンで全曲取得を試す
+ *   2. 塞がっていれば埋め込みページの先頭100曲だけを使う
+ *   3. どちらでも取れなかった分は、過去の観測を貯めたアーカイブから拾う
+ * 埋め込みの100曲は日付順ではない。今日リリースの曲が101曲目以降に居ることがあり、
+ * その回のクロールでは絶対に見えない。だから貯めておく（lib/ops/playlist-archive.ts）。
  *
  * 収録の判定基準は「そのアーティストの曲が1曲でも入っているか」。
  * 先行シングルはアルバム版と別トラック・別アルバムIDになるため、
@@ -28,6 +34,16 @@ import {
   readActivePlaylistSources,
   type PlaylistSource,
 } from "@/lib/playlist-sources";
+import {
+  archiveLabelsFor,
+  buildArchiveLookup,
+  mergePlaylistArchive,
+  releaseDateToMonth,
+  rowDateToMonth,
+  type ArchiveEntry,
+  type ArchiveKind,
+  type MergeArchiveResult,
+} from "@/lib/ops/playlist-archive";
 
 const EMBED_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36";
@@ -75,11 +91,21 @@ function albumKey(title: string, artist: string) {
 
 interface EmbedTrack { trackId: string; title: string; subtitle: string; }
 
+interface EmbedPayload {
+  name: string;
+  tracks: EmbedTrack[];
+  /** 埋め込みページに同梱されている Web Player 用の匿名トークン */
+  webToken: string | null;
+}
+
 /**
  * 埋め込みページから収録曲を取得する。
- * 公式 API では読めないプレイリストが対象。取得上限は100曲。
+ * 公式 API では読めないプレイリストが対象。取得上限は100曲で、offset指定はできない。
+ *
+ * 同じページに Web Player 用の匿名トークンが埋まっている。
+ * これを使うと公式APIのプレイリスト取得が通ることがあるので、併せて取り出す。
  */
-async function fetchEmbedTracks(playlistId: string): Promise<{ name: string; tracks: EmbedTrack[] }> {
+async function fetchEmbedPlaylist(playlistId: string): Promise<EmbedPayload> {
   const res = await fetchWithRetry(`https://open.spotify.com/embed/playlist/${playlistId}`, {
     headers: { "User-Agent": EMBED_UA },
     cache: "no-store",
@@ -90,12 +116,24 @@ async function fetchEmbedTracks(playlistId: string): Promise<{ name: string; tra
   const matched = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
   if (!matched) throw new Error("埋め込みページの構造が変わっています（__NEXT_DATA__ が見つかりません）");
 
-  let entity: { name?: string; trackList?: { uri?: string; title?: string; subtitle?: string }[] };
+  let parsed: {
+    props?: {
+      pageProps?: {
+        state?: {
+          data?: { entity?: { name?: string; trackList?: { uri?: string; title?: string; subtitle?: string }[] } };
+          settings?: { session?: { accessToken?: string } };
+        };
+      };
+    };
+  };
   try {
-    entity = JSON.parse(matched[1])?.props?.pageProps?.state?.data?.entity ?? {};
+    parsed = JSON.parse(matched[1]);
   } catch {
     throw new Error("埋め込みページのJSONを解析できませんでした");
   }
+
+  const state = parsed?.props?.pageProps?.state;
+  const entity = state?.data?.entity ?? {};
 
   const tracks: EmbedTrack[] = (entity.trackList ?? [])
     .filter((t) => typeof t?.uri === "string" && t.uri.startsWith("spotify:track:"))
@@ -105,7 +143,68 @@ async function fetchEmbedTracks(playlistId: string): Promise<{ name: string; tra
       subtitle: t.subtitle ?? "",
     }));
 
-  return { name: entity.name ?? "", tracks };
+  return {
+    name: entity.name ?? "",
+    tracks,
+    webToken: state?.settings?.session?.accessToken ?? null,
+  };
+}
+
+/** 1プレイリストあたりの取得上限。際限なくページを送らないための歯止め */
+const MAX_TRACKS_PER_PLAYLIST = 1000;
+
+/**
+ * 匿名トークンで収録曲を全件取得する。取れなければ null。
+ *
+ * 埋め込みページは先頭100曲で頭打ちなので、101曲目以降に入っている新譜は
+ * この経路でしか読めない。ただし匿名トークンは共有クォータで動いており、
+ * 枯渇していると全エンドポイントが 429 を返す（retry-after は十数時間）。
+ * 待っても無駄なので、失敗したら即座に諦めて埋め込みの100曲に任せる。
+ */
+async function fetchTracksWithWebToken(
+  playlistId: string,
+  webToken: string
+): Promise<{ tracks: EmbedTrack[]; total: number } | null> {
+  const tracks: EmbedTrack[] = [];
+  let total = 0;
+
+  for (let offset = 0; offset < MAX_TRACKS_PER_PLAYLIST; offset += 100) {
+    const url =
+      `https://api.spotify.com/v1/playlists/${playlistId}/tracks` +
+      `?limit=100&offset=${offset}&fields=total,items(track(id,name,type,artists(name)))`;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${webToken}`,
+          "User-Agent": EMBED_UA,
+          Origin: "https://open.spotify.com",
+          Referer: "https://open.spotify.com/",
+        },
+        cache: "no-store",
+      });
+    } catch {
+      return null;
+    }
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    total = Number(data?.total ?? 0);
+    for (const item of data?.items ?? []) {
+      const track = item?.track;
+      if (!track?.id || track.type === "episode") continue;
+      tracks.push({
+        trackId: track.id,
+        title: track.name ?? "",
+        subtitle: (track.artists ?? []).map((a: { name: string }) => a.name).join(", "),
+      });
+    }
+
+    if (offset + 100 >= total) break;
+    await sleep(120);
+  }
+
+  return { tracks, total };
 }
 
 /** コンピレーション名義。特定のアーティストを指さないので照合から外す */
@@ -131,7 +230,13 @@ function isAlbumId(value: string | null | undefined): value is string {
   return !!value && /^[A-Za-z0-9]{22}$/.test(value);
 }
 
-interface TrackAlbum extends Credits { albumId: string; albumName: string; albumArtist: string; }
+interface TrackAlbum extends Credits {
+  albumId: string;
+  albumName: string;
+  albumArtist: string;
+  /** アルバムのリリース月（"YYYY/MM"）。アーカイブの照合範囲を決めるのに使う */
+  releaseMonth: string;
+}
 
 /**
  * トラックIDからアルバム情報を引く（公式API、50件ずつ）。
@@ -169,6 +274,7 @@ async function resolveAlbums(
         albumId: track.album.id,
         albumName: track.album.name ?? "",
         albumArtist: (track.album.artists ?? []).map((a: { name: string }) => a.name).join(", "),
+        releaseMonth: releaseDateToMonth(track.album.release_date ?? ""),
         // 曲のクレジットとアルバムのクレジットの両方を見る。
         // 客演だけの曲もそのアーティストの曲として数える
         ...collectCredits([...(track.artists ?? []), ...(track.album.artists ?? [])]),
@@ -225,6 +331,9 @@ async function resolveAlbumArtists(
   return out;
 }
 
+/** 全曲取れたか、埋め込みの先頭100曲で頭打ちになったか */
+export type PlaylistCoverage = "full" | "capped";
+
 export interface PlaylistIndex {
   /** アルバムID → プレイリスト表示名 */
   byAlbumId: Map<string, Set<string>>;
@@ -235,9 +344,20 @@ export interface PlaylistIndex {
   /** アーティスト名（正規化） → プレイリスト表示名 */
   byArtistName: Map<string, Set<string>>;
   /** 取得できたプレイリストごとの曲数 */
-  fetched: { label: string; playlistId: string; trackCount: number }[];
+  fetched: {
+    label: string;
+    playlistId: string;
+    trackCount: number;
+    coverage: PlaylistCoverage;
+    /** プレイリストの全曲数。全曲取得できた時だけ分かる */
+    total: number | null;
+  }[];
   /** 取得に失敗したプレイリスト */
   failed: { label: string; playlistId: string; error: string }[];
+  /** 匿名トークンが使えず、先頭100曲に切り詰められた回か */
+  webTokenBlocked: boolean;
+  /** 今回observeした内容。アーカイブへ流し込む */
+  observed: ArchiveEntry[];
 }
 
 /**
@@ -256,6 +376,8 @@ export async function buildPlaylistIndex(
     byAlbumId: new Map(), byAlbumKey: new Map(),
     byArtistId: new Map(), byArtistName: new Map(),
     fetched: [], failed: [],
+    webTokenBlocked: false,
+    observed: [],
   };
 
   const add = (map: Map<string, Set<string>>, key: string, label: string) => {
@@ -264,20 +386,52 @@ export async function buildPlaylistIndex(
     map.get(key)!.add(label);
   };
 
-  // 1) 埋め込みページを並列取得（公式APIではないのでレート制限とは無関係）
-  const fetchedPlaylists: { source: PlaylistSource; playlistId: string; tracks: EmbedTrack[] }[] = [];
+  // 1) 埋め込みページを並列取得（公式APIではないのでレート制限とは無関係）。
+  //    匿名トークンが生きていれば、そのまま全曲取得に切り替える
+  const fetchedPlaylists: {
+    source: PlaylistSource;
+    playlistId: string;
+    tracks: EmbedTrack[];
+    coverage: PlaylistCoverage;
+    total: number | null;
+  }[] = [];
+
   await runPooled(sources, 5, async (source) => {
     const playlistId = parsePlaylistId(source.playlistId);
     try {
-      const { tracks } = await fetchEmbedTracks(playlistId);
+      const embed = await fetchEmbedPlaylist(playlistId);
+      let tracks = embed.tracks;
+      let coverage: PlaylistCoverage = "capped";
+      let total: number | null = null;
+
+      // 一度でも匿名トークンが弾かれたら、残りのプレイリストでは試さない。
+      // クォータ切れは十数時間続くので、叩くだけ無駄になる
+      if (embed.webToken && !index.webTokenBlocked) {
+        const full = await fetchTracksWithWebToken(playlistId, embed.webToken);
+        if (full) {
+          // 取りこぼしを防ぐため、埋め込みの100曲と突き合わせて和集合にする
+          const merged = new Map(full.tracks.map((t) => [t.trackId, t]));
+          for (const t of embed.tracks) if (!merged.has(t.trackId)) merged.set(t.trackId, t);
+          tracks = [...merged.values()];
+          total = full.total;
+          coverage = "full";
+        } else {
+          index.webTokenBlocked = true;
+        }
+      }
+
       if (tracks.length === 0) throw new Error("収録曲を取得できませんでした");
-      fetchedPlaylists.push({ source, playlistId, tracks });
+      fetchedPlaylists.push({ source, playlistId, tracks, coverage, total });
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
       index.failed.push({ label: source.label, playlistId, error });
       log(`  ${source.label}: 取得失敗 (${error})`);
     }
   });
+
+  if (index.webTokenBlocked) {
+    log("  匿名トークンでの全曲取得は今回使えませんでした（先頭100曲のみ。アーカイブで補います）");
+  }
 
   // 2) 全プレイリスト分のトラックをまとめて解決する
   const uniqueTrackIds = [...new Set(fetchedPlaylists.flatMap((p) => p.tracks.map((t) => t.trackId)))];
@@ -302,26 +456,58 @@ export async function buildPlaylistIndex(
     });
   }
 
-  // 3) プレイリストごとに索引へ流し込む
-  for (const { source, playlistId, tracks } of fetchedPlaylists) {
+  // 3) プレイリストごとに索引へ流し込む。同時にアーカイブ用の観測も溜める
+  const now = new Date().toISOString();
+  const observed = new Map<string, ArchiveEntry>();
+  const observe = (
+    playlistId: string, label: string, kind: ArchiveKind,
+    key: string, name: string, month: string
+  ) => {
+    if (!key) return;
+    const id = `${playlistId}|${kind}|${key}`;
+    const current = observed.get(id);
+    if (!current) {
+      observed.set(id, {
+        playlistId, label, kind, key, name,
+        months: month ? [month] : [],
+        firstSeenAt: now, lastSeenAt: now,
+      });
+      return;
+    }
+    if (month && !current.months.includes(month)) current.months.push(month);
+  };
+
+  for (const { source, playlistId, tracks, coverage, total } of fetchedPlaylists) {
     const albumIds = new Set<string>();
     const artistIds = new Set<string>();
     for (const track of tracks) {
       for (const entry of resolved.get(track.trackId) ?? []) {
+        const month = entry.releaseMonth;
         albumIds.add(entry.albumId);
         add(index.byAlbumId, entry.albumId, source.label);
-        add(index.byAlbumKey, albumKey(entry.albumName, entry.albumArtist), source.label);
+        observe(playlistId, source.label, "albumId", entry.albumId, entry.albumName, month);
+
+        const key = albumKey(entry.albumName, entry.albumArtist);
+        add(index.byAlbumKey, key, source.label);
+        observe(playlistId, source.label, "albumKey", key, entry.albumName, month);
+
         for (const id of entry.artistIds) {
           artistIds.add(id);
           add(index.byArtistId, id, source.label);
+          observe(playlistId, source.label, "artistId", id, entry.albumArtist, month);
         }
-        for (const name of entry.artistNames) add(index.byArtistName, name, source.label);
+        for (const name of entry.artistNames) {
+          add(index.byArtistName, name, source.label);
+          observe(playlistId, source.label, "artistName", name, name, month);
+        }
       }
     }
-    index.fetched.push({ label: source.label, playlistId, trackCount: tracks.length });
-    log(`  ${source.label}: ${tracks.length}曲 / アルバム ${albumIds.size}枚 / アーティスト ${artistIds.size}組`);
+    index.fetched.push({ label: source.label, playlistId, trackCount: tracks.length, coverage, total });
+    const scope = coverage === "full" ? `全${total ?? tracks.length}曲` : "先頭100曲まで";
+    log(`  ${source.label}: ${tracks.length}曲（${scope}） / アルバム ${albumIds.size}枚 / アーティスト ${artistIds.size}組`);
   }
 
+  index.observed = [...observed.values()];
   index.fetched.sort((a, b) => a.label.localeCompare(b.label));
   return index;
 }
@@ -334,8 +520,10 @@ export interface PlaylistTagChange {
   after: string;
   /** 今回新しく追加されたプレイリスト名 */
   added: string[];
-  /** 一致した経路。複数の経路で当たることがある */
-  matchedBy: ("albumId" | "titleArtist" | "artistId" | "artistName")[];
+  /** 一致した経路。複数の経路で当たることがある。archive は過去の観測から拾ったもの */
+  matchedBy: ("albumId" | "titleArtist" | "artistId" | "artistName" | "archive")[];
+  /** 今回のクロールでは取れず、アーカイブにだけ在ったプレイリスト名 */
+  fromArchiveOnly: string[];
 }
 
 /** セルの値をプレイリスト名の配列に分解する */
@@ -377,6 +565,11 @@ export interface SyncPlaylistTagsResult {
   written: number;
   /** 索引には在るが Release Master のどの行とも結び付かなかったアルバム */
   unmatchedAlbums: number;
+  /** アーカイブのマージ結果（全エントリは重いので含めない） */
+  archive: Omit<MergeArchiveResult, "entries"> & {
+    /** アーカイブが無ければ付かなかったタグの数 */
+    onlyTags: number;
+  };
 }
 
 export async function syncPlaylistTags(
@@ -453,35 +646,74 @@ export async function syncPlaylistTags(
   log(`対象行のアルバム ${scopedAlbumIds.length}枚のクレジットを取得中...`);
   const albumCredits = await resolveAlbumArtists(scopedAlbumIds, await getAccessToken(), log);
 
+  // 今回の観測をアーカイブへ足し込み、過去の観測も含めた索引で照合する。
+  // 埋め込みは先頭100曲で頭打ちなので、今日101曲目に居る新譜はこの回では取れない。
+  // 日々貯めておけば、窓に入ってきた日に拾えて、以後は消えない
+  log("アーカイブを更新中...");
+  const archiveResult = await mergePlaylistArchive(index.observed, apply);
+  const archiveLookup = buildArchiveLookup(
+    archiveResult.entries,
+    new Set(sources.map((s) => parsePlaylistId(s.playlistId)))
+  );
+  log(
+    `アーカイブ: 新規 ${archiveResult.added}件 / 更新 ${archiveResult.updated}件 / ` +
+    `期限切れ ${archiveResult.pruned}件 / 総数 ${archiveResult.total}件` +
+    (apply ? "" : "（dry-run のため未保存）")
+  );
+
   const matchedAlbumIds = new Set<string>();
   const changes: PlaylistTagChange[] = [];
   let unchanged = 0;
+  let archiveOnlyTags = 0;
 
   for (const { row, rowNum } of scoped) {
     const title  = (row[titleIdx] ?? "").trim();
     const artist = (row[artistIdx] ?? "").trim();
     const before = (row[playlistIdx] ?? "").trim();
+    const rowMonth = rowDateToMonth(row[dateIdx] ?? "");
 
     const labels = new Set<string>();
+    const freshLabels = new Set<string>();
     const matchedBy: PlaylistTagChange["matchedBy"] = [];
     const collect = (from: Set<string> | undefined, reason: PlaylistTagChange["matchedBy"][number]) => {
       if (!from || from.size === 0) return;
-      for (const label of from) labels.add(label);
+      for (const label of from) { labels.add(label); freshLabels.add(label); }
       if (!matchedBy.includes(reason)) matchedBy.push(reason);
+    };
+    // アーカイブ由来は行の月が近いものだけ採用する。
+    // 判定基準が「そのアーティストの曲が1曲でも入っているか」なので、
+    // 月で絞らないと何年も前に載ったアーティストの新作にまでタグが付く
+    const collectArchive = (kind: ArchiveKind, key: string) => {
+      const hits = archiveLabelsFor(archiveLookup, kind, key, rowMonth);
+      if (hits.length === 0) return;
+      for (const label of hits) labels.add(label);
+      if (!matchedBy.includes("archive")) matchedBy.push("archive");
     };
 
     const albumId = parseAlbumId(row[spotifyIdx] ?? "");
-    if (albumId) collect(index.byAlbumId.get(albumId), "albumId");
-    if (title || artist) collect(index.byAlbumKey.get(albumKey(title, artist)), "titleArtist");
+    if (albumId) {
+      collect(index.byAlbumId.get(albumId), "albumId");
+      collectArchive("albumId", albumId);
+    }
+    if (title || artist) {
+      const key = albumKey(title, artist);
+      collect(index.byAlbumKey.get(key), "titleArtist");
+      collectArchive("albumKey", key);
+    }
 
     // アーティスト照合。IDが引けた行はIDだけで判定し、
     // Spotify URL が無い行（Bandcamp等）に限って名前で拾う
     const credits = isAlbumId(albumId) ? albumCredits.get(albumId) : undefined;
     if (credits) {
-      for (const id of credits.artistIds) collect(index.byArtistId.get(id), "artistId");
+      for (const id of credits.artistIds) {
+        collect(index.byArtistId.get(id), "artistId");
+        collectArchive("artistId", id);
+      }
     } else if (artist) {
       collect(index.byArtistName.get(norm(artist)), "artistName");
       collect(index.byArtistName.get(normArtist(artist)), "artistName");
+      collectArchive("artistName", norm(artist));
+      collectArchive("artistName", normArtist(artist));
     }
 
     if (labels.size === 0) continue;
@@ -492,20 +724,26 @@ export async function syncPlaylistTags(
     // 上書きで消してしまわないようにする。並び順も既存のものを保つ。
     const merged = splitLabels(before);
     const added: string[] = [];
+    const fromArchiveOnly: string[] = [];
     for (const label of [...labels].sort()) {
       if (merged.includes(label)) continue;
       merged.push(label);
       added.push(label);
+      if (!freshLabels.has(label)) fromArchiveOnly.push(label);
     }
+    archiveOnlyTags += fromArchiveOnly.length;
 
     const after = merged.join(", ");
     if (after === before) { unchanged += 1; continue; }
 
-    changes.push({ rowNum, title, artist, before, after, added, matchedBy });
+    changes.push({ rowNum, title, artist, before, after, added, matchedBy, fromArchiveOnly });
   }
 
   log(`\n対象: ${month === "all" ? "全期間" : month}（${scannedRows}行）`);
   log(`索引: アルバム ${index.byAlbumId.size}枚 / アーティスト ${index.byArtistId.size}組 / 更新対象 ${changes.length}行 / 変更なし ${unchanged}行`);
+  if (archiveOnlyTags > 0) {
+    log(`うち ${archiveOnlyTags}件は今回のクロールでは取れず、アーカイブから拾いました`);
+  }
 
   let written = 0;
   if (apply && changes.length > 0) {
@@ -535,5 +773,13 @@ export async function syncPlaylistTags(
     unchanged,
     written,
     unmatchedAlbums: index.byAlbumId.size - matchedAlbumIds.size,
+    archive: {
+      added: archiveResult.added,
+      updated: archiveResult.updated,
+      pruned: archiveResult.pruned,
+      total: archiveResult.total,
+      written: archiveResult.written,
+      onlyTags: archiveOnlyTags,
+    },
   };
 }

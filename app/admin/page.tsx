@@ -300,11 +300,13 @@ export default function AdminPage() {
 
   // プレイリスト収録タグ
   type PlaylistSource = { playlistId: string; label: string; enabled: boolean; addedAt: string };
-  type PlaylistChange = { rowNum: number; title: string; artist: string; before: string; after: string; added: string[]; matchedBy: string[] };
+  type PlaylistChange = { rowNum: number; title: string; artist: string; before: string; after: string; added: string[]; matchedBy: string[]; fromArchiveOnly: string[] };
   type PlaylistSyncResult = {
     dryRun: boolean; month: string; scannedRows: number;
     written: number; unchanged: number; unmatchedAlbums: number; albumCount: number; artistCount: number;
-    fetched: { label: string; playlistId: string; trackCount: number }[];
+    archive: { added: number; updated: number; pruned: number; total: number; written: boolean; onlyTags: number };
+    webTokenBlocked: boolean;
+    fetched: { label: string; playlistId: string; trackCount: number; coverage: "full" | "capped"; total: number | null }[];
     failed: { label: string; playlistId: string; error: string }[];
     changes: PlaylistChange[]; changeCount: number;
   };
@@ -964,7 +966,7 @@ export default function AdminPage() {
             <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: SECTION.weekly.border }}>
               <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>プレイリスト収録タグ</h3>
               <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                登録したプレイリストの収録曲を取得して、Release Master の playlist 列に「どのプレイリストに入っているか」を書き込みます。取得できるのは新しい順に各100曲まで（およそ直近1か月分）。既定では当月の行だけを対象にします。既に書かれている名前は消さず追記していきます。
+                登録したプレイリストの収録曲を取得して、Release Master の playlist 列に「どのプレイリストに入っているか」を書き込みます。まず全曲取得を試し、使えないときは先頭100曲だけを読みます。この100曲は日付順ではないので、今日の新譜が101曲目以降に埋もれることがあります。そのため毎日0:30に自動クロールして観測をアーカイブに貯め、後日窓に入ってきた分も拾えるようにしています。既定では当月の行だけを対象にし、既に書かれている名前は消さず追記します。
               </p>
 
               <div className="rounded-xl p-3 mb-3 border" style={{ backgroundColor: "rgba(255,255,255,0.03)", borderColor: "var(--border-subtle)" }}>
@@ -1031,8 +1033,20 @@ export default function AdminPage() {
                     {playlistSyncResult.dryRun ? "Dry-run 完了" : "書き込み完了"} — 対象 {playlistSyncResult.month === "all" ? "全期間" : playlistSyncResult.month}（{playlistSyncResult.scannedRows}行）/ 索引 アルバム{playlistSyncResult.albumCount}枚・アーティスト{playlistSyncResult.artistCount}組 / 更新対象 {playlistSyncResult.changeCount}行 / 変更なし {playlistSyncResult.unchanged}行
                   </p>
                   <p style={{ color: "var(--text-secondary)" }}>
-                    {playlistSyncResult.fetched.map((f) => `${f.label} ${f.trackCount}曲`).join(" / ")}
+                    {playlistSyncResult.fetched
+                      .map((f) => `${f.label} ${f.trackCount}曲（${f.coverage === "full" ? `全${f.total ?? f.trackCount}曲` : "先頭100曲まで"}）`)
+                      .join(" / ")}
                   </p>
+                  <p className="mt-1" style={{ color: "var(--text-secondary)" }}>
+                    アーカイブ {playlistSyncResult.archive.total}件（新規 {playlistSyncResult.archive.added} / 更新 {playlistSyncResult.archive.updated} / 期限切れ {playlistSyncResult.archive.pruned}）
+                    {playlistSyncResult.archive.onlyTags > 0 && ` — うち ${playlistSyncResult.archive.onlyTags}件のタグは今回のクロールでは取れず、アーカイブから拾いました`}
+                    {playlistSyncResult.dryRun && "（dry-run のため未保存）"}
+                  </p>
+                  {playlistSyncResult.webTokenBlocked && (
+                    <p className="mt-1" style={{ color: "#fbbf24" }}>
+                      ⚠ 匿名トークンでの全曲取得が使えませんでした（先頭100曲のみ）。101曲目以降は日次クロールのアーカイブで埋まります
+                    </p>
+                  )}
                   {playlistSyncResult.failed.length > 0 && (
                     <div className="mt-2 flex flex-col gap-0.5">
                       <p className="font-semibold" style={{ color: "#fbbf24" }}>⚠ 取得できなかったプレイリスト</p>
@@ -1046,6 +1060,7 @@ export default function AdminPage() {
                       {playlistSyncResult.changes.map((c) => (
                         <span key={c.rowNum} style={{ color: "var(--text-secondary)" }}>
                           row{c.rowNum}: {c.artist} - {c.title} → {c.added.join(", ")} を追加{c.before ? `（既存: ${c.before}）` : ""}
+                          {c.fromArchiveOnly.length > 0 && <span style={{ color: "#a5b4fc" }}>［アーカイブ: {c.fromArchiveOnly.join(", ")}］</span>}
                         </span>
                       ))}
                       {playlistSyncResult.changeCount > playlistSyncResult.changes.length && (
