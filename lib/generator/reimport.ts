@@ -48,7 +48,9 @@ function selection(document: GeneratorDocument, albums: ReleaseMasterAlbum[]): S
     .map(value => ({ ...value, key: releaseMasterKey(value.album) }));
 }
 
-function selectedIndex(chosen: Selected[]) {
+type SelectedIndex = ReturnType<typeof selectedIndex>;
+
+function selectedIndex(chosen: Selected[], albums: ReleaseMasterAlbum[]) {
   const byUid = new Map<string, Selected>(), byNo = new Map<string, Selected>(), byName = new Map<string, Selected>();
   for (const value of chosen) {
     if (value.album.uid.trim() && !byUid.has(value.album.uid.trim())) byUid.set(value.album.uid.trim(), value);
@@ -56,22 +58,65 @@ function selectedIndex(chosen: Selected[]) {
     const name = `${normalized(value.album.title)}::${normalized(value.album.artist)}`;
     if (!byName.has(name)) byName.set(name, value);
   }
-  return { byUid, byNo, byName };
+  return {
+    byUid,
+    byNo,
+    byName,
+    knownUids: new Set(albums.map(album => album.uid.trim()).filter(Boolean)),
+    knownNos: new Set(albums.map(album => album.no.trim()).filter(Boolean)),
+    knownNames: new Set(albums.map(album => `${normalized(album.title)}::${normalized(album.artist)}`)),
+  };
 }
-function matchSelected(item: GeneratorItem, index: ReturnType<typeof selectedIndex>): Selected | null {
-  return (item.source.uid ? index.byUid.get(item.source.uid.trim()) : undefined)
-    || (item.source.no ? index.byNo.get(item.source.no.trim()) : undefined)
-    || index.byName.get(itemNameKey(item)) || null;
+
+function matchCandidate(item: GeneratorItem, index: SelectedIndex): { value: Selected; priority: number } | null {
+  const uid = item.source.uid?.trim();
+  if (uid) {
+    const matched = index.byUid.get(uid);
+    if (matched) return { value: matched, priority: 0 };
+    // The original UID still exists in Release Master, so the row is simply no
+    // longer selected. Falling through could connect it to a different same-name row.
+    if (index.knownUids.has(uid)) return null;
+  }
+  const name = itemNameKey(item);
+  const matchedByName = index.byName.get(name);
+  // No. can move when Release Master rows are rearranged. For rows without a
+  // stable UID, unchanged title + artist is therefore a stronger identity.
+  if (matchedByName) return { value: matchedByName, priority: 1 };
+  if (index.knownNames.has(name)) return null;
+  const no = item.source.no?.trim();
+  if (no) {
+    const matched = index.byNo.get(no);
+    if (matched) return { value: matched, priority: 2 };
+    if (index.knownNos.has(no)) return null;
+  }
+  return null;
+}
+
+function matchDocument(document: GeneratorDocument, index: SelectedIndex): Map<string, Selected> {
+  const items = new Map(document.items.map(item => [item.id, item]));
+  const ordered = document.pages.flatMap(page => page.itemIds).map(id => items.get(id)).filter((item): item is GeneratorItem => Boolean(item));
+  const candidates = new Map(ordered.filter(item => item.source.kind === "release-master").map(item => [item.id, matchCandidate(item, index)]));
+  const result = new Map<string, Selected>(), used = new Set<string>();
+  // Assign stronger identities first. This also makes the match one-to-one, so
+  // duplicate existing items cannot both claim the same selected Release Master row.
+  for (const priority of [0, 1, 2]) for (const item of ordered) {
+    if (result.has(item.id)) continue;
+    const candidate = candidates.get(item.id);
+    if (!candidate || candidate.priority !== priority || used.has(candidate.value.key)) continue;
+    result.set(item.id, candidate.value);
+    used.add(candidate.value.key);
+  }
+  return result;
 }
 
 export function collectReimportDiff(document: GeneratorDocument, albums: ReleaseMasterAlbum[]): ReimportDiff {
-  const chosen = selection(document, albums), index = selectedIndex(chosen);
-  const groups = groupOf(document), matchedKeys = new Set(document.items.map(item => matchSelected(item, index)?.key).filter(Boolean));
+  const chosen = selection(document, albums), index = selectedIndex(chosen, albums);
+  const matches = matchDocument(document, index), groups = groupOf(document), matchedKeys = new Set([...matches.values()].map(value => value.key));
   const added = chosen.filter(value => !matchedKeys.has(value.key)).map(value => ({ key: value.key, title: value.album.title, artist: value.album.artist, group: value.group }));
   const removed: ReimportRemoved[] = [], moved: ReimportMoved[] = [];
   for (const item of document.items) {
     const group = groups.get(item.id); if (!group || item.source.kind !== "release-master") continue;
-    const source = matchSelected(item, index);
+    const source = matches.get(item.id);
     if (!source) removed.push({ itemId: item.id, title: item.content.fields.title, artist: item.content.fields.artist, group, edited: edited(item, document.series) });
     else if (source.group !== group) moved.push({ itemId: item.id, title: item.content.fields.title, artist: item.content.fields.artist, from: group, to: source.group });
   }
@@ -80,11 +125,10 @@ export function collectReimportDiff(document: GeneratorDocument, albums: Release
   return { added, removed, moved, limits: { featureMax: document.series === "weekly" ? 5 : null, othersMax: document.series === "weekly" ? 60 : null, featureAfter, othersAfter } };
 }
 
-function orderedAlbums(ids: string[], items: Map<string, GeneratorItem>, selected: ReturnType<typeof selectedIndex>, group: ReimportGroup): string[] {
-  const byId = new Map(ids.map(id => [id, items.get(id)!]));
-  const albums = ids.map(id => matchSelected(byId.get(id)!, selected)?.album).filter((value): value is ReleaseMasterAlbum => Boolean(value));
+function orderedAlbums(ids: string[], matched: Map<string, Selected>, group: ReimportGroup): string[] {
+  const albums = ids.map(id => matched.get(id)?.album).filter((value): value is ReleaseMasterAlbum => Boolean(value));
   const ordered = group === "others" ? sortWeeklyOthers(albums) : sortAlbums(albums);
-  const byKey = new Map(ids.map(id => [matchSelected(byId.get(id)!, selected)?.key || "", id]));
+  const byKey = new Map(ids.map(id => [matched.get(id)?.key || "", id]));
   const sorted = ordered.map(album => byKey.get(releaseMasterKey(album))!).filter(Boolean);
   // 手で足した作品はRelease Masterの並び規則に無いので、消さずに区分末尾へ残す。
   return [...sorted, ...ids.filter(id => !sorted.includes(id))];
@@ -99,28 +143,30 @@ export function buildReimport({
 }: {
   document: GeneratorDocument; albums: ReleaseMasterAlbum[]; addKeys: string[]; removeItemIds: string[]; resort: boolean; importedAt?: string;
 }): { pages: GeneratorPage[]; addItems: GeneratorItem[]; removeItemIds: string[] } {
-  const diff = collectReimportDiff(document, albums), chosen = selection(document, albums), selected = selectedIndex(chosen);
+  const diff = collectReimportDiff(document, albums), chosen = selection(document, albums), selected = selectedIndex(chosen, albums);
+  const matches = matchDocument(document, selected);
   const validAdds = new Set(diff.added.map(value => value.key)), validRemovals = new Set(diff.removed.map(value => value.itemId));
   if (new Set(addKeys).size !== addKeys.length || new Set(removeItemIds).size !== removeItemIds.length
     || addKeys.some(key => !validAdds.has(key)) || removeItemIds.some(id => !validRemovals.has(id))) {
     throw new GeneratorError("INVALID_INPUT", 400, "取り込み対象が最新版と一致しません。差分を読み直してください。");
   }
-  const items = new Map(document.items.map(value => [value.id, value]));
   const group = groupOf(document), removed = new Set(removeItemIds);
   const ids: Record<ReimportGroup, string[]> = { adopted: [], listed: [], feature: [], others: [] };
   const incoming: Record<ReimportGroup, string[]> = { adopted: [], listed: [], feature: [], others: [] };
   for (const sourcePage of document.pages) for (const id of sourcePage.itemIds) {
     if (removed.has(id)) continue;
-    const item = items.get(id)!;
-    const current = group.get(id), target = matchSelected(item, selected)?.group || current;
+    const current = group.get(id), target = matches.get(id)?.group || current;
     if (target && target === current) ids[target].push(id);
     else if (target) incoming[target].push(id);
   }
   for (const kind of Object.keys(ids) as ReimportGroup[]) ids[kind].push(...incoming[kind]);
   const additions = chosen.filter(value => addKeys.includes(value.key));
   const addItems = additions.map(value => createGeneratorItem(value.album, document.series, importedAt));
-  for (let index = 0; index < additions.length; index++) ids[additions[index].group].push(addItems[index].id);
-  if (resort) for (const kind of Object.keys(ids) as ReimportGroup[]) ids[kind] = orderedAlbums(ids[kind], new Map([...items, ...addItems.map(value => [value.id, value] as const)]), selected, kind);
+  for (let index = 0; index < additions.length; index++) {
+    ids[additions[index].group].push(addItems[index].id);
+    matches.set(addItems[index].id, additions[index]);
+  }
+  if (resort) for (const kind of Object.keys(ids) as ReimportGroup[]) ids[kind] = orderedAlbums(ids[kind], matches, kind);
 
   const original = document.pages;
   if (document.series === "weekly") {

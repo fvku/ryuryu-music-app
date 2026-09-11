@@ -80,7 +80,7 @@ function nameKey(title: string, artist: string): string {
   return `${title.trim().toLowerCase()}::${artist.trim().toLowerCase()}`;
 }
 
-/** UID → No. → 作品名＋アーティストの順。同じ鍵が複数あればシート上で先に出る行を採る。 */
+/** UID → 作品名＋アーティスト → No.の順。同じ鍵が複数あればシート上で先に出る行を採る。 */
 export function indexAlbums(albums: ReleaseMasterAlbum[]) {
   const byUid = new Map<string, ReleaseMasterAlbum>();
   const byNo = new Map<string, ReleaseMasterAlbum>();
@@ -88,7 +88,8 @@ export function indexAlbums(albums: ReleaseMasterAlbum[]) {
   for (const album of albums) {
     const uid = album.uid.trim();
     if (uid && !byUid.has(uid)) byUid.set(uid, album);
-    if (album.no && !byNo.has(album.no)) byNo.set(album.no, album);
+    const no = album.no.trim();
+    if (no && !byNo.has(no)) byNo.set(no, album);
     const key = nameKey(album.title, album.artist);
     if (!byName.has(key)) byName.set(key, album);
   }
@@ -96,9 +97,9 @@ export function indexAlbums(albums: ReleaseMasterAlbum[]) {
 }
 
 export function matchAlbum(item: GeneratorItem, index: ReturnType<typeof indexAlbums>): ReleaseMasterAlbum | null {
-  return (item.source.uid ? index.byUid.get(item.source.uid) : undefined)
-    || (item.source.no ? index.byNo.get(item.source.no) : undefined)
+  return (item.source.uid ? index.byUid.get(item.source.uid.trim()) : undefined)
     || index.byName.get(nameKey(item.source.fields.title, item.source.fields.artist))
+    || (item.source.no ? index.byNo.get(item.source.no.trim()) : undefined)
     || null;
 }
 

@@ -90,6 +90,17 @@ describe("Release Masterの再取得", () => {
     expect(byName[0].changes.map(change => change.key)).toEqual(["genreMemo"]);
   });
 
+  it("UIDが無い場合、別作品に再利用されたNo.より作品名とアーティストを優先する", () => {
+    const source = album({ uid: "", no: "1", title: "Original" });
+    const document = monthly([source]);
+    const results = collect(document, [
+      { ...source, no: "2", genreMemo: "Correct row" },
+      album({ uid: "", no: "1", title: "Different album", genreMemo: "Wrong row" }),
+    ]);
+    expect(results[0].changes).toContainEqual({ key: "genreMemo", current: "Jazz", next: "Correct row", edited: false });
+    expect(results[0].changes).not.toContainEqual(expect.objectContaining({ next: "Wrong row" }));
+  });
+
   it("反映すると文字別の字間が新しい文字位置へ移る", () => {
     const document = monthly([album()]);
     const content: ItemContent = {

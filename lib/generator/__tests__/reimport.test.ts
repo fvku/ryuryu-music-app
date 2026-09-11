@@ -43,4 +43,31 @@ describe("generator re-import", () => {
     const diff = collectReimportDiff(document, [album({ uid: "new-uid", title: "Renamed", artist: "Renamed artist" })]);
     expect(diff.added).toHaveLength(0); expect(diff.removed).toHaveLength(0); expect(diff.moved).toHaveLength(0);
   });
+
+  it("does not match an existing unselected album to a different selected album that reused its No.", () => {
+    const original = album({ uid: "", no: "1", title: "Old title" });
+    const document = importWeeklyDocument([original], "2027-01-01");
+    const latest = [
+      album({ uid: "", no: "2", title: "Old title", weekAdoption: "" }),
+      album({ uid: "", no: "1", title: "Different album", weekAdoption: "採用" }),
+    ];
+    const diff = collectReimportDiff(document, latest);
+    expect(diff.added).toEqual([expect.objectContaining({ key: "no:1", title: "Different album" })]);
+    expect(diff.removed).toEqual([expect.objectContaining({ itemId: document.items[0].id, title: "Old title" })]);
+    expect(diff.moved).toHaveLength(0);
+  });
+
+  it("matches existing items to selected rows one-to-one and removes a duplicate", () => {
+    const original = album({ uid: "", no: "1" });
+    const document = importWeeklyDocument([original], "2027-01-01");
+    const duplicate = structuredClone(document.items[0]);
+    duplicate.id = crypto.randomUUID();
+    duplicate.source.no = "2";
+    document.items.push(duplicate);
+    document.pages.splice(-1, 0, { id: crypto.randomUUID(), kind: "feature", itemIds: [duplicate.id], bgColor: null });
+    const diff = collectReimportDiff(document, [album({ uid: "", no: "3" })]);
+    expect(diff.added).toHaveLength(0);
+    expect(diff.removed).toEqual([expect.objectContaining({ itemId: duplicate.id, title: "A" })]);
+    expect(diff.moved).toHaveLength(0);
+  });
 });

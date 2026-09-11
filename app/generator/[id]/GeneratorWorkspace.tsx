@@ -17,7 +17,7 @@ import { PageInspector, RestoreControl, StructureDialog, TargetStatus, ThemeInsp
 import ItemInspector from "./ItemInspector";
 import ReimportDialog from "./ReimportDialog";
 import SourceRefreshDialog from "./SourceRefreshDialog";
-import { applySourceRefresh, collectSourceRefresh, type RefreshFieldKey, type SourceRefreshItem } from "./source-refresh";
+import { applySourceRefresh, collectSourceRefresh, indexAlbums, matchAlbum, type RefreshFieldKey, type SourceRefreshItem } from "./source-refresh";
 import {
   cloneContent,
   derivePageBadges,
@@ -123,15 +123,11 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       .then(generatorJson<ReleaseMasterAlbum[]>)
       .then(albums => {
         if (cancelled) return;
-        const byUid = new Map(albums.filter(album => album.uid).map(album => [album.uid, album]));
-        const byNo = new Map(albums.map(album => [album.no, album]));
-        const byName = new Map(albums.map(album => [`${album.title.trim().toLowerCase()}::${album.artist.trim().toLowerCase()}`, album]));
+        const albumIndex = indexAlbums(albums);
         const durations = new Map<string, string>();
         for (const item of snapshot.document.items) {
           if (item.content.fields.duration.trim()) continue;
-          const album = (item.source.uid ? byUid.get(item.source.uid) : undefined)
-            || (item.source.no ? byNo.get(item.source.no) : undefined)
-            || byName.get(`${item.source.fields.title.trim().toLowerCase()}::${item.source.fields.artist.trim().toLowerCase()}`);
+          const album = matchAlbum(item, albumIndex);
           if (album?.duration.trim()) durations.set(item.id, album.duration.trim());
         }
         setDrafts(current => {
