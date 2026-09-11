@@ -271,13 +271,17 @@ async function writeArchive(entries: ArchiveEntry[]) {
       a.key.localeCompare(b.key)
   );
 
-  await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: `${SHEET_NAME}!A2:H` });
-  if (sorted.length === 0) return;
+  if (sorted.length === 0) {
+    await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: `${SHEET_NAME}!A2:H` });
+    return;
+  }
 
   // ヘッダー1行 + データ。余白を少し持たせて、毎回リサイズしないようにする
   await ensureRowCapacity(sheets, sorted.length + 1 + 1000);
 
-  // 1リクエストが大きくなりすぎないよう分割して書く
+  // 先に上書きし、余った末尾だけを最後に消す。
+  // 「全消し→書き直し」だと、途中で関数がタイムアウトした時に
+  // アーカイブが空のまま残ってしまう
   const CHUNK = 2000;
   for (let i = 0; i < sorted.length; i += CHUNK) {
     const chunk = sorted.slice(i, i + CHUNK);
@@ -293,6 +297,11 @@ async function writeArchive(entries: ArchiveEntry[]) {
       },
     });
   }
+
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: id,
+    range: `${SHEET_NAME}!A${sorted.length + 2}:H`,
+  });
 }
 
 /** 照合用の索引。キー → そのキーで当たるプレイリスト名と月 */
