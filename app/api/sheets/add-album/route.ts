@@ -98,7 +98,6 @@ export async function POST(request: NextRequest) {
 
     // 値のあるセルのみ個別に書き込む（既存の数式・値を上書きしない）
     const cellsToWrite: [number, string][] = [
-      [1, dateStr],
       [2, title],
       [3, artist],
       [timeColIdx, trackInfo],
@@ -110,16 +109,25 @@ export async function POST(request: NextRequest) {
     const uidColIdx = col[SHEET_COL.UID] ?? -1;
     if (uidColIdx >= 0) cellsToWrite.push([uidColIdx, generateAlbumUid()]);
 
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId,
-      requestBody: {
-        valueInputOption: "RAW",
-        data: cellsToWrite.map(([colIdx, value]) => ({
-          range: `'Release Master'!${indexToColumnLetter(colIdx)}${writeRow}`,
-          values: [[value]],
-        })),
-      },
-    });
+    await Promise.all([
+      // 日付はUSER_ENTEREDで書く（RAWだと文字列扱いになり、シート上で先頭に'が付く）
+      sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'Release Master'!${indexToColumnLetter(1)}${writeRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[dateStr]] },
+      }),
+      sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          valueInputOption: "RAW",
+          data: cellsToWrite.map(([colIdx, value]) => ({
+            range: `'Release Master'!${indexToColumnLetter(colIdx)}${writeRow}`,
+            values: [[value]],
+          })),
+        },
+      }),
+    ]);
 
     invalidateCache(CACHE_KEY.RELEASE_MASTER);
     return NextResponse.json({ ok: true, no });
