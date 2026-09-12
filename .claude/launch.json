@@ -25,6 +25,23 @@
       "port": 3457
     },
     {
+      "name": "generator-preview-3458",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "AUTH_TRUST_HOST=true",
+        "AUTH_URL=http://localhost:3458",
+        "NEXTAUTH_URL=http://localhost:3458",
+        "GENERATOR_LOCAL_PREVIEW_AUTH_BYPASS=true",
+        "GENERATOR_LOCAL_PREVIEW_ACTOR=kohei.fuku0926@gmail.com",
+        "npx",
+        "next",
+        "dev",
+        "--port",
+        "3458"
+      ],
+      "port": 3458
+    },
+    {
       "name": "generator-lab",
       "runtimeExecutable": "node",
       "runtimeArgs": [

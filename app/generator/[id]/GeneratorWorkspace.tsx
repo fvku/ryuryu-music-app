@@ -310,9 +310,14 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
         continue;
       }
       const status = result.error.status;
+      // 取り込み基準を載せた保存は、共有DBにsource更新のマイグレーションが未適用だと必ず失敗する。
+      // 503は接続不良と区別が付かないので、何を一緒に送ったかを言う。
+      const carriedSource = target.kind === "item" && Boolean(pendingSources[target.targetId]);
       const reason = result.error.code === "VERSION_CONFLICT" || result.error.code === "LOCK_LOST"
         ? "他の変更が先に保存されました。共有DBを再読込してください。"
-        : result.error.message;
+        : carriedSource
+          ? `${result.error.message} この作品は取り込み基準（カバー画像を含む）も一緒に送っています。共有DBがまだ対応していない場合もここで失敗します。`
+          : result.error.message;
       if (status === 401 || status === 403) { halted = { label: target.label, reason }; break; }
       if (status === undefined || status >= 500) { halted = { label: target.label, reason }; break; }
       failed.push(target.label);
@@ -757,6 +762,23 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                   )}
                 </span>
               ))}
+              {Object.keys(pendingSources).length > 0 && (
+                <span className="flex items-center gap-1">
+                  <Chip tone="info">取り込み基準 {Object.keys(pendingSources).length}件</Chip>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setPendingSources({});
+                      setStatus({ tone: "info", text: "取り込み基準の更新を取り消しました。文字情報の下書きは残っています。" });
+                    }}
+                    className="rounded border px-2 py-0.5 disabled:opacity-40"
+                    style={{ borderColor: "var(--border-subtle)" }}
+                  >
+                    取り込み基準の更新を取り消す
+                  </button>
+                </span>
+              )}
               <span style={{ color: "var(--text-secondary)" }}>{recoveryStatus}</span>
               {recoveryAvailable && (
                 <span className="flex gap-2">
