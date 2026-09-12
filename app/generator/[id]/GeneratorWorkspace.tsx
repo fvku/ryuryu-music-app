@@ -491,7 +491,13 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       await session.releaseMany(Object.values(locksRef.current).filter(entry => entry.kind === "structure" || removed.has(entry.targetId)));
       setDrafts({}); setPendingSources({}); setPageColors({}); setStructurePages(null); setEditingPageId(null);
       setPageIndex(current => Math.min(current, Math.max(0, next.document.pages.length - 1))); setSlotIndex(0);
-      setStatus({ tone: "success", text: `作品構成をversion ${next.version}として更新しました。既存作品の修正内容と背景設定は保持されています。` });
+      // 背景色は画像（ページ）に紐づく。作品が入れ替わった画像はページごと作り直されるので、色は残らない。
+      // 実文書（W37、2026-09-12）で確認済み。ここを「保持されています」と言い切らない。
+      setStatus({
+        tone: "success",
+        text: `作品構成をversion ${next.version}として更新しました。既存作品の修正内容はそのままです。`
+          + "作品が入れ替わった画像は作り直されるので、その画像の背景色は設定し直してください。",
+      });
       return next;
     } catch (error) {
       const apiError = error as GeneratorApiError;
