@@ -115,15 +115,20 @@ describe("generator database transaction contract (embedded PostgreSQL)", () => 
     await save(lock, content);
     const source = { ...doc.items[0].source, importedAt: "2026-09-12T00:00:00.000Z",
       coverUrl: "https://example.com/new-cover.jpg", fields: { ...doc.items[0].source.fields, title: "New source title" } };
-    const updated = await query<Snapshot>("select public.generator_save($1,$2,$3,$4) as result",
-      [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 2, content, source }]);
+    const sourceRequest = { ...lock, expectedVersion: 2, content, source }, sourceRequestId = randomUUID();
+    const updated = await query<Snapshot>("select public.generator_item_save($1,$2,$3,$4) as result",
+      [doc.id, actor, sourceRequestId, sourceRequest]);
     const updatedItem = updated.document.items.find(item => item.id === lock.targetId)!;
     expect(updatedItem.source).toEqual(source);
     expect(updatedItem.content.jacketAssetId).toBe(asset);
     expect(updated.itemVersions[lock.targetId]).toBe(3);
-    await expect(query("select public.generator_save($1,$2,$3,$4) as result",
+    expect(await query<Snapshot>("select public.generator_item_save($1,$2,$3,$4) as result",
+      [doc.id, actor, sourceRequestId, sourceRequest])).toEqual(updated);
+    await expect(query("select public.generator_item_save($1,$2,$3,$4) as result",
+      [doc.id, actor, sourceRequestId, { ...sourceRequest, source: { ...source, coverUrl: null } }])).rejects.toThrow("REQUEST_CONFLICT");
+    await expect(query("select public.generator_item_save($1,$2,$3,$4) as result",
       [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 3, content, source: { ...source, uid: "rm-2" } }])).rejects.toThrow("INVALID_INPUT");
-    const restored = await query<Snapshot>("select public.generator_save($1,$2,$3,$4) as result",
+    const restored = await query<Snapshot>("select public.generator_item_save($1,$2,$3,$4) as result",
       [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 3, restoreVersion: 2 }]);
     const restoredItem = restored.document.items.find(item => item.id === lock.targetId)!;
     expect(restoredItem.source).toEqual(doc.items[0].source);

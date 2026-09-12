@@ -1,7 +1,7 @@
 import "server-only";
 import { GeneratorError } from "./errors";
 
-export type RpcName = "generator_create" | "generator_read" | "generator_lock" | "generator_save" | "generator_structure_save" | "generator_reimport" | "generator_history" | "generator_asset_prepare" | "generator_asset_ready" | "generator_asset_read";
+export type RpcName = "generator_create" | "generator_read" | "generator_lock" | "generator_save" | "generator_item_save" | "generator_structure_save" | "generator_reimport" | "generator_history" | "generator_asset_prepare" | "generator_asset_ready" | "generator_asset_read";
 const conflicts = new Set(["DOCUMENT_EXISTS", "LOCK_CONFLICT", "LOCK_LOST", "VERSION_CONFLICT", "REQUEST_CONFLICT", "ASSET_NOT_READY"]);
 
 export async function generatorRpc(name: RpcName, args: Record<string, unknown>): Promise<unknown> {

@@ -88,9 +88,17 @@ describe("authenticated generator routes", () => {
     const result = await PATCH(request("PATCH", command), { params: Promise.resolve({ id: doc.id }) });
     expect(result.status).toBe(200);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("generator_item_save");
     expect(body.p_actor).toBe(email); expect(body.p_change.tokenHash).toHaveLength(64);
     expect(body.p_change.source).toEqual(source);
     expect(JSON.stringify(body)).not.toContain(command.token);
+    const contentOnly = { ...command, requestId: randomUUID(), source: undefined };
+    expect((await PATCH(request("PATCH", contentOnly), { params: Promise.resolve({ id: doc.id }) })).status).toBe(200);
+    expect(String(fetchMock.mock.calls.at(-1)![0])).toContain("generator_save");
+    const restore = { requestId: randomUUID(), kind: "item", targetId: doc.items[0].id,
+      clientId: command.clientId, token: command.token, generation: 1, expectedVersion: 2, restoreVersion: 1 };
+    expect((await PATCH(request("PATCH", restore), { params: Promise.resolve({ id: doc.id }) })).status).toBe(200);
+    expect(String(fetchMock.mock.calls.at(-1)![0])).toContain("generator_item_save");
     expect((await PATCH(request("PATCH", { ...command, actor: "spoofed" }), context())).status).toBe(400);
     expect((await PATCH(request("PATCH", { document: doc }), context())).status).toBe(400);
   });

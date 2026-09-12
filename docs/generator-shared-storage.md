@@ -46,7 +46,7 @@
 | POST `/:id/assets` | ロックを伴う画像検証・非公開Storage保存・ready確定 |
 | GET `/:id/assets/:assetId` | 同じ文書に属するready画像だけを認可取得 |
 
-PATCHには`requestId, kind, targetId, clientId, token, generation, expectedVersion`と、`content`または`restoreVersion`の片方を送る。`kind`は`item / page / theme`。item保存に限り、Release Masterから再取得した完全な`source`を`content`と一緒に任意指定できる。`source.kind`は`release-master`だけを更新でき、手動作品のsourceは変更できない。source更新とcontent更新は同じitem version・履歴へ原子的に確定し、`content.jacketAssetId`をsource更新だけで消さない。item復元ではsourceとcontentを同じ対象として戻す。ページ内容は`{bgColor}`のみ。themeとstructureの対象IDには文書IDを使う。ロックAPIは`structure`も受け付け、延長・解放では`generation`が必須。[ルート実装](../app/api/generator/documents/)、[操作検証](../lib/generator/commands.ts)、[source更新SQL](../supabase/migrations/202609120001_generator_item_source.sql)
+PATCHには`requestId, kind, targetId, clientId, token, generation, expectedVersion`と、`content`または`restoreVersion`の片方を送る。`kind`は`item / page / theme`。item保存に限り、Release Masterから再取得した完全な`source`を`content`と一緒に任意指定できる。`source.kind`は`release-master`だけを更新でき、手動作品のsourceは変更できない。source更新とcontent更新は同じitem version・履歴へ原子的に確定し、`content.jacketAssetId`をsource更新だけで消さない。item復元ではsourceとcontentを同じ対象として戻す。sourceを含む保存とitem復元は新しい`generator_item_save` RPCを使い、未適用DBがsourceを無視してcontentだけ確定することを防ぐ。ページ内容は`{bgColor}`のみ。themeとstructureの対象IDには文書IDを使う。ロックAPIは`structure`も受け付け、延長・解放では`generation`が必須。[ルート実装](../app/api/generator/documents/)、[操作検証](../lib/generator/commands.ts)、[source更新SQL](../supabase/migrations/202609120001_generator_item_source.sql)
 
 `202609120001_generator_item_source.sql`はローカル実装・PGlite検証用に追加した段階で、共有Supabaseには未適用。適用済みの`202609110001_generator_reimport.sql`以前は変更していない。
 

@@ -13,6 +13,11 @@ export function GET(request: Request, context: Context) {
 export function PATCH(request: Request, context: Context) {
   return generatorHandler(request, async (actor, body) => {
     const command = parseChange(body);
-    return generatorRpc(command.change.kind === "structure" ? "generator_structure_save" : "generator_save", { p_id: uuid((await context.params).id), p_actor: actor, p_request_id: command.requestId, p_change: command.change });
+    const rpc = command.change.kind === "structure"
+      ? "generator_structure_save"
+      : command.change.kind === "item" && ("source" in command.change || "restoreVersion" in command.change)
+        ? "generator_item_save"
+        : "generator_save";
+    return generatorRpc(rpc, { p_id: uuid((await context.params).id), p_actor: actor, p_request_id: command.requestId, p_change: command.change });
   }, true);
 }

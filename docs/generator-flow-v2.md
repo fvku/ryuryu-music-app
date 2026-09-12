@@ -261,6 +261,7 @@ Release Master由来の完全な `source` を任意で受け取る。両者を�
 画像の保存時に確定する §4-3 の順序を維持できる。`reimport`で先にsourceだけを確定する方式にはしない。
 
 - `source.kind` は `release-master` だけを更新可能とし、全項目を既存の文書型で検証する。手動作品のsourceは変更しない。
+- sourceを含むPATCHだけは新しい`generator_item_save` RPCへ送る。未適用DBがsourceを無視してcontentだけ保存することを防ぐ。
 - DBでも、同じ文書内の空でないUID重複を拒否する。
 - `content.jacketAssetId` はsourceと別に保存するため、カバーURL更新では消えない。
 - itemの過去版復元は、以後 `content` と `source` を同じ対象として復元する。
