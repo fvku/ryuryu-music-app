@@ -7,8 +7,8 @@ import type { ReleaseMasterAlbum } from "@/lib/types";
  *
  * 契約:
  * - 共有DBは触らない。結果はローカル下書きへ入れ、利用者が作品ごとの「保存」でversionにする。
- * - `item.source.fields` は取り込み時の原稿として残す。保存APIが受け取るのは `content` だけなので、
- *   ここでも `content.fields` しか書き換えない（差分の基準としてsourceを読むだけ）。
+ * - このヘルパーは `content.fields` の下書きだけを作る。v2の呼び出し側は、対応する最新の
+ *   `item.source` も同じitem PATCHへ渡し、画像単位の保存時に取り込み基準を進める。
  * - 比べるのはその画像に実際に描かれる項目だけ。見えない項目まで書き換えると、
  *   気づけない未保存が増えてPNGの書き出しが止まる。
  */

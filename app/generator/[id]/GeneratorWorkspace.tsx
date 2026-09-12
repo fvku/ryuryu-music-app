@@ -16,8 +16,7 @@ import { GeneratorRuntimeProvider } from "../runtime";
 import { Chip, Panel, PrimaryButton, SecondaryButton, SegmentedControl, SelectInput, StatusBanner, useMediaQuery, type SegmentOption } from "../ui";
 import { PageInspector, RestoreControl, StructureDialog, type TargetState } from "./Inspectors";
 import ItemInspector from "./ItemInspector";
-import ReimportDialog from "./ReimportDialog";
-import SourceRefreshDialog from "./SourceRefreshDialog";
+import SourceUpdateDialog, { type SourceUpdate } from "./SourceUpdateDialog";
 import { clearRecovery, hasRecovery, readRecovery, writeRecovery } from "./recovery";
 import { useGeneratorSession } from "./session";
 import { applySourceRefresh, collectSourceRefresh, indexAlbums, matchAlbum, type RefreshFieldKey, type SourceRefreshItem } from "./source-refresh";
@@ -64,8 +63,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const [drafts, setDrafts] = useState<Record<string, ItemContent>>({});
   const [pageColors, setPageColors] = useState<Record<string, string>>({});
   const [structurePages, setStructurePages] = useState<GeneratorDocument["pages"] | null>(null);
-  const [refreshResults, setRefreshResults] = useState<SourceRefreshItem[] | null>(null);
-  const [reimportDiff, setReimportDiff] = useState<ReimportDiff | null>(null);
+  /** Release Masterを読み直した結果。作品の増減と文字情報を1つのダイアログで確認する。 */
+  const [sourceUpdate, setSourceUpdate] = useState<{ diff: ReimportDiff; refresh: SourceRefreshItem[] } | null>(null);
   const [diagnostics, setDiagnostics] = useState<PreviewDiagnostics | null>(null);
   const [selectionState, setSelectionState] = useState<FieldSelection | null>(null);
   const [recoveryAvailable, setRecoveryAvailable] = useState(false);
@@ -186,8 +185,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       setDrafts({});
       setPageColors({});
       setStructurePages(null);
-      setRefreshResults(null);
-      setReimportDiff(null);
+      setSourceUpdate(null);
       pendingSaves.clear();
       setStatus({ tone: "success", text: "最新版を読み込みました。編集中だった内容は破棄されています。" });
     }
@@ -272,32 +270,50 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     if (!targets.length) return;
     setBusy(true);
     setStatus({ tone: "info", text: `共有DBへ保存しています…（${targets.length}件）` });
-    const saved: string[] = [];
+    const saved: string[] = [], failed: string[] = [];
+    // 対象別の競合はその対象だけの失敗なので、残りは続ける。
+    // 認証・認可の失敗は残りも通らないので中止し、通信断・5xxは確定済みか不明なのでそこで列を止める。
+    let halted: { label: string; reason: string } | null = null;
     for (const target of targets) {
       const content = target.kind === "item" ? drafts[target.targetId] : { bgColor: pageColors[page.id] };
       const result = await session.saveTarget({ kind: target.kind, targetId: target.targetId, content });
-      if (!result.ok) {
-        setBusy(false);
-        const remaining = targets.length - saved.length;
-        const reason = result.error.code === "VERSION_CONFLICT" || result.error.code === "LOCK_LOST"
-          ? "他の変更が先に保存されました。最新版を再読込してから、もう一度編集してください。"
-          : result.error.message;
-        setStatus({
-          tone: "error",
-          text: saved.length
-            ? `${saved.join("・")}は保存しました。${target.label}で止まりました（残り${remaining}件）: ${reason}`
-            : `${target.label}を保存できませんでした: ${reason}`,
-        });
-        return;
+      if (result.ok) {
+        saved.push(target.label);
+        if (target.kind === "item") {
+          const next = result.snapshot.document.items.find(item => item.id === target.targetId);
+          if (next) setDrafts(current => ({ ...current, [target.targetId]: cloneContent(next.content) }));
+        } else {
+          const next = result.snapshot.document.pages.find(value => value.id === target.targetId);
+          if (next) setPageColors(current => ({ ...current, [target.targetId]: next.bgColor || FALLBACK_PAGE_COLOR }));
+        }
+        continue;
       }
-      saved.push(target.label);
-      if (target.kind === "item") {
-        const next = result.snapshot.document.items.find(item => item.id === target.targetId);
-        if (next) setDrafts(current => ({ ...current, [target.targetId]: cloneContent(next.content) }));
-      } else {
-        const next = result.snapshot.document.pages.find(value => value.id === target.targetId);
-        if (next) setPageColors(current => ({ ...current, [target.targetId]: next.bgColor || FALLBACK_PAGE_COLOR }));
-      }
+      const status = result.error.status;
+      const reason = result.error.code === "VERSION_CONFLICT" || result.error.code === "LOCK_LOST"
+        ? "他の変更が先に保存されました。共有DBを再読込してください。"
+        : result.error.message;
+      if (status === 401 || status === 403) { halted = { label: target.label, reason }; break; }
+      if (status === undefined || status >= 500) { halted = { label: target.label, reason }; break; }
+      failed.push(target.label);
+    }
+    setBusy(false);
+    if (halted) {
+      setStatus({
+        tone: "error",
+        text: saved.length
+          ? `${saved.join("・")}は保存しました。${halted.label}で止まりました: ${halted.reason}`
+          : `${halted.label}を保存できませんでした: ${halted.reason}`,
+      });
+      return;
+    }
+    if (failed.length) {
+      setStatus({
+        tone: "error",
+        text: saved.length
+          ? `${saved.join("・")}は保存しました。${failed.join("・")}は保存できていません。`
+          : `${failed.join("・")}を保存できませんでした。`,
+      });
+      return;
     }
     setBusy(false);
     setStatus({ tone: "success", text: `この画像を保存しました（${saved.join("・")}）。` });
@@ -334,64 +350,67 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   }
 
   /**
-   * 取り込み後にRelease Master側で直された文字情報を読み直す。
-   * 共有DBは触らず、選ばれた項目だけをローカル下書きへ入れる（確定は画像ごとの「保存」）。
+   * Release Masterをもう一度読み、作品の増減と文字情報の差分をまとめて確認する。
+   * 作品が消えると下書きの行き先が無くなるので、未保存があるときは開かない。
    */
-  async function refreshFromSource() {
-    setBusy(true);
-    setStatus({ tone: "info", text: "Release Masterの最新の文字情報を読み込んでいます…" });
-    try {
-      const albums = await generatorJson<ReleaseMasterAlbum[]>(await fetch("/api/release-master", { cache: "no-store" }));
-      const results = collectSourceRefresh({ document: snapshot.document, drafts, albums });
-      const total = results.reduce((count, item) => count + item.changes.length, 0);
-      const missing = results.filter(item => !item.matched).length;
-      setRefreshResults(results);
-      setStatus(total
-        ? { tone: "warn", text: `Release Masterと違う項目が${total}件あります。取り込む項目を選んでください。` }
-        : missing
-          ? { tone: "warn", text: `差分はありませんが、Release Masterで照合できない作品が${missing}件あります。` }
-          : { tone: "success", text: "Release Masterと同じ内容です。取り込む差分はありません。" });
-    } catch (error) {
-      setStatus({ tone: "error", text: `Release Masterを読み込めませんでした: ${(error as Error).message}` });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /** Release Masterの採用状態を読み直し、作品集合の変更案をstructureロック下で確認する。 */
-  async function openReimport() {
+  async function openSourceUpdate() {
     if (dirty) {
-      setStatus({ tone: "warn", text: "未保存の下書きがあります。先に保存または最新版の再読込を行ってから、取り込み直してください。" });
+      setStatus({ tone: "warn", text: "未保存の下書きがあります。先に保存するか、共有DBを再読込してから更新してください。" });
       return;
     }
     const lock = await session.acquire("structure", documentId);
     if (!lock) return;
     setBusy(true);
-    setStatus({ tone: "info", text: "Release Masterから作品の増減と区分を確認しています…" });
+    setStatus({ tone: "info", text: "Release Masterを読み直しています…" });
     try {
-      const diff = await generatorJson<ReimportDiff>(await fetch(`/api/generator/documents/${documentId}/reimport`, { cache: "no-store" }));
-      setReimportDiff(diff);
-      const count = diff.added.length + diff.removed.length + diff.moved.length;
-      setStatus(count
-        ? { tone: "warn", text: `作品の追加・削除・区分移動が${count}件あります。実行内容を確認してください。` }
-        : { tone: "success", text: "作品の増減・区分移動はありません。" });
+      const [diff, albums] = await Promise.all([
+        generatorJson<ReimportDiff>(await fetch(`/api/generator/documents/${documentId}/reimport`, { cache: "no-store" })),
+        generatorJson<ReleaseMasterAlbum[]>(await fetch("/api/release-master", { cache: "no-store" })),
+      ]);
+      const refresh = collectSourceRefresh({ document: snapshot.document, drafts, albums });
+      setSourceUpdate({ diff, refresh });
+      const structureCount = diff.added.length + diff.removed.length + diff.moved.length;
+      const fieldCount = refresh.reduce((count, item) => count + item.changes.length, 0);
+      setStatus(structureCount || fieldCount
+        ? { tone: "warn", text: `作品の増減・区分が${structureCount}件、文字情報が${fieldCount}件あります。反映する内容を選んでください。` }
+        : { tone: "success", text: "Release Masterと同じ内容です。更新するものはありません。" });
     } catch (error) {
-      setStatus({ tone: "error", text: `取り込み差分を確認できませんでした: ${(error as Error).message}` });
+      setStatus({ tone: "error", text: `Release Masterを読み直せませんでした: ${(error as Error).message}` });
       await session.release("structure", documentId);
     } finally {
       setBusy(false);
     }
   }
 
-  async function closeReimport() {
-    setReimportDiff(null);
+  async function closeSourceUpdate() {
+    setSourceUpdate(null);
     await session.release("structure", documentId);
   }
 
-  async function applyReimport(value: { addKeys: string[]; removeItemIds: string[]; resort: boolean }) {
+  /**
+   * 更新を実行する。作品の増減を新しいversionとして確定してから、文字情報を下書きへ入れる。
+   * 逆順にはできない。下書きがあると取り込み直しがDB側で止まるため。
+   */
+  async function applySourceUpdate(value: SourceUpdate) {
+    const structureChanged = value.addKeys.length > 0 || value.removeItemIds.length > 0 || value.resort
+      || (sourceUpdate?.diff.moved.length || 0) > 0;
+    let document = snapshot.document;
+    if (structureChanged) {
+      const next = await runReimport(value);
+      if (!next) return;
+      document = next.document;
+    } else {
+      await session.release("structure", documentId);
+    }
+    setSourceUpdate(null);
+    applyFieldUpdates(document, value.fields);
+  }
+
+  /** 作品の増減だけを共有DBへ確定する。成功したスナップショットを返す。 */
+  async function runReimport(value: SourceUpdate): Promise<GeneratorSnapshot | null> {
     const lock = activeLocks[keyOf("structure", documentId)];
-    if (!lock) { setStatus({ tone: "warn", text: "取り込み直しの編集ロックを取得し直してください。" }); return; }
-    if (dirty) { setStatus({ tone: "warn", text: "未保存の下書きがあるため、取り込み直しを実行できません。" }); return; }
+    if (!lock) { setStatus({ tone: "warn", text: "更新の編集ロックを取得し直してください。" }); return null; }
+    if (dirty) { setStatus({ tone: "warn", text: "未保存の下書きがあるため、更新を実行できません。" }); return null; }
     // 自分が削除対象の作品を開いていた場合、その作品ロックだけを先に返す。
     const doomed = Object.values(locksRef.current).filter(entry => entry.kind === "item" && value.removeItemIds.includes(entry.targetId));
     if (doomed.length) await session.releaseMany(doomed);
@@ -422,44 +441,50 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       durationHydratedDocument.current = null;
       setSnapshot(snapshotWithLocks(next, retainedLocks));
       await session.releaseMany(Object.values(locksRef.current).filter(entry => entry.kind === "structure" || removed.has(entry.targetId)));
-      setDrafts({}); setPageColors({}); setStructurePages(null); setRefreshResults(null); setReimportDiff(null); setEditingPageId(null);
+      setDrafts({}); setPageColors({}); setStructurePages(null); setEditingPageId(null);
       setPageIndex(current => Math.min(current, Math.max(0, next.document.pages.length - 1))); setSlotIndex(0);
-      setStatus({ tone: "success", text: `Release Masterの作品構成をversion ${next.version}として取り込み直しました。既存作品の修正内容と背景設定は保持されています。` });
+      setStatus({ tone: "success", text: `作品構成をversion ${next.version}として更新しました。既存作品の修正内容と背景設定は保持されています。` });
+      return next;
     } catch (error) {
       const apiError = error as GeneratorApiError;
       if (apiError.status !== undefined && apiError.status < 500) pendingSaves.delete(requestKey);
       setStatus(apiError.code === "VERSION_CONFLICT" || apiError.code === "LOCK_LOST"
-        ? { tone: "error", text: "確認中に別の変更が保存されました。最新版を再読込して、差分を確認し直してください。" }
+        ? { tone: "error", text: "確認中に別の変更が保存されました。共有DBを再読込して、差分を確認し直してください。" }
         : { tone: "error", text: apiError.message });
+      return null;
     } finally {
       setBusy(false);
     }
   }
 
-  function applyRefresh(selected: { itemId: string; key: RefreshFieldKey; next: string }[]) {
-    if (!selected.length) return;
+  /** 文字情報を下書きへ入れる。作品の増減で消えた作品ぶんは黙って落とす。 */
+  function applyFieldUpdates(document: GeneratorDocument, selected: SourceUpdate["fields"]) {
+    const alive = new Map(document.items.map(item => [item.id, item]));
     const grouped = new Map<string, { key: RefreshFieldKey; next: string }[]>();
     for (const value of selected) {
+      if (!alive.has(value.itemId)) continue;
       const changes = grouped.get(value.itemId) || [];
       changes.push({ key: value.key, next: value.next });
       grouped.set(value.itemId, changes);
     }
+    if (!grouped.size) return;
     setDrafts(current => {
       const next = { ...current };
       for (const [itemId, changes] of grouped) {
-        const base = current[itemId] || items.get(itemId)?.content;
+        const base = current[itemId] || alive.get(itemId)?.content;
         if (!base) continue;
         next[itemId] = applySourceRefresh(cloneContent(base), changes);
       }
       return next;
     });
-    const pageNumbers = [...new Set((refreshResults || [])
-      .filter(item => grouped.has(item.itemId))
-      .map(item => item.pageNo))].sort((a, b) => a - b);
-    setRefreshResults(null);
+    const pageNumbers = [...new Set(document.pages
+      .map((page, index) => ({ page, no: document.series === "weekly" ? index : index + 2 }))
+      .filter(({ page }) => page.itemIds.some(id => grouped.has(id)))
+      .map(({ no }) => no))].sort((left, right) => left - right);
+    const count = [...grouped.values()].reduce((sum, changes) => sum + changes.length, 0);
     setStatus({
       tone: "warn",
-      text: `Release Masterの内容を${selected.length}件、下書きへ入れました。画像 ${pageNumbers.join("・")} を開き、「編集」してから「保存」でversionに確定してください。`,
+      text: `文字情報を${count}件、下書きへ入れました。画像 ${pageNumbers.join("・")} を開き、「この画像を編集」から「保存」でversionに確定してください。`,
     });
   }
 
@@ -638,10 +663,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
               変更履歴
             </Link>
             <SecondaryButton disabled={busy} onClick={() => void reload()} className="min-h-9 px-3 text-xs">共有DBを再読込</SecondaryButton>
-            {/* 共有DBの再読込とは別物。Release Master側で直した文字情報だけを下書きへ入れる。 */}
-            <SecondaryButton disabled={busy} onClick={() => void refreshFromSource()} className="min-h-9 px-3 text-xs">Release Masterから再取得</SecondaryButton>
-            {/* 作品数・採用区分を共同編集の新しいversionとして変える。未保存下書きがある時はopenReimportで止める。 */}
-            <SecondaryButton disabled={busy} onClick={() => void openReimport()} className="min-h-9 px-3 text-xs">Release Masterから取り込み直す</SecondaryButton>
+            {/* Release Master側の変更は利用者から見れば1つの出来事なので、増減と文字情報を1つの導線にまとめる。 */}
+            <SecondaryButton disabled={busy} onClick={() => void openSourceUpdate()} className="min-h-9 px-3 text-xs">Release Masterから更新</SecondaryButton>
             {/* 全ページのPNGは文書単位の操作なので、ページごとの出力ボタンとは分けてここに置く。 */}
             <BulkExportButton document={previewDocument} pages={previewPages} canExport={!dirty} onStatus={setStatus} />
           </div>
@@ -657,13 +680,14 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           />
         )}
 
-        {reimportDiff && (
-          <ReimportDialog
+        {sourceUpdate && (
+          <SourceUpdateDialog
             document={snapshot.document}
-            diff={reimportDiff}
+            diff={sourceUpdate.diff}
+            refresh={sourceUpdate.refresh}
             disabled={busy}
-            onApply={value => void applyReimport(value)}
-            onClose={() => void closeReimport()}
+            onApply={value => void applySourceUpdate(value)}
+            onClose={() => void closeSourceUpdate()}
           />
         )}
 
@@ -844,15 +868,6 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             </div>
           </Panel>
         </div>
-
-        {refreshResults && (
-          <SourceRefreshDialog
-            results={refreshResults}
-            disabled={busy}
-            onApply={applyRefresh}
-            onClose={() => setRefreshResults(null)}
-          />
-        )}
 
         {reorderOpen && (
           <StructureDialog

@@ -107,6 +107,7 @@ export function RestoreControl({ state, compact = false }: { state: TargetState;
       </summary>
       <p className="mt-2 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>
         選んだ版のこの対象だけを、新しいversionとして書き戻します。●はその版でこの対象が変更されたことを示します。履歴は消えません。
+        {state.kind === "structure" && " 並び順は、最後に作品を取り込んだ時点以降の版へ戻せます。作品の増減より前の版は、当時と作品数が異なるため選べません。過去の作品構成へ戻す場合は「Release Masterから更新」で内容を確認してください。"}
       </p>
       <div className="mt-2 flex gap-2">
         <SelectInput value={version} onChange={event => setVersion(event.target.value)} className="min-w-0 flex-1">
