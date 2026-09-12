@@ -24,7 +24,11 @@ const seriesLabels: Record<GeneratorDocument["series"], string> = {
  * 画像に属さない設定なので、画像を選んで直す編集画面から切り離してある。
  */
 export default function ThemeWorkspace({ initialSnapshot, actor }: { initialSnapshot: GeneratorSnapshot; actor: string }) {
-  const session = useGeneratorSession({ initialSnapshot, actor });
+  const session = useGeneratorSession({
+    initialSnapshot,
+    actor,
+    initialStatus: "波・合成背景・PNGサイズは企画に1つです。「共通設定を編集」から直し、保存すると全画像に効きます。",
+  });
   const { snapshot, documentId, busy, status, setStatus, activeLocks, history } = session;
   const [themeDraft, setThemeDraft] = useState(snapshot.document.theme);
   const [pageIndex, setPageIndex] = useState(0);

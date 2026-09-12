@@ -28,14 +28,19 @@ function matchesLock(current: ActiveLock | undefined, expected: ActiveLock): boo
  * 保存・ロックの不変条件は従来どおり。`requestId`は結果不明の再送でだけ再利用し、
  * `expectedVersion`は常に最新のスナップショットから取る（連続保存で古い版を送らないため）。
  */
-export function useGeneratorSession({ initialSnapshot, actor }: { initialSnapshot: GeneratorSnapshot; actor: string }) {
+export function useGeneratorSession({ initialSnapshot, actor, initialStatus }: {
+  initialSnapshot: GeneratorSnapshot;
+  actor: string;
+  /** 画面ごとの最初の案内。編集画面と共通設定画面で出すことが違う。 */
+  initialStatus?: string;
+}) {
   const [snapshot, setSnapshotState] = useState(initialSnapshot);
   const [activeLocks, setActiveLocks] = useState<Record<string, ActiveLock>>({});
   const [history, setHistory] = useState<GeneratorHistoryEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<Status>({
     tone: "info",
-    text: "画像を選び、「この画像を編集」から直します。保存はその画像ごとに新しいversionを作ります。",
+    text: initialStatus || "画像を選び、「この画像を編集」から直します。保存はその画像ごとに新しいversionを作ります。",
   });
   const [clientId] = useState(() => crypto.randomUUID());
   const snapshotRef = useRef(snapshot), locksRef = useRef(activeLocks);
@@ -84,14 +89,18 @@ export function useGeneratorSession({ initialSnapshot, actor }: { initialSnapsho
             return { ...current, [key]: { ...current[key], expiresAt: result.expiresAt } };
           }))
           .catch(() => {
+            // 解放・引き継ぎ後に届いた古い応答では何も言わない。
+            // 実際に持っていたロックを失ったときだけ知らせる。
+            let lost = false;
             setLocks(current => {
               const key = keyOf(lock.kind, lock.targetId);
               if (!matchesLock(current[key], lock)) return current;
+              lost = true;
               const next = { ...current };
               delete next[key];
               return next;
             });
-            setStatus({ tone: "error", text: "編集ロックを失いました。最新版を再読込してから、もう一度編集を開始してください。" });
+            if (lost) setStatus({ tone: "error", text: "編集ロックを失いました。共有DBを再読込してから、もう一度編集を開始してください。" });
           });
       }
     }, 30000);
