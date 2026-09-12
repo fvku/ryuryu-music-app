@@ -380,10 +380,6 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
    * 作品が消えると下書きの行き先が無くなるので、未保存があるときは開かない。
    */
   async function openSourceUpdate() {
-    if (dirty) {
-      setStatus({ tone: "warn", text: "未保存の下書きがあります。先に保存するか、「最新版に更新」してから読み直してください。" });
-      return;
-    }
     const lock = await session.acquire("structure", documentId);
     if (!lock) return;
     setBusy(true);
@@ -458,7 +454,6 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   async function runReimport(value: SourceUpdate): Promise<GeneratorSnapshot | null> {
     const lock = activeLocks[keyOf("structure", documentId)];
     if (!lock) { setStatus({ tone: "warn", text: "更新の編集ロックを取得し直してください。" }); return null; }
-    if (dirty) { setStatus({ tone: "warn", text: "未保存の下書きがあるため、更新を実行できません。" }); return null; }
     // 自分が削除対象の作品を開いていた場合、その作品ロックだけを先に返す。
     const doomed = Object.values(locksRef.current).filter(entry => entry.kind === "item" && value.removeItemIds.includes(entry.targetId));
     if (doomed.length) await session.releaseMany(doomed);
@@ -489,14 +484,25 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       durationHydratedDocument.current = null;
       setSnapshot(snapshotWithLocks(next, retainedLocks));
       await session.releaseMany(Object.values(locksRef.current).filter(entry => entry.kind === "structure" || removed.has(entry.targetId)));
-      setDrafts({}); setPendingSources({}); setPageColors({}); setStructurePages(null); setEditingPageId(null);
+      // 既存作品の内容は取り込み直しで変わらないので、生き残る作品の下書きはそのまま使える。
+      // 消えた作品・消えた画像のぶんだけ落とす（行き先が無くなるため）。
+      const survivingItems = new Set(next.document.items.map(item => item.id));
+      const survivingPages = new Set(next.document.pages.map(value => value.id));
+      const keep = <T,>(current: Record<string, T>, alive: ReadonlySet<string>) =>
+        Object.fromEntries(Object.entries(current).filter(([id]) => alive.has(id)));
+      const discarded = Object.keys(drafts).filter(id => itemDirty(id) && !survivingItems.has(id)).length;
+      setDrafts(current => keep(current, survivingItems));
+      setPendingSources(current => keep(current, survivingItems));
+      setPageColors(current => keep(current, survivingPages));
+      setStructurePages(null); setEditingPageId(null);
       setPageIndex(current => Math.min(current, Math.max(0, next.document.pages.length - 1))); setSlotIndex(0);
       // 背景色は画像（ページ）に紐づく。作品が入れ替わった画像はページごと作り直されるので、色は残らない。
       // 実文書（W37、2026-09-12）で確認済み。ここを「保持されています」と言い切らない。
       setStatus({
-        tone: "success",
-        text: `作品構成をversion ${next.version}として更新しました。既存作品の修正内容はそのままです。`
-          + "作品が入れ替わった画像は作り直されるので、その画像の背景色は設定し直してください。",
+        tone: discarded ? "warn" : "success",
+        text: `作品構成をversion ${next.version}として更新しました。既存作品の修正内容と未保存の下書きはそのままです。`
+          + "作品が入れ替わった画像は作り直されるので、その画像の背景色は設定し直してください。"
+          + (discarded ? `外れた作品${discarded}件の未保存の下書きは破棄しました。` : ""),
       });
       return next;
     } catch (error) {
@@ -705,7 +711,9 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             <h1 className="min-w-0 truncate text-base font-bold sm:text-lg">
               {seriesLabels[snapshot.document.series]} {periodLabel(snapshot.document)}
             </h1>
-            {unsavedLabels.length > 0 ? <Chip tone="warn">未保存 {unsavedLabels.length}件</Chip> : <Chip tone="success">すべて保存済み</Chip>}
+            {unsavedLabels.length > 0
+              ? <span title={`未保存: ${unsavedLabels.join(" / ")}`}><Chip tone="warn">未保存 {unsavedLabels.length}件</Chip></span>
+              : <Chip tone="success">すべて保存済み</Chip>}
           </div>
           {/* shrink-0 にすると、狭い画面でボタンが画面外へはみ出して押せなくなる。 */}
           <div className="flex flex-wrap gap-2">
@@ -747,6 +755,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             diff={sourceUpdate.diff}
             refresh={sourceUpdate.refresh}
             refreshError={sourceUpdate.refreshError}
+            unsavedItemIds={snapshot.document.items.filter(item => itemDirty(item.id)).map(item => item.id)}
             disabled={busy}
             onApply={value => void applySourceUpdate(value)}
             onClose={() => void closeSourceUpdate()}

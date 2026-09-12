@@ -27,7 +27,7 @@ export default function BulkExportButton({
 }: {
   document: GeneratorDocument;
   pages: CanvasPreviewPage[];
-  /** 文書全体に未保存が無いか。判定は1枚書き出しと同じものを使う。 */
+  /** 文書全体に未保存が無いか。未保存でも書き出せるが、その旨を添える（2026-09-13、利用者の指示）。 */
   canExport: boolean;
   onStatus(status: { tone: Tone; text: string }): void;
 }) {
@@ -40,12 +40,10 @@ export default function BulkExportButton({
     ? "まとめて1ファイルにする処理がまだ入っていません。"
     : !runtime
       ? "描画の準備が終わっていません。"
-      : !canExport
-        ? "共有DBに未保存の変更があります。保存してから書き出せます。"
-        : pages.length === 0
-          ? "書き出せる画像がありません。"
-          // 別の月の波で描いた画像は見た目が破綻しないので気づけない。ここで止める（runtime.tsxのwaveWarnings）
-          : waveWarnings(runtime)[0] ?? null;
+      : pages.length === 0
+        ? "書き出せる画像がありません。"
+        // 別の月の波で描いた画像は見た目が破綻しないので気づけない。ここで止める（runtime.tsxのwaveWarnings）
+        : waveWarnings(runtime)[0] ?? null;
 
   async function run() {
     if (!runtime || !packer) return;
@@ -121,7 +119,9 @@ export default function BulkExportButton({
       <button
         type="button"
         disabled={Boolean(reason)}
-        title={reason || `全${pages.length}枚を${archiveFileName(value)}にまとめます。`}
+        title={reason
+          || `全${pages.length}枚を${archiveFileName(value)}にまとめます。`
+            + (canExport ? "" : " 共有DBに未保存の変更を含んだ内容で書き出します。")}
         onClick={() => void run()}
         className="inline-flex min-h-9 items-center rounded-xl bg-violet-600 px-3 text-xs font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-violet-600/45 disabled:text-white/80 disabled:hover:bg-violet-600/45"
       >

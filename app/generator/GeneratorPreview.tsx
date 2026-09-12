@@ -160,8 +160,10 @@ export default function GeneratorPreview({
     } finally { setExporting(false); }
   }
 
-  const blocked = !canExport || warnings.length > 0;
-  const blockedCount = (canExport ? 0 : 1) + warnings.length;
+  // 画像が壊れる理由（はみ出し・行送り不成立・対象月の波が無い）だけで止める。
+  // 未保存は止めない（2026-09-13、利用者の指示）。ただし何を書き出すのかは明示する。
+  const blocked = warnings.length > 0;
+  const blockedCount = warnings.length;
   const interactionHint = page.kind === "cover"
     ? "表紙の選定は「並び順を変更」から入れ替えられます。"
     : page.kind === "others"
@@ -225,19 +227,22 @@ export default function GeneratorPreview({
         {blocked && (
           <details
             className="min-w-0 basis-full rounded-xl border px-3 py-1.5 text-[11px] xl:basis-auto"
-            style={{ borderColor: "rgba(245,158,11,.35)", backgroundColor: "rgba(245,158,11,.08)", color: "#fcd34d" }}
+            style={{ borderColor: "rgba(244,63,94,.35)", backgroundColor: "rgba(244,63,94,.08)", color: "#fda4af" }}
           >
             <summary className="cursor-pointer font-semibold">⚠ PNGを書き出せない理由（{blockedCount}件）</summary>
             <ul className="mt-1.5 space-y-1 pb-1">
-              {!canExport && (
-                <li>
-                  共有DBに未保存の変更があります。{blockedReasons.length > 0 && `未保存: ${blockedReasons.join(" / ")}。`}
-                  保存すると、その版の内容でPNGを作成できます。
-                </li>
-              )}
               {warnings.map(warning => <li key={warning}>{warning}</li>)}
             </ul>
           </details>
+        )}
+        {!canExport && !blocked && (
+          <p
+            className="min-w-0 basis-full rounded-xl border px-3 py-1.5 text-[11px] xl:basis-auto"
+            style={{ borderColor: "rgba(245,158,11,.35)", backgroundColor: "rgba(245,158,11,.08)", color: "#fcd34d" }}
+          >
+            いま画面に出ている内容で書き出します。共有DBに未保存の変更が含まれます
+            {blockedReasons.length > 0 && `（${blockedReasons.join(" / ")}）`}。
+          </p>
         )}
       </div>
 

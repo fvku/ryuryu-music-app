@@ -20,12 +20,14 @@ export type SourceUpdate = {
  * 作品の増減はその場で新しいversionに確定し、文字情報は下書きへ入る。
  * 確定のされ方が違うので節を分け、実行順序も見出しに書いてある。
  */
-export default function SourceUpdateDialog({ document, diff, refresh, refreshError, disabled, onApply, onClose }: {
+export default function SourceUpdateDialog({ document, diff, refresh, refreshError, unsavedItemIds, disabled, onApply, onClose }: {
   document: GeneratorDocument;
   diff: ReimportDiff;
   refresh: SourceRefreshItem[];
   /** 文字情報だけ読めなかったときの理由。作品の増減は読めているので、そちらは操作できる。 */
   refreshError: string | null;
+  /** 未保存の下書きがある作品。削除対象なら、実行で下書きが失われることを伝える。 */
+  unsavedItemIds: string[];
   disabled: boolean;
   onApply(value: SourceUpdate): void;
   onClose(): void;
@@ -46,7 +48,14 @@ export default function SourceUpdateDialog({ document, diff, refresh, refreshErr
       onClose={() => { if (!disabled) onClose(); }}
     >
       <div className="space-y-4">
-        <ReimportSection document={document} diff={diff} disabled={disabled} selection={structure} onSelection={setStructure} />
+        <ReimportSection
+          document={document}
+          diff={diff}
+          disabled={disabled}
+          unsavedItemIds={unsavedItemIds}
+          selection={structure}
+          onSelection={setStructure}
+        />
         <SourceRefreshSection results={refresh} error={refreshError} disabled={disabled} selected={fields} onSelected={setFields} />
         <div className="flex flex-wrap justify-end gap-2">
           <SecondaryButton disabled={disabled} onClick={onClose}>キャンセル</SecondaryButton>

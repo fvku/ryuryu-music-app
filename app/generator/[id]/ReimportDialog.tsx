@@ -34,14 +34,17 @@ export function reimportOutcome(document: GeneratorDocument, diff: ReimportDiff,
  * 作品の増減と区分移動。ここで選んだ分は、実行時に**1つの新しいversionとして確定**する。
  * 文字情報（下書きへ入るだけ）とは確定のされ方が違うので、節を分けて見せる。
  */
-export function ReimportSection({ document, diff, disabled, selection, onSelection }: {
+export function ReimportSection({ document, diff, disabled, unsavedItemIds = [], selection, onSelection }: {
   document: GeneratorDocument;
   diff: ReimportDiff;
   disabled: boolean;
+  /** 未保存の下書きがある作品。外れる作品なら下書きも失われる。 */
+  unsavedItemIds?: string[];
   selection: ReimportSelection;
   onSelection: Dispatch<SetStateAction<ReimportSelection>>;
 }) {
   const outcome = useMemo(() => reimportOutcome(document, diff, selection), [document, diff, selection]);
+  const unsaved = new Set(unsavedItemIds);
 
   function toggle(field: "addKeys" | "removeItemIds", key: string) {
     onSelection(current => {
@@ -76,7 +79,7 @@ export function ReimportSection({ document, diff, disabled, selection, onSelecti
         <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>手で修正済みの作品は、内容を守るため既定で選択していません。</p>
         {diff.removed.map(value => <label key={value.itemId} className="flex cursor-pointer items-start gap-2 rounded-lg border p-2" style={{ borderColor: "var(--border-subtle)" }}>
           <input type="checkbox" className="mt-0.5 h-4 w-4 accent-violet-500" checked={selection.removeItemIds.has(value.itemId)} disabled={disabled} onChange={() => toggle("removeItemIds", value.itemId)} />
-          <span className="min-w-0 flex-1 text-sm"><Chip tone="error">{labels[value.group]}</Chip> {value.edited && <Chip tone="warn">手で修正済み</Chip>} <span className="ml-1">{value.title} / {value.artist}</span></span>
+          <span className="min-w-0 flex-1 text-sm"><Chip tone="error">{labels[value.group]}</Chip> {value.edited && <Chip tone="warn">手で修正済み</Chip>} {unsaved.has(value.itemId) && <Chip tone="warn">未保存あり</Chip>} <span className="ml-1">{value.title} / {value.artist}</span></span>
         </label>)}
       </div>}
 
