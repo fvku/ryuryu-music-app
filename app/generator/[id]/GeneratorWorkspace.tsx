@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { canvasPreviewPage, type CanvasPreviewPage } from "@/lib/generator/canvas-preview";
 import type { GeneratorSnapshot } from "@/lib/generator/client-types";
-import type { GeneratorDocument, ItemContent } from "@/lib/generator/model";
+import type { GeneratorDocument, GeneratorItemSource, ItemContent } from "@/lib/generator/model";
 import type { ReimportDiff } from "@/lib/generator/reimport";
 import type { ReleaseMasterAlbum } from "@/lib/types";
 import BulkExportButton from "../BulkExportButton";
@@ -18,6 +18,7 @@ import { PageInspector, RestoreControl, StructureDialog, type TargetState } from
 import ItemInspector from "./ItemInspector";
 import SourceUpdateDialog, { type SourceUpdate } from "./SourceUpdateDialog";
 import { clearRecovery, hasRecovery, readRecovery, writeRecovery } from "./recovery";
+import { collectSources, pendingSourceUpdates, sourceChanged } from "./source-payload";
 import { useGeneratorSession } from "./session";
 import { applySourceRefresh, collectSourceRefresh, indexAlbums, matchAlbum, type RefreshFieldKey, type SourceRefreshItem } from "./source-refresh";
 import {
@@ -61,10 +62,12 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const [pageIndex, setPageIndex] = useState(0), [panel, setPanel] = useState<PanelKey>("info");
   const [slotIndex, setSlotIndex] = useState(0), [reorderOpen, setReorderOpen] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, ItemContent>>({});
+  /** 保存時に作品と一緒に送る、進んだ取り込み基準。カバー画像の差し替えもここに入る。 */
+  const [pendingSources, setPendingSources] = useState<Record<string, GeneratorItemSource>>({});
   const [pageColors, setPageColors] = useState<Record<string, string>>({});
   const [structurePages, setStructurePages] = useState<GeneratorDocument["pages"] | null>(null);
   /** Release Masterを読み直した結果。作品の増減と文字情報を1つのダイアログで確認する。 */
-  const [sourceUpdate, setSourceUpdate] = useState<{ diff: ReimportDiff; refresh: SourceRefreshItem[] } | null>(null);
+  const [sourceUpdate, setSourceUpdate] = useState<{ diff: ReimportDiff; refresh: SourceRefreshItem[]; sources: Record<string, GeneratorItemSource> } | null>(null);
   const [diagnostics, setDiagnostics] = useState<PreviewDiagnostics | null>(null);
   const [selectionState, setSelectionState] = useState<FieldSelection | null>(null);
   const [recoveryAvailable, setRecoveryAvailable] = useState(false);
@@ -83,8 +86,12 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const previewDocument = useMemo<GeneratorDocument>(() => ({
     ...snapshot.document,
     pages: (structurePages || snapshot.document.pages).map(value => ({ ...value, bgColor: pageColors[value.id] ?? value.bgColor })),
-    items: snapshot.document.items.map(item => ({ ...item, content: drafts[item.id] || item.content })),
-  }), [drafts, pageColors, snapshot.document, structurePages]);
+    items: snapshot.document.items.map(item => ({
+      ...item,
+      source: pendingSources[item.id] || item.source,
+      content: drafts[item.id] || item.content,
+    })),
+  }), [drafts, pageColors, pendingSources, snapshot.document, structurePages]);
   const previewPages = useMemo(
     () => previewDocument.pages.map((_, index) => canvasPreviewPage(previewDocument, index)).filter((page): page is CanvasPreviewPage => page !== null),
     [previewDocument],
@@ -103,8 +110,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const dirty = !same(previewDocument, snapshot.document);
 
   const itemDirty = useCallback(
-    (id: string) => Boolean(drafts[id]) && !same(drafts[id], items.get(id)?.content),
-    [drafts, items],
+    (id: string) => (Boolean(drafts[id]) && !same(drafts[id], items.get(id)?.content)) || Boolean(pendingSources[id]),
+    [drafts, items, pendingSources],
   );
 
   // 既存versionの作成後に Release Master の Time が補完された場合も、空欄だけを最新値で下書きへ戻す。
@@ -183,6 +190,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       setSnapshot(next);
       setEditingPageId(null);
       setDrafts({});
+      setPendingSources({});
       setPageColors({});
       setStructurePages(null);
       setSourceUpdate(null);
@@ -275,13 +283,26 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     // 認証・認可の失敗は残りも通らないので中止し、通信断・5xxは確定済みか不明なのでそこで列を止める。
     let halted: { label: string; reason: string } | null = null;
     for (const target of targets) {
-      const content = target.kind === "item" ? drafts[target.targetId] : { bgColor: pageColors[page.id] };
-      const result = await session.saveTarget({ kind: target.kind, targetId: target.targetId, content });
+      const content = target.kind === "item"
+        ? drafts[target.targetId] || items.get(target.targetId)?.content
+        : { bgColor: pageColors[page.id] };
+      const result = await session.saveTarget({
+        kind: target.kind,
+        targetId: target.targetId,
+        content,
+        ...(target.kind === "item" && pendingSources[target.targetId] ? { source: pendingSources[target.targetId] } : {}),
+      });
       if (result.ok) {
         saved.push(target.label);
         if (target.kind === "item") {
           const next = result.snapshot.document.items.find(item => item.id === target.targetId);
           if (next) setDrafts(current => ({ ...current, [target.targetId]: cloneContent(next.content) }));
+          setPendingSources(current => {
+            if (!current[target.targetId]) return current;
+            const remaining = { ...current };
+            delete remaining[target.targetId];
+            return remaining;
+          });
         } else {
           const next = result.snapshot.document.pages.find(value => value.id === target.targetId);
           if (next) setPageColors(current => ({ ...current, [target.targetId]: next.bgColor || FALLBACK_PAGE_COLOR }));
@@ -368,7 +389,14 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
         generatorJson<ReleaseMasterAlbum[]>(await fetch("/api/release-master", { cache: "no-store" })),
       ]);
       const refresh = collectSourceRefresh({ document: snapshot.document, drafts, albums });
-      setSourceUpdate({ diff, refresh });
+      const albumIndex = indexAlbums(albums);
+      const sources = collectSources({
+        document: snapshot.document,
+        albums,
+        matchAlbum: item => matchAlbum(item, albumIndex),
+        importedAt: new Date().toISOString(),
+      });
+      setSourceUpdate({ diff, refresh, sources });
       const structureCount = diff.added.length + diff.removed.length + diff.moved.length;
       const fieldCount = refresh.reduce((count, item) => count + item.changes.length, 0);
       setStatus(structureCount || fieldCount
@@ -402,8 +430,16 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     } else {
       await session.release("structure", documentId);
     }
+    const sources = sourceUpdate?.sources || {};
     setSourceUpdate(null);
     applyFieldUpdates(document, value.fields);
+    // 取り込み基準は、利用者が項目を選んだ作品と、カバーが差し替わった作品だけ進める。
+    const advanced = pendingSourceUpdates({
+      items: document.items,
+      sources,
+      selectedItemIds: new Set(value.fields.map(field => field.itemId)),
+    });
+    if (Object.keys(advanced).length) setPendingSources(current => ({ ...current, ...advanced }));
   }
 
   /** 作品の増減だけを共有DBへ確定する。成功したスナップショットを返す。 */
@@ -441,7 +477,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       durationHydratedDocument.current = null;
       setSnapshot(snapshotWithLocks(next, retainedLocks));
       await session.releaseMany(Object.values(locksRef.current).filter(entry => entry.kind === "structure" || removed.has(entry.targetId)));
-      setDrafts({}); setPageColors({}); setStructurePages(null); setEditingPageId(null);
+      setDrafts({}); setPendingSources({}); setPageColors({}); setStructurePages(null); setEditingPageId(null);
       setPageIndex(current => Math.min(current, Math.max(0, next.document.pages.length - 1))); setSlotIndex(0);
       setStatus({ tone: "success", text: `作品構成をversion ${next.version}として更新しました。既存作品の修正内容と背景設定は保持されています。` });
       return next;
@@ -502,6 +538,13 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       });
       if (!sameItems || !samePages) throw new Error("共有DB側の作品または画像構成が変わっているため、安全に復旧できません。");
       setDrafts(Object.fromEntries([...currentItems].flatMap(id => recoveredItems.has(id) ? [[id, cloneContent(recoveredItems.get(id)!)] as const] : [])));
+      // 取り込み基準（カバー画像を含む）も退避してあるので、保存済みと違う分だけ戻す。
+      setPendingSources(Object.fromEntries(recovered.items.flatMap(item => {
+        const saved = snapshot.document.items.find(value => value.id === item.id);
+        return saved && item.source.kind === "release-master" && sourceChanged(saved.source, item.source)
+          ? [[item.id, item.source] as const]
+          : [];
+      })));
       setPageColors(Object.fromEntries(recovered.pages
         .filter(value => snapshot.document.pages.some(current => current.id === value.id) && value.bgColor)
         .map(value => [value.id, value.bgColor!] as const)));
