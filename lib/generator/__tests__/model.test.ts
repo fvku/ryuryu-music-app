@@ -106,9 +106,12 @@ describe("target commands", () => {
     const result = parseLock({ ...lock, action: "heartbeat" });
     expect(result.lock.tokenHash).toHaveLength(64); expect(JSON.stringify(result)).not.toContain(lock.token);
   });
-  it("accepts only target content updates and keeps actor out of user input", () => {
+  it("accepts target content and a validated Release Master source update while keeping actor out of user input", () => {
     const change = { ...lock, requestId: randomUUID(), expectedVersion: 1, content: fixture().items[0].content };
     expect(parseChange(change).change.kind).toBe("item");
+    const source = { ...fixture().items[0].source, kind: "release-master" as const, uid: "rm-source", importedAt: "2026-09-12T00:00:00.000Z" };
+    expect(parseChange({ ...change, source }).change).toMatchObject({ kind: "item", source });
+    expect(() => parseChange({ ...change, source: fixture().items[0].source })).toThrow();
     expect(() => parseChange({ ...change, actor: "someone@example.com" })).toThrow();
     expect(() => parseChange({ ...change, generation: 0 })).toThrow();
     expect(() => parseChange({ ...change, expectedVersion: "1" })).toThrow();
@@ -118,6 +121,7 @@ describe("target commands", () => {
     const change = { ...lock, requestId: randomUUID(), expectedVersion: 2, restoreVersion: 1 };
     expect(parseChange(change).change).toHaveProperty("restoreVersion", 1);
     expect(() => parseChange({ ...change, content: fixture().items[0].content })).toThrow();
+    expect(() => parseChange({ ...change, source: { ...fixture().items[0].source, kind: "release-master" } })).toThrow();
   });
   it("accepts only a complete, duplicate-free structure ordering", () => {
     const doc = fixture(), structure = { kind: "structure", targetId: doc.id, clientId: randomUUID(), token: "b".repeat(64), generation: 1,

@@ -14,9 +14,18 @@ export type ItemContent = {
   typography: Partial<Record<Exclude<typeof FIELD_KEYS[number], "text">, Typography>>;
   jacketAssetId: string | null;
 };
+export type GeneratorItemSource = {
+  kind: "manual" | "release-master";
+  uid: string | null;
+  no: string | null;
+  date: string;
+  importedAt: string | null;
+  coverUrl: string | null;
+  fields: Fields;
+};
 export type GeneratorItem = {
   id: string;
-  source: { kind: "manual" | "release-master"; uid: string | null; no: string | null; date: string; importedAt: string | null; coverUrl: string | null; fields: Fields };
+  source: GeneratorItemSource;
   content: ItemContent;
 };
 export type GeneratorPage = { id: string; kind: "adopted" | "listed" | "cover" | "feature" | "others"; itemIds: string[]; bgColor: string | null };
@@ -62,6 +71,29 @@ function kerns(value: unknown, text: string, tracking: number): Record<string, n
     number(Number((tracking + delta).toFixed(6)), -.2, .2);
     return [key, delta];
   }));
+}
+export function parseItemSource(value: unknown): GeneratorItemSource {
+  const source = record(value, ["kind", "uid", "no", "date", "importedAt", "coverUrl", "fields"]);
+  if (source.kind !== "manual" && source.kind !== "release-master") invalid();
+  const uid = source.uid === null ? null : string(source.uid, 200);
+  if (uid !== null && !uid.trim()) invalid();
+  const importedAt = source.importedAt === null ? null : string(source.importedAt, 30);
+  if (importedAt !== null && (!Number.isFinite(Date.parse(importedAt)) || new Date(importedAt).toISOString() !== importedAt)) invalid();
+  const coverUrl = source.coverUrl === undefined || source.coverUrl === null ? null : string(source.coverUrl, 2000);
+  if (coverUrl !== null) {
+    let parsed: URL;
+    try { parsed = new URL(coverUrl); } catch { invalid(); }
+    if (parsed.protocol !== "https:") invalid();
+  }
+  return {
+    kind: source.kind,
+    uid,
+    no: source.no === null ? null : string(source.no, 100),
+    date: string(source.date, 100),
+    importedAt,
+    coverUrl,
+    fields: fields(source.fields),
+  };
 }
 export function parseItemContent(value: unknown): ItemContent {
   const raw = record(value, ["fields", "show", "tracking", "kerns", "bodyLeadMode", "bodyMaxLead", "typography", "jacketAssetId"]);
@@ -110,16 +142,9 @@ export function parseDocument(value: unknown): GeneratorDocument {
   const items = raw.items.map(value => {
     const raw = record(value, ["id", "source", "content"]), id = uuid(raw.id);
     if (itemIds.has(id)) invalid(); itemIds.add(id);
-    const source = record(raw.source, ["kind", "uid", "no", "date", "importedAt", "coverUrl", "fields"]);
-    if (source.kind !== "manual" && source.kind !== "release-master") invalid();
-    const uid = source.uid === null ? null : string(source.uid, 200);
+    const source = parseItemSource(raw.source), uid = source.uid;
     if (uid !== null) { if (!uid.trim() || sourceUids.has(uid)) invalid(); sourceUids.add(uid); }
-    const importedAt = source.importedAt === null ? null : string(source.importedAt, 30);
-    if (importedAt !== null && (!Number.isFinite(Date.parse(importedAt)) || new Date(importedAt).toISOString() !== importedAt)) invalid();
-    const coverUrl = source.coverUrl === undefined || source.coverUrl === null ? null : string(source.coverUrl, 2000);
-    if (coverUrl !== null) { let parsed: URL; try { parsed = new URL(coverUrl); } catch { invalid(); } if (parsed.protocol !== "https:") invalid(); }
-    return { id, source: { kind: source.kind, uid, no: source.no === null ? null : string(source.no, 100),
-      date: string(source.date, 100), importedAt, coverUrl, fields: fields(source.fields) }, content: parseItemContent(raw.content) } as GeneratorItem;
+    return { id, source, content: parseItemContent(raw.content) } as GeneratorItem;
   });
   const pageIds = new Set<string>(), placed = new Set<string>();
   let listed = false, weeklyStage: "cover" | "feature" | "others" = "cover", featureCount = 0, coverCount = 0, othersCount = 0;

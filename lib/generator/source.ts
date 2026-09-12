@@ -114,7 +114,9 @@ export function selectWeeklyAlbums(albums: ReleaseMasterAlbum[], week: string) {
   const selected = [...deduped.values()];
   return {
     weekNumber: weekNumbers.size ? Number([...weekNumbers][0]) : null,
-    feature: sortAlbums(selected.filter(album => album.weekAdoption === "採用")),
+    // Release Master is already in sheet row order. Weekly features follow that
+    // order; unlike Monthly/Japan, EP/date/artist sorting must not be applied.
+    feature: selected.filter(album => album.weekAdoption === "採用"),
     others: sortWeeklyOthers(selected.filter(album => album.weekAdoption === "掲載")),
   };
 }

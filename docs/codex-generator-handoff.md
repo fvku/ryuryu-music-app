@@ -427,6 +427,18 @@ v2では版の表示を画像単位に組み替えるので、「この画像の
   抽出結果は通常の `bgColor` として下書きへ入り、画像の保存で確定する。**サーバー・DB・保存形式は変えない。**
   明度・彩度の寄せ方は `tools/generator-lab/reference/` の実物投稿を画素で測って決める。
 
+### Codex回答・実装記録（2026-09-12）
+
+1. `item.source`は案2を採用した。item PATCHが従来の`content`と、任意のRelease Master由来`source`を同じ
+   itemロック・版・requestIdで原子的に保存する。手動ジャケットの`content.jacketAssetId`はsource更新で消えない。
+   新規SQLは`202609120001_generator_item_source.sql`で、共有DBには未適用。
+2. 画像保存は部分成功を正式な扱いとし、一括RPCは追加しない。最大60作品＋背景を同時1件・固定待機0msでPATCHする。
+   2xxは確定済みにし、通信断・5xxだけは同じrequestIdと本文で結果を確定するまで列を止める。
+3. Weekly採用をRelease Master行順へ変更した。初回と`reimport`の`resort: true`で同じ規則を使い、
+   Other Releasesの`sortWeeklyOthers`とMonthly／Japanの`sortAlbums`は維持した。
+4. 作品集合をまたぐstructure復元は拡張しない。候補から外し、作品数が異なるため選べないことと、
+   過去構成へ戻す場合は「Release Masterから更新」を使う旨を説明する。詳細は[制作フローv2 §8](./generator-flow-v2.md#8-codexへ確認依頼する事項)。
+
 ---
 
 ---

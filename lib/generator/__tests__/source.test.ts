@@ -67,6 +67,15 @@ describe("Weekly Release Master import", () => {
     expect([...result.feature, ...result.others].map(value => value.title.trim().toLowerCase())).not.toContain("next saturday");
     expect([...result.feature, ...result.others].map(value => value.title.trim().toLowerCase())).not.toContain("rejected");
   });
+  it("keeps Weekly features in Release Master row order instead of sorting by EP, date, or artist", () => {
+    const input = [
+      album({ no: "1", title: "[EP] First row", artist: "Zulu", date: "2026-08-07", weekAdoption: "採用" }),
+      album({ no: "2", title: "Second row", artist: "Alpha", date: "2026-08-01", weekAdoption: "採用" }),
+      album({ no: "33", title: "Third row", artist: "Beta", date: "2026-08-03", weekAdoption: "採用" }),
+    ];
+    expect(selectWeeklyAlbums(input, "2026-08-07").feature.map(value => value.title))
+      .toEqual(["[EP] First row", "Second row", "Third row"]);
+  });
   it("rejects missing, invalid, or conflicting # values on WEEK rows", () => {
     expect(() => selectWeeklyAlbums([album({ date: "2026-08-07", weekNumber: "", weekAdoption: "採用" })], "2026-08-07")).toThrow();
     expect(() => selectWeeklyAlbums([album({ date: "2026-08-07", weekNumber: "54", weekAdoption: "掲載" })], "2026-08-07")).toThrow();

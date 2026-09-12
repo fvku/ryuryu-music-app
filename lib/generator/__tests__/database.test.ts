@@ -26,6 +26,7 @@ beforeAll(async () => {
   await db.exec(await readFile(new URL("../../../supabase/migrations/202609040001_generator.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../../../supabase/migrations/202609050001_generator_completion.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../../../supabase/migrations/202609110001_generator_reimport.sql", import.meta.url), "utf8"));
+  await db.exec(await readFile(new URL("../../../supabase/migrations/202609120001_generator_item_source.sql", import.meta.url), "utf8"));
 }, 30000);
 beforeEach(async () => {
   await db.exec("reset role; truncate public.generator_documents cascade;");
@@ -99,6 +100,34 @@ describe("generator database transaction contract (embedded PostgreSQL)", () => 
     expect(await save(lock, doc.items[0].content, actor, 1, requestId)).toEqual(first);
     await expect(save(lock, { ...doc.items[0].content, bodyMaxLead: 50 }, actor, 1, requestId)).rejects.toThrow("REQUEST_CONFLICT");
     expect((await read()).version).toBe(2);
+  });
+  it("updates a Release Master source atomically without clearing an uploaded jacket, and restores the whole item target", async () => {
+    await db.exec("truncate public.generator_documents cascade;");
+    doc = fixture();
+    doc.items.forEach((item, index) => {
+      item.source = { ...item.source, kind: "release-master", uid: `rm-${index + 1}`, importedAt: "2026-09-01T00:00:00.000Z" };
+    });
+    await query("select public.generator_create($1,$2,$3) as result", [doc, actor, randomUUID()]);
+    const lock = await acquire("item", doc.items[0].id), asset = randomUUID();
+    await db.query("insert into public.generator_assets values ($1,$2,$3,'ready','image/png',100,10,10,$4,$5,now())",
+      [doc.id, asset, `${doc.id}/${asset}.png`, "a".repeat(64), actor]);
+    const content = { ...doc.items[0].content, jacketAssetId: asset };
+    await save(lock, content);
+    const source = { ...doc.items[0].source, importedAt: "2026-09-12T00:00:00.000Z",
+      coverUrl: "https://example.com/new-cover.jpg", fields: { ...doc.items[0].source.fields, title: "New source title" } };
+    const updated = await query<Snapshot>("select public.generator_save($1,$2,$3,$4) as result",
+      [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 2, content, source }]);
+    const updatedItem = updated.document.items.find(item => item.id === lock.targetId)!;
+    expect(updatedItem.source).toEqual(source);
+    expect(updatedItem.content.jacketAssetId).toBe(asset);
+    expect(updated.itemVersions[lock.targetId]).toBe(3);
+    await expect(query("select public.generator_save($1,$2,$3,$4) as result",
+      [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 3, content, source: { ...source, uid: "rm-2" } }])).rejects.toThrow("INVALID_INPUT");
+    const restored = await query<Snapshot>("select public.generator_save($1,$2,$3,$4) as result",
+      [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 3, restoreVersion: 2 }]);
+    const restoredItem = restored.document.items.find(item => item.id === lock.targetId)!;
+    expect(restoredItem.source).toEqual(doc.items[0].source);
+    expect(restoredItem.content.jacketAssetId).toBe(asset);
   });
   it("restores only an item as a new revision, preserving other items and colors", async () => {
     const item = await acquire("item", doc.items[0].id), bg = await acquire("page", doc.pages[0].id);

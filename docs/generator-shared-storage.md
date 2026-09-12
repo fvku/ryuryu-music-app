@@ -1,6 +1,6 @@
 # 画像ジェネレーター：共有保存の実装状況
 
-更新日：2026-09-09。**既存プロトタイプのSupabaseへ初期SQLと追加マイグレーションを適用し、非公開バケット、ローカル開発接続、Vercel Production接続を設定済み。ローカル・本番画面ではRelease Master取り込み、共有文書、全項目編集、対象別ロック・保存・履歴復元、画像アップロード、PNG書き出しを利用できる。** Previewには本番DBの接続情報を登録していない。最新の適用状況・保全データ・残件は[DB再利用の記録](./generator-project-reuse.md)を参照。
+更新日：2026-09-12。**既存プロトタイプのSupabaseへ初期SQLと追加マイグレーションを適用し、非公開バケット、ローカル開発接続、Vercel Production接続を設定済み。ローカル・本番画面ではRelease Master取り込み、共有文書、全項目編集、対象別ロック・保存・履歴復元、画像アップロード、PNG書き出しを利用できる。** Previewには本番DBの接続情報を登録していない。2026-09-12追加のsource更新マイグレーションだけは共有DBへ未適用。最新の適用状況・保全データ・残件は[DB再利用の記録](./generator-project-reuse.md)を参照。
 
 操作仕様は[仕様書](./generator-specification.md)、従来の設計は[統合計画](./generator-integration-plan.md)を参照。本書は今回のコードと未接続部分を区別する実装記録。
 
@@ -46,7 +46,9 @@
 | POST `/:id/assets` | ロックを伴う画像検証・非公開Storage保存・ready確定 |
 | GET `/:id/assets/:assetId` | 同じ文書に属するready画像だけを認可取得 |
 
-PATCHには`requestId, kind, targetId, clientId, token, generation, expectedVersion`と、`content`または`restoreVersion`の片方を送る。`kind`は`item / page / theme`。ページ内容は`{bgColor}`のみ。themeとstructureの対象IDには文書IDを使う。ロックAPIは`structure`も受け付け、延長・解放では`generation`が必須。[ルート実装](../app/api/generator/documents/)、[操作検証](../lib/generator/commands.ts)
+PATCHには`requestId, kind, targetId, clientId, token, generation, expectedVersion`と、`content`または`restoreVersion`の片方を送る。`kind`は`item / page / theme`。item保存に限り、Release Masterから再取得した完全な`source`を`content`と一緒に任意指定できる。`source.kind`は`release-master`だけを更新でき、手動作品のsourceは変更できない。source更新とcontent更新は同じitem version・履歴へ原子的に確定し、`content.jacketAssetId`をsource更新だけで消さない。item復元ではsourceとcontentを同じ対象として戻す。ページ内容は`{bgColor}`のみ。themeとstructureの対象IDには文書IDを使う。ロックAPIは`structure`も受け付け、延長・解放では`generation`が必須。[ルート実装](../app/api/generator/documents/)、[操作検証](../lib/generator/commands.ts)、[source更新SQL](../supabase/migrations/202609120001_generator_item_source.sql)
+
+`202609120001_generator_item_source.sql`はローカル実装・PGlite検証用に追加した段階で、共有Supabaseには未適用。適用済みの`202609110001_generator_reimport.sql`以前は変更していない。
 
 全APIで毎回許可メンバーを検査し、更新者はセッションから確定する。クライアント指定のメールは受け付けない。書き込みは同一OriginとJSONを必須とし、本文は実際の読み込み量で1MiBまで。レスポンスはキャッシュしない。[HTTP処理](../lib/generator/http.ts)、[認可・入力制限](../lib/generator/access.ts)
 

@@ -203,3 +203,11 @@ POST /api/generator/documents/<id>/reimport
 - APIが読み取った全既存作品のversionをRPCへ渡し、保存直前にDBで照合する。差分確認中に作品保存が入った場合は`VERSION_CONFLICT`で全体を拒否する。
 - 既存作品が残るページはIDと背景色を保持する。削除・区分移動で不要になったページは落とし、追加で必要なページは新しいID・背景色未設定で作る。
 - `202609110001_generator_reimport.sql`を本番Supabaseへ適用済み。既存の`pl_*`／`generator_*`行のハッシュ不変、service role限定の実行権限、合成データによる取り込み直しと全ロールバックを確認した。
+
+### v2追記（2026-09-12）
+
+- 既存作品の`source`更新は`generator_reimport`へ混ぜず、画像の保存時にitem PATCHの`content`と一緒に確定する。
+  これにより、構成だけが先に確定し、文字情報とカバーは下書きから画像単位で保存するv2の順序を保つ。
+- Weeklyの`resort: true`はfeatureをRelease Masterの行順、othersを`sortWeeklyOthers`の従来規則にした。
+  初回取り込みの`selectWeeklyAlbums`も同じ規則を使う。
+- 作品集合より前のstructure復元は引き続き拒否する。候補から外したうえで、作品数が異なるため戻せない旨を表示する。

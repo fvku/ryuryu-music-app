@@ -81,12 +81,15 @@ describe("authenticated generator routes", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
   it("sends only hashed lock secrets and target content, never client actor or full-document replacement", async () => {
-    const doc = fixture(); const command = { requestId: randomUUID(), kind: "item", targetId: doc.items[0].id,
-      clientId: randomUUID(), token: "a".repeat(64), generation: 1, expectedVersion: 1, content: doc.items[0].content };
+    const doc = fixture(); const source = { ...doc.items[0].source, kind: "release-master" as const, uid: "rm-source",
+      importedAt: "2026-09-12T00:00:00.000Z", coverUrl: "https://example.com/new-cover.jpg" };
+    const command = { requestId: randomUUID(), kind: "item", targetId: doc.items[0].id,
+      clientId: randomUUID(), token: "a".repeat(64), generation: 1, expectedVersion: 1, content: doc.items[0].content, source };
     const result = await PATCH(request("PATCH", command), { params: Promise.resolve({ id: doc.id }) });
     expect(result.status).toBe(200);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.p_actor).toBe(email); expect(body.p_change.tokenHash).toHaveLength(64);
+    expect(body.p_change.source).toEqual(source);
     expect(JSON.stringify(body)).not.toContain(command.token);
     expect((await PATCH(request("PATCH", { ...command, actor: "spoofed" }), context())).status).toBe(400);
     expect((await PATCH(request("PATCH", { document: doc }), context())).status).toBe(400);

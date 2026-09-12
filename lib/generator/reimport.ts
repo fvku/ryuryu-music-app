@@ -125,9 +125,12 @@ export function collectReimportDiff(document: GeneratorDocument, albums: Release
   return { added, removed, moved, limits: { featureMax: document.series === "weekly" ? 5 : null, othersMax: document.series === "weekly" ? 60 : null, featureAfter, othersAfter } };
 }
 
-function orderedAlbums(ids: string[], matched: Map<string, Selected>, group: ReimportGroup): string[] {
+function orderedAlbums(ids: string[], matched: Map<string, Selected>, group: ReimportGroup,
+  series: GeneratorDocument["series"], selected: Selected[]): string[] {
   const albums = ids.map(id => matched.get(id)?.album).filter((value): value is ReleaseMasterAlbum => Boolean(value));
-  const ordered = group === "others" ? sortWeeklyOthers(albums) : sortAlbums(albums);
+  const ordered = series === "weekly" && group === "feature"
+    ? selected.filter(value => value.group === "feature").map(value => value.album)
+    : group === "others" ? sortWeeklyOthers(albums) : sortAlbums(albums);
   const byKey = new Map(ids.map(id => [matched.get(id)?.key || "", id]));
   const sorted = ordered.map(album => byKey.get(releaseMasterKey(album))!).filter(Boolean);
   // 手で足した作品はRelease Masterの並び規則に無いので、消さずに区分末尾へ残す。
@@ -166,7 +169,9 @@ export function buildReimport({
     ids[additions[index].group].push(addItems[index].id);
     matches.set(addItems[index].id, additions[index]);
   }
-  if (resort) for (const kind of Object.keys(ids) as ReimportGroup[]) ids[kind] = orderedAlbums(ids[kind], matches, kind);
+  if (resort) for (const kind of Object.keys(ids) as ReimportGroup[]) {
+    ids[kind] = orderedAlbums(ids[kind], matches, kind, document.series, chosen);
+  }
 
   const original = document.pages;
   if (document.series === "weekly") {

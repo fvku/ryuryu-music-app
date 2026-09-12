@@ -38,6 +38,23 @@ describe("generator re-import", () => {
     expect(document.items.find(item => item.id === currentA.id)?.content.fields.title).toBe("Hand edited A");
   });
 
+  it("resorts Weekly features by Release Master row order while retaining the Other Releases rule", () => {
+    const initial = [
+      album({ no: "1", uid: "uid-a", title: "A", artist: "Alpha", weekAdoption: "採用" }),
+      album({ no: "2", uid: "uid-b", title: "B", artist: "Beta", weekAdoption: "採用" }),
+      album({ no: "3", uid: "uid-c", title: "C", artist: "Gamma", weekAdoption: "掲載" }),
+      album({ no: "4", uid: "uid-d", title: "D", artist: "Zed", weekAdoption: "掲載" }),
+    ];
+    const document = importWeeklyDocument(initial, "2027-01-01");
+    const latest = [initial[1], initial[0], initial[3], initial[2]];
+    const result = buildReimport({ document, albums: latest, addKeys: [], removeItemIds: [], resort: true });
+    const items = new Map(document.items.map(item => [item.id, item]));
+    const features = result.pages.filter(page => page.kind === "feature").map(page => items.get(page.itemIds[0])!.source.uid);
+    const others = result.pages.find(page => page.kind === "others")!.itemIds.map(id => items.get(id)!.source.uid);
+    expect(features).toEqual(["uid-b", "uid-a"]);
+    expect(others).toEqual(["uid-c", "uid-d"]);
+  });
+
   it("falls back from a changed UID to No. before title and artist", () => {
     const document = importWeeklyDocument([album()], "2027-01-01");
     const diff = collectReimportDiff(document, [album({ uid: "new-uid", title: "Renamed", artist: "Renamed artist" })]);
