@@ -314,7 +314,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       // 503は接続不良と区別が付かないので、何を一緒に送ったかを言う。
       const carriedSource = target.kind === "item" && Boolean(pendingSources[target.targetId]);
       const reason = result.error.code === "VERSION_CONFLICT" || result.error.code === "LOCK_LOST"
-        ? "他の変更が先に保存されました。共有DBを再読込してください。"
+        ? "他の変更が先に保存されました。「最新版に更新」を押してください。"
         : carriedSource
           ? `${result.error.message} この作品は取り込み基準（カバー画像を含む）も一緒に送っています。共有DBがまだ対応していない場合もここで失敗します。`
           : result.error.message;
@@ -353,7 +353,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     setBusy(false);
     if (!result.ok) {
       setStatus(result.error.code === "VERSION_CONFLICT" || result.error.code === "LOCK_LOST"
-        ? { tone: "error", text: "他の変更が先に保存されました。最新版を再読込してから、もう一度編集してください。" }
+        ? { tone: "error", text: "他の変更が先に保存されました。「最新版に更新」してから、もう一度編集してください。" }
         : { tone: "error", text: result.error.message });
       return;
     }
@@ -381,7 +381,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
    */
   async function openSourceUpdate() {
     if (dirty) {
-      setStatus({ tone: "warn", text: "未保存の下書きがあります。先に保存するか、共有DBを再読込してから更新してください。" });
+      setStatus({ tone: "warn", text: "未保存の下書きがあります。先に保存するか、「最新版に更新」してから読み直してください。" });
       return;
     }
     const lock = await session.acquire("structure", documentId);
@@ -503,7 +503,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       const apiError = error as GeneratorApiError;
       if (apiError.status !== undefined && apiError.status < 500) pendingSaves.delete(requestKey);
       setStatus(apiError.code === "VERSION_CONFLICT" || apiError.code === "LOCK_LOST"
-        ? { tone: "error", text: "確認中に別の変更が保存されました。共有DBを再読込して、差分を確認し直してください。" }
+        ? { tone: "error", text: "確認中に別の変更が保存されました。「最新版に更新」してから、差分を確認し直してください。" }
         : { tone: "error", text: apiError.message });
       return null;
     } finally {
@@ -723,9 +723,9 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             >
               変更履歴
             </Link>
-            <SecondaryButton disabled={busy} onClick={() => void reload()} className="min-h-9 px-3 text-xs">共有DBを再読込</SecondaryButton>
+            <SecondaryButton disabled={busy} onClick={() => void reload()} className="min-h-9 px-3 text-xs">最新版に更新</SecondaryButton>
             {/* Release Master側の変更は利用者から見れば1つの出来事なので、増減と文字情報を1つの導線にまとめる。 */}
-            <SecondaryButton disabled={busy} onClick={() => void openSourceUpdate()} className="min-h-9 px-3 text-xs">Release Masterから更新</SecondaryButton>
+            <SecondaryButton disabled={busy} onClick={() => void openSourceUpdate()} className="min-h-9 px-3 text-xs">Release Master 再読込</SecondaryButton>
             {/* 全ページのPNGは文書単位の操作なので、ページごとの出力ボタンとは分けてここに置く。 */}
             <BulkExportButton document={previewDocument} pages={previewPages} canExport={!dirty} onStatus={setStatus} />
           </div>
@@ -934,6 +934,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                   draft={drafts[activeItem.id]}
                   pageKind={page.kind}
                   diagnostic={bodyDiagnostic.find(value => value.slotId === activeItem.id) || null}
+                  jacketMissing={Boolean(diagnostics && previewPage && diagnostics.pageId === previewPage.id
+                    && diagnostics.missingJackets.includes(activeItem.id))}
                   state={itemTargetStateFor(activeItem.id)}
                   onDraft={content => setDrafts(current => ({ ...current, [activeItem.id]: content }))}
                   onImage={file => session.uploadImage("item", activeItem.id, file)}

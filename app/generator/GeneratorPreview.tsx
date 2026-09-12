@@ -12,7 +12,8 @@ export type PreviewSelection = { slotIndex: number; key: FieldKey; start: number
 
 /** 本文の行送りが自動でどこまで詰まっているか。描画と同じ関数で読み取るだけ。 */
 export type BodyDiagnostic = { slotId: string; lines: number; lead: number; minLead: number; fits: boolean };
-export type PreviewDiagnostics = { pageId: string; warnings: string[]; body: BodyDiagnostic[] };
+/** `missingJackets` は画像が用意できなかった作品のID。Other Releasesは元々読み込まないので空。 */
+export type PreviewDiagnostics = { pageId: string; warnings: string[]; body: BodyDiagnostic[]; missingJackets: string[] };
 
 function pageLabel(page: CanvasPreviewPage): string {
   if (page.kind === "adopted") return "採用 · 1作品";
@@ -65,9 +66,9 @@ export default function GeneratorPreview({
       // 対象月の波が無いまま描いている場合も、はみ出しと同じ「書き出せない状態」として扱う
       const issues = [...waveWarnings(runtime), ...runtime.renderer.inspectPage(context, prepared)];
       setWarnings(issues);
-      onDiagnostics({ pageId: prepared.id, warnings: issues, body: bodyDiagnostics(runtime, context, prepared) });
-      const missing = page.kind === "others" ? 0 : prepared.slots.filter(slot => !slot.jacket.img).length;
-      setStatus(`${pageLabel(page)}${missing ? `（ジャケット未取得 ${missing}件）` : ""}`);
+      const missingJackets = page.kind === "others" ? [] : prepared.slots.filter(slot => !slot.jacket.img).map(slot => slot.id);
+      onDiagnostics({ pageId: prepared.id, warnings: issues, body: bodyDiagnostics(runtime, context, prepared), missingJackets });
+      setStatus(`${pageLabel(page)}${missingJackets.length ? `（ジャケット未取得 ${missingJackets.length}件）` : ""}`);
     })().catch(drawError => { if (!cancelled) setStatus(`描画できませんでした: ${(drawError as Error).message}`); });
     return () => { cancelled = true; };
     // signature はページ内容のハッシュ代わり。中身が変わったときだけ描き直す。

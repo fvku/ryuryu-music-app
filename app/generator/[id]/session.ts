@@ -100,7 +100,7 @@ export function useGeneratorSession({ initialSnapshot, actor, initialStatus }: {
               delete next[key];
               return next;
             });
-            if (lost) setStatus({ tone: "error", text: "編集ロックを失いました。共有DBを再読込してから、もう一度編集を開始してください。" });
+            if (lost) setStatus({ tone: "error", text: "編集ロックを失いました。「最新版に更新」してから、もう一度編集を開始してください。" });
           });
       }
     }, 30000);

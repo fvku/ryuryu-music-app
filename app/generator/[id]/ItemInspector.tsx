@@ -111,6 +111,7 @@ export default function ItemInspector({
   state,
   pageKind,
   diagnostic,
+  jacketMissing = false,
   onDraft,
   onImage,
   selection,
@@ -122,6 +123,8 @@ export default function ItemInspector({
   state: TargetState;
   pageKind: "adopted" | "listed" | "feature" | "others";
   diagnostic: BodyDiagnostic | null;
+  /** 描画時にジャケットを用意できなかった作品。差し替えの導線をその場に出す。 */
+  jacketMissing?: boolean;
   onDraft(value: ItemContent): void;
   onImage(file: File): Promise<string | null>;
   selection: FieldSelection;
@@ -451,8 +454,16 @@ export default function ItemInspector({
         {pageKind !== "others" && <li className="rounded-lg border p-2" style={{ borderColor: "var(--border-subtle)" }}>
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>ジャケット</span>
-            {value.jacketAssetId ? <Chip tone="success">差し替え済み</Chip> : <Chip tone="info">Release Master</Chip>}
+            {value.jacketAssetId
+              ? <Chip tone="success">差し替え済み</Chip>
+              : jacketMissing ? <Chip tone="warn">未取得</Chip> : <Chip tone="info">Release Master</Chip>}
           </div>
+          {jacketMissing && !value.jacketAssetId && (
+            <p className="mt-1 text-[10px] leading-4" style={{ color: "#fcd34d" }}>
+              Release Masterの「画像リンク変換」にも「spotifyカバー」にもURLが無いか、画像を読み込めませんでした。
+              {readOnly ? "「この画像を編集」を押すと、ここから差し替えられます。" : "下から画像を選ぶと差し替えられます。"}
+            </p>
+          )}
           {!readOnly && (
             <div className="mt-2 space-y-2">
               <input

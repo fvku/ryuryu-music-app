@@ -437,7 +437,7 @@ v2では版の表示を画像単位に組み替えるので、「この画像の
 3. Weekly採用をRelease Master行順へ変更した。初回と`reimport`の`resort: true`で同じ規則を使い、
    Other Releasesの`sortWeeklyOthers`とMonthly／Japanの`sortAlbums`は維持した。
 4. 作品集合をまたぐstructure復元は拡張しない。候補から外し、作品数が異なるため選べないことと、
-   過去構成へ戻す場合は「Release Masterから更新」を使う旨を説明する。詳細は[制作フローv2 §8](./generator-flow-v2.md#8-codexへ確認依頼する事項)。
+   過去構成へ戻す場合は「Release Master 再読込」を使う旨を説明する。詳細は[制作フローv2 §8](./generator-flow-v2.md#8-codexへ確認依頼する事項)。
 
 ---
 

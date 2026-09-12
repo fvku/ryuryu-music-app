@@ -41,7 +41,7 @@ export default function SourceUpdateDialog({ document, diff, refresh, refreshErr
 
   return (
     <Modal
-      title="Release Masterから更新"
+      title="Release Master 再読込"
       description="Release Masterを読み直した結果です。作品の増減は実行時に新しいversionとして確定し、そのあと文字情報が下書きへ入ります。背景色と共通設定は変えません。"
       onClose={() => { if (!disabled) onClose(); }}
     >

@@ -1,3 +1,4 @@
+import { releaseMasterCover } from "@/lib/generator/cover-source";
 import type { GeneratorDocument, GeneratorItem, GeneratorItemSource } from "@/lib/generator/model";
 import type { ReleaseMasterAlbum } from "@/lib/types";
 
@@ -17,7 +18,7 @@ export function releaseMasterSource(album: ReleaseMasterAlbum, importedAt: strin
     no: album.no || null,
     date: album.date,
     importedAt,
-    coverUrl: album.coverUrlLarge.trim() || album.coverUrl.trim() || null,
+    coverUrl: releaseMasterCover(album),
     fields: {
       title: album.title,
       artist: album.artist,

@@ -15,6 +15,7 @@ import wave202611 from "@/tools/generator-lab/assets/waves/wave2611.png";
 import wave202612 from "@/tools/generator-lab/assets/waves/wave2612.png";
 import weeklyLogoAsset from "@/tools/generator-lab/assets/hyoryu_logo_brush_1line_white.svg";
 import type { CanvasPreviewPage } from "@/lib/generator/canvas-preview";
+import { releaseMasterCover } from "@/lib/generator/cover-source";
 import type { GeneratorDocument } from "@/lib/generator/model";
 import type { ReleaseMasterAlbum } from "@/lib/types";
 import { pickWaveMonth, waveMonthWarning, type WaveChoice } from "./wave-month";
@@ -182,10 +183,11 @@ function httpsUrl(value: string): string | null {
   }
 }
 
+/** 取り込み済みの作品にカバーが無いときの取得元。優先順は`releaseMasterCover`に集約してある。 */
 function coverMaps(albums: ReleaseMasterAlbum[]) {
   const coversByUid = new Map<string, string>(), coversByNo = new Map<string, string>();
   for (const album of albums) {
-    const cover = httpsUrl(album.coverUrl);
+    const cover = httpsUrl(releaseMasterCover(album) || "");
     if (!cover) continue;
     if (album.uid) coversByUid.set(album.uid, cover);
     if (album.no) coversByNo.set(album.no, cover);
