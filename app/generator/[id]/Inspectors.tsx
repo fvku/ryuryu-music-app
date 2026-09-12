@@ -129,14 +129,18 @@ export function PageInspector({
   pageNumber,
   color,
   defined,
+  candidates,
   onColor,
 }: {
   state: TargetState;
   pageNumber: number;
   color: string;
   defined: boolean;
+  /** ジャケットから拾った候補。最初の1つは編集開始時の初期値にも使う。 */
+  candidates: string[];
   onColor(value: string): void;
 }) {
+  const readOnly = !state.locked || state.disabled;
   return (
     <div className="space-y-4">
       <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>
@@ -159,6 +163,28 @@ export function PageInspector({
           )}
         </div>
       </div>
+      {candidates.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>ジャケットから拾った候補</p>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {candidates.map(value => (
+              <button
+                key={value}
+                type="button"
+                disabled={readOnly}
+                onClick={() => onColor(value)}
+                aria-label={`背景色を ${value} にする`}
+                title={value}
+                className="h-9 w-9 rounded-lg border disabled:opacity-40"
+                style={{ backgroundColor: value, borderColor: value === color ? "var(--accent)" : "var(--border-subtle)" }}
+              />
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>
+            白文字が読める範囲へ寄せた候補です。ここから選んでも、カラーピッカーで自由に決めても構いません。
+          </p>
+        </div>
+      )}
     </div>
   );
 }

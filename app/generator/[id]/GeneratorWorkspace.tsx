@@ -11,6 +11,7 @@ import BulkExportButton from "../BulkExportButton";
 import GeneratorPreview, { type PreviewDiagnostics, type PreviewSelection } from "../GeneratorPreview";
 import PageNavigator from "../PageNavigator";
 import { generatorJson, snapshotWithLocks, type GeneratorApiError } from "../generator-client";
+import { CoverColorProbe } from "../cover-color-client";
 import { GeneratorRuntimeProvider } from "../runtime";
 import { Chip, Panel, PrimaryButton, SecondaryButton, SegmentedControl, SelectInput, StatusBanner, useMediaQuery, type SegmentOption } from "../ui";
 import { PageInspector, RestoreControl, StructureDialog, type TargetState } from "./Inspectors";
@@ -71,6 +72,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const [recoveryStatus, setRecoveryStatus] = useState("このブラウザ内の復旧保存を準備しています…");
   /** 編集中の画像。画像ごとに「編集」で始め、「編集を終了」で終わる。 */
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
+  /** ジャケットから拾った背景色の候補。画像ごとに1度だけ計算する。 */
+  const [colorCandidates, setColorCandidates] = useState<Record<string, string[]>>({});
   const durationHydratedDocument = useRef<string | null>(null);
 
   const wide = useMediaQuery("(min-width: 1280px)");
@@ -165,6 +168,12 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     return () => window.clearTimeout(timer);
   }, [actor, dirty, documentId, previewDocument, snapshot.version]);
 
+  // 背景色の候補はジャケットの画素から拾う。表紙は作品を持たないので、最初のメインのジャケットを使う。
+  const colorSource = previewPage?.kind === "cover" ? previewPages.find(value => value.kind === "feature") || null : previewPage;
+  const rememberColors = useCallback((pageId: string, colors: string[]) => {
+    setColorCandidates(current => current[pageId] ? current : { ...current, [pageId]: colors });
+  }, []);
+
   const handleDiagnostics = useCallback((value: PreviewDiagnostics) => setDiagnostics(value), []);
 
   async function reload() {
@@ -211,9 +220,12 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     setStatus({ tone: "info", text: "編集ロックを取得しています…" });
     const pageLock = await session.acquire("page", page.id);
     if (!pageLock) return;
+    // 背景色が未設定の画像は、ジャケットから拾った候補の先頭を初期値にする。
+    // 決めるのは人なので、そのまま保存もできるし、候補やカラーピッカーで直してもよい。
+    const savedColor = snapshot.document.pages.find(value => value.id === page.id)?.bgColor ?? null;
     setPageColors(current => current[page.id] !== undefined
       ? current
-      : { ...current, [page.id]: snapshot.document.pages.find(value => value.id === page.id)?.bgColor ?? FALLBACK_PAGE_COLOR });
+      : { ...current, [page.id]: savedColor ?? colorCandidates[page.id]?.[0] ?? FALLBACK_PAGE_COLOR });
     if (activeItem) {
       const itemLock = await session.acquire("item", activeItem.id);
       if (itemLock) {
@@ -635,6 +647,16 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           </div>
         </header>
 
+        {previewPage && (
+          <CoverColorProbe
+            documentId={documentId}
+            pageId={previewPage.id}
+            source={colorSource}
+            known={Boolean(colorCandidates[previewPage.id])}
+            onColors={rememberColors}
+          />
+        )}
+
         {reimportDiff && (
           <ReimportDialog
             document={snapshot.document}
@@ -795,6 +817,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                       pageNumber={pageNumber}
                       color={pageColors[savedPage.id] ?? savedPage.bgColor ?? FALLBACK_PAGE_COLOR}
                       defined={Boolean(pageColors[savedPage.id] ?? savedPage.bgColor)}
+                      candidates={colorCandidates[savedPage.id] || []}
                       onColor={value => setPageColors(current => ({ ...current, [savedPage.id]: value }))}
                     />
                   ) : (

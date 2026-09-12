@@ -197,6 +197,23 @@ export function assetUrl(documentId: string, assetId: string): string {
   return `/api/generator/documents/${documentId}/assets/${assetId}`;
 }
 
+/**
+ * 1枠ぶんのジャケットの取得先。ページ全体を組まずに1枚だけ要るとき（背景色の抽出）に使う。
+ * 解決の順番は `preparePage` と同じ。
+ */
+export function jacketSource(runtime: GeneratorRuntime, documentId: string, slot: CanvasPreviewPage["slots"][number]): string | null {
+  return (slot.jacketAssetId && assetUrl(documentId, slot.jacketAssetId))
+    || httpsUrl(slot.sourceCoverUrl || "")
+    || (slot.sourceUid && runtime.coversByUid.get(slot.sourceUid))
+    || (slot.sourceNo && runtime.coversByNo.get(slot.sourceNo))
+    || null;
+}
+
+/** 取得先が分かっている1枚を読む。キャッシュは一覧・プレビューと共用する。 */
+export function loadJacket(src: string): Promise<HTMLImageElement> {
+  return loadImage(src);
+}
+
 /** ジャケットを解決して、描画コアが受け取れる形のページにする。 */
 export async function preparePage(runtime: GeneratorRuntime, documentId: string, page: CanvasPreviewPage): Promise<LegacyPage> {
   if (page.kind === "cover" && !runtime.coverFontReady()) throw new Error("Weekly表紙に必要な書体を読み込めません。");
