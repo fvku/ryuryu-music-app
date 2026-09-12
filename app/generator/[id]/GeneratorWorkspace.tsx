@@ -67,7 +67,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const [pageColors, setPageColors] = useState<Record<string, string>>({});
   const [structurePages, setStructurePages] = useState<GeneratorDocument["pages"] | null>(null);
   /** Release Masterを読み直した結果。作品の増減と文字情報を1つのダイアログで確認する。 */
-  const [sourceUpdate, setSourceUpdate] = useState<{ diff: ReimportDiff; refresh: SourceRefreshItem[]; sources: Record<string, GeneratorItemSource> } | null>(null);
+  const [sourceUpdate, setSourceUpdate] = useState<{ diff: ReimportDiff; refresh: SourceRefreshItem[]; sources: Record<string, GeneratorItemSource>; refreshError: string | null } | null>(null);
   const [diagnostics, setDiagnostics] = useState<PreviewDiagnostics | null>(null);
   const [selectionState, setSelectionState] = useState<FieldSelection | null>(null);
   const [recoveryAvailable, setRecoveryAvailable] = useState(false);
@@ -389,24 +389,31 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     setBusy(true);
     setStatus({ tone: "info", text: "Release Masterを読み直しています…" });
     try {
-      const [diff, albums] = await Promise.all([
-        generatorJson<ReimportDiff>(await fetch(`/api/generator/documents/${documentId}/reimport`, { cache: "no-store" })),
-        generatorJson<ReleaseMasterAlbum[]>(await fetch("/api/release-master", { cache: "no-store" })),
-      ]);
-      const refresh = collectSourceRefresh({ document: snapshot.document, drafts, albums });
-      const albumIndex = indexAlbums(albums);
-      const sources = collectSources({
-        document: snapshot.document,
-        albums,
-        matchAlbum: item => matchAlbum(item, albumIndex),
-        importedAt: new Date().toISOString(),
-      });
-      setSourceUpdate({ diff, refresh, sources });
+      // 作品の増減はサーバーがRelease Masterを読んで返す。文字情報はブラウザから別途読む。
+      // 片方が落ちても、取れたほうだけで判断できるようにする（シートの一時的な失敗で全部止めない）。
+      const diff = await generatorJson<ReimportDiff>(await fetch(`/api/generator/documents/${documentId}/reimport`, { cache: "no-store" }));
+      let refresh: SourceRefreshItem[] = [], sources: Record<string, GeneratorItemSource> = {}, refreshError: string | null = null;
+      try {
+        const albums = await generatorJson<ReleaseMasterAlbum[]>(await fetch("/api/release-master", { cache: "no-store" }));
+        refresh = collectSourceRefresh({ document: snapshot.document, drafts, albums });
+        const albumIndex = indexAlbums(albums);
+        sources = collectSources({
+          document: snapshot.document,
+          albums,
+          matchAlbum: item => matchAlbum(item, albumIndex),
+          importedAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        refreshError = (error as Error).message;
+      }
+      setSourceUpdate({ diff, refresh, sources, refreshError });
       const structureCount = diff.added.length + diff.removed.length + diff.moved.length;
       const fieldCount = refresh.reduce((count, item) => count + item.changes.length, 0);
-      setStatus(structureCount || fieldCount
-        ? { tone: "warn", text: `作品の増減・区分が${structureCount}件、文字情報が${fieldCount}件あります。反映する内容を選んでください。` }
-        : { tone: "success", text: "Release Masterと同じ内容です。更新するものはありません。" });
+      setStatus(refreshError
+        ? { tone: "warn", text: `作品の増減・区分は${structureCount}件あります。文字情報は読み込めませんでした: ${refreshError}` }
+        : structureCount || fieldCount
+          ? { tone: "warn", text: `作品の増減・区分が${structureCount}件、文字情報が${fieldCount}件あります。反映する内容を選んでください。` }
+          : { tone: "success", text: "Release Masterと同じ内容です。更新するものはありません。" });
     } catch (error) {
       setStatus({ tone: "error", text: `Release Masterを読み直せませんでした: ${(error as Error).message}` });
       await session.release("structure", documentId);
@@ -733,6 +740,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             document={snapshot.document}
             diff={sourceUpdate.diff}
             refresh={sourceUpdate.refresh}
+            refreshError={sourceUpdate.refreshError}
             disabled={busy}
             onApply={value => void applySourceUpdate(value)}
             onClose={() => void closeSourceUpdate()}

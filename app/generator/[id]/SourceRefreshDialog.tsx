@@ -33,8 +33,10 @@ function Value({ label, value, tone }: { label: string; value: string; tone: "cu
  * Release Masterの最新値との差分。ここで選んだ分は**下書きへ入るだけ**で、
  * 共有DBへは画像ごとの「保存」で確定する。作品の増減とは確定のされ方が違う。
  */
-export function SourceRefreshSection({ results, disabled, selected, onSelected }: {
+export function SourceRefreshSection({ results, error, disabled, selected, onSelected }: {
   results: SourceRefreshItem[];
+  /** Release Masterを読めなかったときの理由。読めていれば null。 */
+  error?: string | null;
   disabled: boolean;
   selected: Set<string>;
   onSelected: Dispatch<SetStateAction<Set<string>>>;
@@ -62,7 +64,14 @@ export function SourceRefreshSection({ results, disabled, selected, onSelected }
         Release Masterの読み取りは最大60秒ぶん前の内容になることがあります。直したばかりの値が出ない場合は、少し待って再実行してください。
       </p>
 
-      {changes.length > 0 && (
+      {error && (
+        <p className="rounded-lg border p-2 text-sm text-amber-300" style={{ borderColor: "var(--border-subtle)" }}>
+          Release Masterを読み込めなかったため、文字情報の差分は出せません（{error}）。
+          作品の増減だけを先に実行し、文字情報はあとでもう一度この画面から確認できます。
+        </p>
+      )}
+
+      {!error && changes.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <Chip tone={selected.size ? "warn" : "info"}>{selected.size} / {changes.length} 項目</Chip>
           <SecondaryButton
@@ -78,7 +87,7 @@ export function SourceRefreshSection({ results, disabled, selected, onSelected }
         </div>
       )}
 
-      {changes.length === 0 && <p className="text-sm">Release Masterと同じ内容です。直す文字情報はありません。</p>}
+      {!error && changes.length === 0 && <p className="text-sm">Release Masterと同じ内容です。直す文字情報はありません。</p>}
 
       <ul className="space-y-2">
         {results.filter(item => item.changes.length > 0).map(item => (
