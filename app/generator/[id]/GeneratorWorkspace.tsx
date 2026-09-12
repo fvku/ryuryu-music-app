@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { canvasPreviewPage, type CanvasPreviewPage } from "@/lib/generator/canvas-preview";
-import type { GeneratorHistoryEntry, GeneratorSnapshot } from "@/lib/generator/client-types";
-import { parseDocument, type GeneratorDocument, type ItemContent } from "@/lib/generator/model";
+import type { GeneratorSnapshot } from "@/lib/generator/client-types";
+import type { GeneratorDocument, ItemContent } from "@/lib/generator/model";
 import type { ReimportDiff } from "@/lib/generator/reimport";
 import type { ReleaseMasterAlbum } from "@/lib/types";
 import BulkExportButton from "../BulkExportButton";
@@ -12,30 +12,29 @@ import GeneratorPreview, { type PreviewDiagnostics, type PreviewSelection } from
 import PageNavigator from "../PageNavigator";
 import { generatorJson, snapshotWithLocks, type GeneratorApiError } from "../generator-client";
 import { GeneratorRuntimeProvider } from "../runtime";
-import { Chip, Panel, SecondaryButton, SegmentedControl, SelectInput, StatusBanner, useMediaQuery, type SegmentOption, type Tone } from "../ui";
-import { PageInspector, RestoreControl, StructureDialog, TargetStatus, ThemeInspector, type TargetState } from "./Inspectors";
+import { Chip, Panel, PrimaryButton, SecondaryButton, SegmentedControl, SelectInput, StatusBanner, useMediaQuery, type SegmentOption } from "../ui";
+import { PageInspector, RestoreControl, StructureDialog, type TargetState } from "./Inspectors";
 import ItemInspector from "./ItemInspector";
 import ReimportDialog from "./ReimportDialog";
 import SourceRefreshDialog from "./SourceRefreshDialog";
+import { clearRecovery, hasRecovery, readRecovery, writeRecovery } from "./recovery";
+import { useGeneratorSession } from "./session";
 import { applySourceRefresh, collectSourceRefresh, indexAlbums, matchAlbum, type RefreshFieldKey, type SourceRefreshItem } from "./source-refresh";
 import {
   cloneContent,
   derivePageBadges,
+  imageSaveTargets,
   keyOf,
   lockPayload,
-  lockToken,
   same,
   targetLabels,
   type ActiveLock,
   type FieldSelection,
   type LockKind,
-  type LockResponse,
 } from "./workspace-types";
 
-/** 編集パネルは1段。「画像編集」の下に「情報修正／背景設定」を重ねない。 */
-type PanelKey = "info" | "background" | "theme";
-type Status = { tone: Tone; text: string };
-type PendingSave = { requestId: string; signature: string };
+/** 編集パネルは「情報修正／背景設定」の2つ。共通設定は画像に属さないので別画面にした。 */
+type PanelKey = "info" | "background";
 
 const seriesLabels: Record<GeneratorDocument["series"], string> = {
   monthly: "Monthly Review",
@@ -44,13 +43,7 @@ const seriesLabels: Record<GeneratorDocument["series"], string> = {
 };
 
 const FALLBACK_PAGE_COLOR = "#475569";
-
-function matchesLock(current: ActiveLock | undefined, expected: ActiveLock): boolean {
-  return Boolean(current
-    && current.clientId === expected.clientId
-    && current.token === expected.token
-    && current.generation === expected.generation);
-}
+const savedAtFormat = new Intl.DateTimeFormat("ja-JP", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Tokyo" });
 
 function periodLabel(document: GeneratorDocument): string {
   if (document.series !== "weekly") return document.period.start.slice(0, 7);
@@ -62,37 +55,34 @@ function periodLabel(document: GeneratorDocument): string {
 }
 
 export default function GeneratorWorkspace({ initialSnapshot, actor }: { initialSnapshot: GeneratorSnapshot; actor: string }) {
-  const [snapshot, setSnapshot] = useState(initialSnapshot), [pageIndex, setPageIndex] = useState(0);
-  const [panel, setPanel] = useState<PanelKey>("info");
+  const session = useGeneratorSession({ initialSnapshot, actor });
+  const { snapshot, setSnapshot, documentId, busy, setBusy, status, setStatus, activeLocks, locksRef, history, pendingSaves } = session;
+
+  const [pageIndex, setPageIndex] = useState(0), [panel, setPanel] = useState<PanelKey>("info");
   const [slotIndex, setSlotIndex] = useState(0), [reorderOpen, setReorderOpen] = useState(false);
-  const [activeLocks, setActiveLocks] = useState<Record<string, ActiveLock>>({}), [drafts, setDrafts] = useState<Record<string, ItemContent>>({});
-  const [pageColors, setPageColors] = useState<Record<string, string>>({}), [themeDraft, setThemeDraft] = useState(snapshot.document.theme);
+  const [drafts, setDrafts] = useState<Record<string, ItemContent>>({});
+  const [pageColors, setPageColors] = useState<Record<string, string>>({});
   const [structurePages, setStructurePages] = useState<GeneratorDocument["pages"] | null>(null);
   const [refreshResults, setRefreshResults] = useState<SourceRefreshItem[] | null>(null);
   const [reimportDiff, setReimportDiff] = useState<ReimportDiff | null>(null);
-  const [history, setHistory] = useState<GeneratorHistoryEntry[]>([]), [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<Status>({ tone: "info", text: "プレビューまたは編集欄から直接調整できます。保存は対象ごとに新しいversionを作成します。" });
   const [diagnostics, setDiagnostics] = useState<PreviewDiagnostics | null>(null);
   const [selectionState, setSelectionState] = useState<FieldSelection | null>(null);
   const [recoveryAvailable, setRecoveryAvailable] = useState(false);
   const [recoveryStatus, setRecoveryStatus] = useState("このブラウザ内の復旧保存を準備しています…");
-  const [clientId] = useState(() => crypto.randomUUID()), locksRef = useRef(activeLocks);
+  /** 編集中の画像。画像ごとに「編集」で始め、「編集を終了」で終わる。 */
+  const [editingPageId, setEditingPageId] = useState<string | null>(null);
   const durationHydratedDocument = useRef<string | null>(null);
-  // 応答不明の保存だけを同じrequestIdで再送するための、描画に関与しないインメモリキャッシュ。
-  const [pendingSaves] = useState(() => new Map<string, PendingSave>());
 
   const wide = useMediaQuery("(min-width: 1280px)");
   // iPhoneでは字間の調整を出さない（範囲選択がページのスクロールと両立しないため）。
   // 保存済みの tracking / kerns はそのまま描画・保存され続ける。
   const phone = useMediaQuery("(max-width: 639px), (pointer: coarse) and (max-height: 500px)");
-  const documentId = snapshot.document.id;
   const items = useMemo(() => new Map(snapshot.document.items.map(item => [item.id, item])), [snapshot.document.items]);
   const previewDocument = useMemo<GeneratorDocument>(() => ({
     ...snapshot.document,
     pages: (structurePages || snapshot.document.pages).map(value => ({ ...value, bgColor: pageColors[value.id] ?? value.bgColor })),
     items: snapshot.document.items.map(item => ({ ...item, content: drafts[item.id] || item.content })),
-    theme: themeDraft,
-  }), [drafts, pageColors, snapshot.document, structurePages, themeDraft]);
+  }), [drafts, pageColors, snapshot.document, structurePages]);
   const previewPages = useMemo(
     () => previewDocument.pages.map((_, index) => canvasPreviewPage(previewDocument, index)).filter((page): page is CanvasPreviewPage => page !== null),
     [previewDocument],
@@ -109,12 +99,14 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     ? selectionState
     : { itemId: activeItem?.id || "", slotIndex: 0, key: page?.kind === "adopted" ? "text" : "title", start: 0, end: 0, source: "field" };
   const dirty = !same(previewDocument, snapshot.document);
-  const recoveryKey = `ryuryu_generator_recovery:v1:${actor}:${documentId}`;
 
-  useEffect(() => { locksRef.current = activeLocks; }, [activeLocks]);
+  const itemDirty = useCallback(
+    (id: string) => Boolean(drafts[id]) && !same(drafts[id], items.get(id)?.content),
+    [drafts, items],
+  );
 
   // 既存versionの作成後に Release Master の Time が補完された場合も、空欄だけを最新値で下書きへ戻す。
-  // 共有DBは自動更新せず、利用者が各作品の「保存」でversionとして確定する。
+  // 共有DBは自動更新せず、利用者が画像ごとの「保存」でversionとして確定する。
   useEffect(() => {
     if (durationHydratedDocument.current === documentId) return;
     durationHydratedDocument.current = documentId;
@@ -144,265 +136,194 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           }
           return changed ? next : current;
         });
-        if (durations.size) setStatus({ tone: "success", text: `Release Masterから空欄のTimeを${durations.size}件読み込みました。各作品の「保存」でversionに確定できます。` });
+        if (durations.size) setStatus({ tone: "success", text: `Release Masterから空欄のTimeを${durations.size}件読み込みました。各画像の「保存」でversionに確定できます。` });
       })
       .catch(() => {
         if (!cancelled) setStatus({ tone: "warn", text: "Release MasterのTimeを再取得できませんでした。ほかの編集機能は利用できます。" });
       });
     return () => { cancelled = true; };
-  }, [documentId, snapshot.document.items]);
+  }, [documentId, setStatus, snapshot.document.items]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      try {
-        setRecoveryAvailable(Boolean(window.localStorage.getItem(recoveryKey)));
-        setRecoveryStatus("このブラウザにも復旧用コピーを保存します（共有保存とは別）。");
-      } catch {
-        setRecoveryStatus("このブラウザでは復旧用コピーを保存できません。共有DBへの保存を利用してください。");
-      }
+      setRecoveryAvailable(hasRecovery(actor, documentId));
+      setRecoveryStatus("このブラウザにも復旧用コピーを保存します（共有保存とは別）。");
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [recoveryKey]);
+  }, [actor, documentId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      try {
-        if (!dirty) return;
-        window.localStorage.setItem(recoveryKey, JSON.stringify({
-          schemaVersion: 1,
-          actor,
-          documentId,
-          baseVersion: snapshot.version,
-          savedAt: new Date().toISOString(),
-          document: previewDocument,
-        }));
+      if (!dirty) return;
+      if (writeRecovery({ actor, documentId, baseVersion: snapshot.version, document: previewDocument })) {
         setRecoveryAvailable(true);
         setRecoveryStatus(`復旧用コピー保存済み · ${new Date().toLocaleTimeString("ja-JP")}（共有保存なし）`);
-      } catch {
+      } else {
         setRecoveryStatus("復旧用コピーを保存できませんでした。共有DBには未保存です。");
       }
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [actor, dirty, documentId, previewDocument, recoveryKey, snapshot.version]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetch(`/api/generator/documents/${documentId}/revisions`, { cache: "no-store" })
-      .then(generatorJson<GeneratorHistoryEntry[]>)
-      .then(value => { if (!cancelled) setHistory(value); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [documentId, snapshot.version]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      for (const lock of Object.values(locksRef.current)) {
-        void fetch(`/api/generator/documents/${documentId}/locks`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "heartbeat", ...lockPayload(lock) }),
-        })
-          .then(generatorJson<LockResponse>)
-          .then(result => setActiveLocks(current => {
-            const key = keyOf(lock.kind, lock.targetId);
-            if (!matchesLock(current[key], lock)) return current;
-            return { ...current, [key]: { ...current[key], expiresAt: result.expiresAt } };
-          }))
-          .catch(() => {
-            setActiveLocks(current => {
-              const key = keyOf(lock.kind, lock.targetId);
-              if (!matchesLock(current[key], lock)) return current;
-              const next = { ...current };
-              delete next[key];
-              return next;
-            });
-            setStatus({ tone: "error", text: "編集ロックを失いました。最新版を再読込してから、もう一度編集を開始してください。" });
-          });
-      }
-    }, 30000);
-    return () => window.clearInterval(timer);
-  }, [documentId]);
-
-  useEffect(() => () => {
-    for (const lock of Object.values(locksRef.current)) {
-      void fetch(`/api/generator/documents/${documentId}/locks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        keepalive: true,
-        body: JSON.stringify({ action: "release", ...lockPayload(lock) }),
-      });
-    }
-  }, [documentId]);
+  }, [actor, dirty, documentId, previewDocument, snapshot.version]);
 
   const handleDiagnostics = useCallback((value: PreviewDiagnostics) => setDiagnostics(value), []);
 
-  async function acquire(kind: LockKind, targetId: string, action: "acquire" | "transfer" = "acquire"): Promise<ActiveLock | null> {
-    const existing = activeLocks[keyOf(kind, targetId)];
-    if (existing) return existing;
-    // 作品・背景の直接編集では、次の対象を開く前に以前の自動取得ロックを解放する。
-    // これによりページを見て回っても複数作品を占有し続けない。
-    if (kind === "item" || kind === "page") {
-      const stale = Object.values(activeLocks).filter(lock =>
-        (lock.kind === "item" || lock.kind === "page") && !(lock.kind === kind && lock.targetId === targetId));
-      if (stale.length) {
-        setActiveLocks(current => {
-          const next = { ...current };
-          for (const lock of stale) {
-            const key = keyOf(lock.kind, lock.targetId);
-            if (matchesLock(next[key], lock)) delete next[key];
-          }
-          return next;
-        });
-        setSnapshot(current => ({
-          ...current,
-          locks: current.locks.filter(value => !stale.some(lock => lock.kind === value.kind && lock.targetId === value.targetId)),
-        }));
-        await Promise.allSettled(stale.map(lock => fetch(`/api/generator/documents/${documentId}/locks`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "release", ...lockPayload(lock) }),
-        })));
-      }
-    }
-    setBusy(true);
-    setStatus({ tone: "info", text: "編集ロックを取得しています…" });
-    const seed = { kind, targetId, clientId, token: lockToken() };
-    try {
-      const result = await generatorJson<LockResponse>(await fetch(`/api/generator/documents/${documentId}/locks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, ...seed }),
-      }));
-      const lock = { ...seed, generation: result.generation, expiresAt: result.expiresAt };
-      setActiveLocks(current => ({ ...current, [keyOf(kind, targetId)]: lock }));
-      setSnapshot(current => ({
-        ...current,
-        locks: [
-          ...current.locks.filter(value => !(value.kind === kind && value.targetId === targetId)),
-          { kind, targetId, owner: result.owner, expiresAt: result.expiresAt },
-        ],
-      }));
-      setStatus(action === "transfer"
-        ? { tone: "success", text: "編集権をこの端末へ引き継ぎました。以前の端末からは保存できません。" }
-        : { tone: "success", text: `${targetLabels[kind]}を編集できます。ロックは操作中、自動で延長されます。` });
-      return lock;
-    } catch (error) {
-      setStatus({ tone: "error", text: (error as Error).message });
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function release(kind: LockKind, targetId: string) {
-    const lock = activeLocks[keyOf(kind, targetId)];
-    if (!lock) return;
-    try {
-      await generatorJson(await fetch(`/api/generator/documents/${documentId}/locks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "release", ...lockPayload(lock) }),
-      }));
-    } catch { /* An expired lock is already unusable. */ }
-    setActiveLocks(current => {
-      const next = { ...current };
-      delete next[keyOf(kind, targetId)];
-      return next;
-    });
-    setSnapshot(current => ({ ...current, locks: current.locks.filter(value => !(value.kind === kind && value.targetId === targetId)) }));
-    setStatus({ tone: "info", text: `${targetLabels[kind]}の編集を終了しました。他の人が編集できます。` });
-  }
-
-  async function save(kind: LockKind, targetId: string, content?: unknown, restoreVersion?: number) {
-    const lock = activeLocks[keyOf(kind, targetId)];
-    if (!lock) {
-      setStatus({ tone: "warn", text: "先に編集ロックを取得してください。" });
-      return;
-    }
-    const expectedVersion = kind === "item"
-      ? snapshot.itemVersions[targetId]
-      : kind === "page"
-        ? snapshot.pageVersions[targetId]
-        : kind === "structure" ? snapshot.structureVersion : snapshot.themeVersion;
-    setBusy(true);
-    setStatus({ tone: "info", text: restoreVersion ? `version ${restoreVersion} の内容を復元しています…` : "共有DBへ保存しています…" });
-    const requestKey = keyOf(kind, targetId);
-    const change = {
-      ...lockPayload(lock),
-      expectedVersion,
-      ...(restoreVersion ? { restoreVersion } : { content }),
-    };
-    const signature = JSON.stringify(change);
-    const previousRequest = pendingSaves.get(requestKey);
-    const requestId = previousRequest?.signature === signature ? previousRequest.requestId : crypto.randomUUID();
-    pendingSaves.set(requestKey, { requestId, signature });
-    try {
-      const next = await generatorJson<GeneratorSnapshot>(await fetch(`/api/generator/documents/${documentId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          requestId,
-          ...change,
-        }),
-      }));
-      if (pendingSaves.get(requestKey)?.requestId === requestId) pendingSaves.delete(requestKey);
-      setSnapshot(current => snapshotWithLocks(next, current.locks));
-      if (kind === "item") {
-        const saved = next.document.items.find(item => item.id === targetId);
-        if (saved) setDrafts(current => ({ ...current, [targetId]: cloneContent(saved.content) }));
-      } else if (kind === "page") {
-        const saved = next.document.pages.find(value => value.id === targetId);
-        if (saved) setPageColors(current => ({ ...current, [targetId]: saved.bgColor || FALLBACK_PAGE_COLOR }));
-      } else if (kind === "structure") {
-        setStructurePages(next.document.pages.map(value => ({ ...value, itemIds: [...value.itemIds] })));
-      } else {
-        setThemeDraft(next.document.theme);
-      }
-      setStatus({
-        tone: "success",
-        text: restoreVersion
-          ? `version ${restoreVersion} の${targetLabels[kind]}を、新しいversion ${next.version} として復元しました。`
-          : `${targetLabels[kind]}をversion ${next.version} として保存しました。`,
-      });
-    } catch (error) {
-      const value = error as GeneratorApiError;
-      // 通信失敗・5xxはDBで確定済みか判別できない。同じ内容の再試行では同じrequestIdを使う。
-      if (value.status !== undefined && value.status < 500 && pendingSaves.get(requestKey)?.requestId === requestId) {
-        pendingSaves.delete(requestKey);
-      }
-      setStatus(value.code === "VERSION_CONFLICT" || value.code === "LOCK_LOST"
-        ? { tone: "error", text: "他の変更が先に保存されました。最新版を再読込してから、もう一度編集してください。" }
-        : { tone: "error", text: value.message });
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function reload() {
     setBusy(true);
-    try {
-      const next = await generatorJson<GeneratorSnapshot>(await fetch(`/api/generator/documents/${documentId}`, { cache: "no-store" }));
+    const next = await session.fetchSnapshot();
+    if (next) {
       durationHydratedDocument.current = null;
       setSnapshot(next);
-      setActiveLocks({});
+      setEditingPageId(null);
       setDrafts({});
       setPageColors({});
       setStructurePages(null);
-      setThemeDraft(next.document.theme);
       setRefreshResults(null);
       setReimportDiff(null);
       pendingSaves.clear();
       setStatus({ tone: "success", text: "最新版を読み込みました。編集中だった内容は破棄されています。" });
-    } catch (error) {
-      setStatus({ tone: "error", text: (error as Error).message });
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
+  }
+
+  /** その画像で自分が持っているロック。画像を離れるとき・編集を終えるときにまとめて返す。 */
+  function locksForPage(pageId: string): ActiveLock[] {
+    const target = (structurePages || snapshot.document.pages).find(value => value.id === pageId);
+    if (!target) return [];
+    return Object.values(locksRef.current).filter(lock =>
+      (lock.kind === "page" && lock.targetId === pageId) || (lock.kind === "item" && target.itemIds.includes(lock.targetId)));
+  }
+
+  function pageHasUnsaved(pageId: string): boolean {
+    const target = (structurePages || snapshot.document.pages).find(value => value.id === pageId);
+    if (!target) return false;
+    return imageSaveTargets({
+      page: target,
+      savedBgColor: snapshot.document.pages.find(value => value.id === pageId)?.bgColor ?? null,
+      pageColors,
+      titleOf: id => items.get(id)?.content.fields.title || "",
+      isItemDirty: itemDirty,
+    }).length > 0;
+  }
+
+  /** 画像の編集を開始する。背景と、いま選んでいる作品のロックを取る。 */
+  async function beginImageEdit() {
+    if (!page) return;
+    setStatus({ tone: "info", text: "編集ロックを取得しています…" });
+    const pageLock = await session.acquire("page", page.id);
+    if (!pageLock) return;
+    setPageColors(current => current[page.id] !== undefined
+      ? current
+      : { ...current, [page.id]: snapshot.document.pages.find(value => value.id === page.id)?.bgColor ?? FALLBACK_PAGE_COLOR });
+    if (activeItem) {
+      const itemLock = await session.acquire("item", activeItem.id);
+      if (itemLock) {
+        setDrafts(current => current[activeItem.id] ? current : { ...current, [activeItem.id]: cloneContent(activeItem.content) });
+      }
+    }
+    setEditingPageId(page.id);
+    setStatus({ tone: "success", text: "この画像を編集できます。ロックは操作中、自動で延長されます。" });
+  }
+
+  async function endImageEdit(pageId: string, quiet = false) {
+    const held = locksForPage(pageId);
+    if (held.length) await session.releaseMany(held);
+    setEditingPageId(current => current === pageId ? null : current);
+    if (!quiet) setStatus({ tone: "info", text: "この画像の編集を終了しました。他の人が編集できます。" });
+  }
+
+  // 編集中に別の作品へ切り替えたら、その作品のロックも取る（1画像の中で続けて直せるようにする）。
+  useEffect(() => {
+    if (!page || editingPageId !== page.id || !activeItem) return;
+    if (locksRef.current[keyOf("item", activeItem.id)]) return;
+    let cancelled = false;
+    void (async () => {
+      const lock = await session.acquire("item", activeItem.id);
+      if (cancelled || !lock) return;
+      setDrafts(current => current[activeItem.id] ? current : { ...current, [activeItem.id]: cloneContent(activeItem.content) });
+    })();
+    return () => { cancelled = true; };
+  }, [activeItem, editingPageId, locksRef, page, session]);
+
+  /**
+   * いま開いている画像を保存する。作品（掲載なら上下、Othersなら触った分）と背景色を続けて確定する。
+   * まとめて確定するAPIが無いため、途中で失敗したら成功分はそのまま残し、失敗した対象を知らせて再試行させる。
+   */
+  async function saveImage() {
+    if (!page) return;
+    const targets = imageSaveTargets({
+      page,
+      savedBgColor: snapshot.document.pages.find(value => value.id === page.id)?.bgColor ?? null,
+      pageColors,
+      titleOf: id => items.get(id)?.content.fields.title || "",
+      isItemDirty: itemDirty,
+    });
+    if (!targets.length) return;
+    setBusy(true);
+    setStatus({ tone: "info", text: `共有DBへ保存しています…（${targets.length}件）` });
+    const saved: string[] = [];
+    for (const target of targets) {
+      const content = target.kind === "item" ? drafts[target.targetId] : { bgColor: pageColors[page.id] };
+      const result = await session.saveTarget({ kind: target.kind, targetId: target.targetId, content });
+      if (!result.ok) {
+        setBusy(false);
+        const remaining = targets.length - saved.length;
+        const reason = result.error.code === "VERSION_CONFLICT" || result.error.code === "LOCK_LOST"
+          ? "他の変更が先に保存されました。最新版を再読込してから、もう一度編集してください。"
+          : result.error.message;
+        setStatus({
+          tone: "error",
+          text: saved.length
+            ? `${saved.join("・")}は保存しました。${target.label}で止まりました（残り${remaining}件）: ${reason}`
+            : `${target.label}を保存できませんでした: ${reason}`,
+        });
+        return;
+      }
+      saved.push(target.label);
+      if (target.kind === "item") {
+        const next = result.snapshot.document.items.find(item => item.id === target.targetId);
+        if (next) setDrafts(current => ({ ...current, [target.targetId]: cloneContent(next.content) }));
+      } else {
+        const next = result.snapshot.document.pages.find(value => value.id === target.targetId);
+        if (next) setPageColors(current => ({ ...current, [target.targetId]: next.bgColor || FALLBACK_PAGE_COLOR }));
+      }
+    }
+    setBusy(false);
+    setStatus({ tone: "success", text: `この画像を保存しました（${saved.join("・")}）。` });
+  }
+
+  /** 対象1つだけの保存・復元。並び順モーダルと、過去版からの復元で使う。 */
+  async function saveSingle(kind: LockKind, targetId: string, content?: unknown, restoreVersion?: number) {
+    setBusy(true);
+    setStatus({ tone: "info", text: restoreVersion ? `version ${restoreVersion} の内容を復元しています…` : "共有DBへ保存しています…" });
+    const result = await session.saveTarget({ kind, targetId, content, restoreVersion });
+    setBusy(false);
+    if (!result.ok) {
+      setStatus(result.error.code === "VERSION_CONFLICT" || result.error.code === "LOCK_LOST"
+        ? { tone: "error", text: "他の変更が先に保存されました。最新版を再読込してから、もう一度編集してください。" }
+        : { tone: "error", text: result.error.message });
+      return;
+    }
+    const next = result.snapshot;
+    if (kind === "item") {
+      const value = next.document.items.find(item => item.id === targetId);
+      if (value) setDrafts(current => ({ ...current, [targetId]: cloneContent(value.content) }));
+    } else if (kind === "page") {
+      const value = next.document.pages.find(entry => entry.id === targetId);
+      if (value) setPageColors(current => ({ ...current, [targetId]: value.bgColor || FALLBACK_PAGE_COLOR }));
+    } else if (kind === "structure") {
+      setStructurePages(next.document.pages.map(value => ({ ...value, itemIds: [...value.itemIds] })));
+    }
+    setStatus({
+      tone: "success",
+      text: restoreVersion
+        ? `version ${restoreVersion} の${targetLabels[kind]}を、新しいversion ${next.version} として復元しました。`
+        : `${targetLabels[kind]}をversion ${next.version} として保存しました。`,
+    });
   }
 
   /**
    * 取り込み後にRelease Master側で直された文字情報を読み直す。
-   * 共有DBは触らず、選ばれた項目だけをローカル下書きへ入れる（確定は作品ごとの「保存」）。
+   * 共有DBは触らず、選ばれた項目だけをローカル下書きへ入れる（確定は画像ごとの「保存」）。
    */
   async function refreshFromSource() {
     setBusy(true);
@@ -431,7 +352,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       setStatus({ tone: "warn", text: "未保存の下書きがあります。先に保存または最新版の再読込を行ってから、取り込み直してください。" });
       return;
     }
-    const lock = await acquire("structure", documentId);
+    const lock = await session.acquire("structure", documentId);
     if (!lock) return;
     setBusy(true);
     setStatus({ tone: "info", text: "Release Masterから作品の増減と区分を確認しています…" });
@@ -444,7 +365,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
         : { tone: "success", text: "作品の増減・区分移動はありません。" });
     } catch (error) {
       setStatus({ tone: "error", text: `取り込み差分を確認できませんでした: ${(error as Error).message}` });
-      await release("structure", documentId);
+      await session.release("structure", documentId);
     } finally {
       setBusy(false);
     }
@@ -452,7 +373,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
   async function closeReimport() {
     setReimportDiff(null);
-    await release("structure", documentId);
+    await session.release("structure", documentId);
   }
 
   async function applyReimport(value: { addKeys: string[]; removeItemIds: string[]; resort: boolean }) {
@@ -460,7 +381,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     if (!lock) { setStatus({ tone: "warn", text: "取り込み直しの編集ロックを取得し直してください。" }); return; }
     if (dirty) { setStatus({ tone: "warn", text: "未保存の下書きがあるため、取り込み直しを実行できません。" }); return; }
     // 自分が削除対象の作品を開いていた場合、その作品ロックだけを先に返す。
-    for (const itemId of value.removeItemIds) if (activeLocks[keyOf("item", itemId)]) await release("item", itemId);
+    const doomed = Object.values(locksRef.current).filter(entry => entry.kind === "item" && value.removeItemIds.includes(entry.targetId));
+    if (doomed.length) await session.releaseMany(doomed);
     const change = {
       clientId: lock.clientId, token: lock.token, generation: lock.generation,
       expectedVersion: snapshot.structureVersion, addKeys: value.addKeys,
@@ -487,8 +409,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
         && !(entry.kind === "item" && removed.has(entry.targetId)));
       durationHydratedDocument.current = null;
       setSnapshot(snapshotWithLocks(next, retainedLocks));
-      setActiveLocks(current => Object.fromEntries(Object.entries(current).filter(([, entry]) => entry.kind !== "structure" && !removed.has(entry.targetId))));
-      setDrafts({}); setPageColors({}); setStructurePages(null); setThemeDraft(next.document.theme); setRefreshResults(null); setReimportDiff(null);
+      await session.releaseMany(Object.values(locksRef.current).filter(entry => entry.kind === "structure" || removed.has(entry.targetId)));
+      setDrafts({}); setPageColors({}); setStructurePages(null); setRefreshResults(null); setReimportDiff(null); setEditingPageId(null);
       setPageIndex(current => Math.min(current, Math.max(0, next.document.pages.length - 1))); setSlotIndex(0);
       setStatus({ tone: "success", text: `Release Masterの作品構成をversion ${next.version}として取り込み直しました。既存作品の修正内容と背景設定は保持されています。` });
     } catch (error) {
@@ -525,29 +447,13 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     setRefreshResults(null);
     setStatus({
       tone: "warn",
-      text: `Release Masterの内容を${selected.length}件、下書きへ入れました。画像 ${pageNumbers.join("・")} の作品を開き、「保存」でversionに確定してください。`,
+      text: `Release Masterの内容を${selected.length}件、下書きへ入れました。画像 ${pageNumbers.join("・")} を開き、「編集」してから「保存」でversionに確定してください。`,
     });
   }
 
   function restoreRecovery() {
     try {
-      const raw = window.localStorage.getItem(recoveryKey);
-      if (!raw) throw new Error("復旧用コピーが見つかりません。");
-      const value = JSON.parse(raw) as {
-        schemaVersion?: unknown;
-        actor?: unknown;
-        documentId?: unknown;
-        baseVersion?: unknown;
-        savedAt?: unknown;
-        document?: unknown;
-      };
-      if (value.schemaVersion !== 1 || value.actor !== actor || value.documentId !== documentId) throw new Error("別の利用者または企画の復旧データです。");
-      if (typeof value.baseVersion !== "number" || !Number.isInteger(value.baseVersion) || value.baseVersion < 1
-        || typeof value.savedAt !== "string" || !Number.isFinite(Date.parse(value.savedAt))) {
-        throw new Error("復旧データの版情報が不正、または未対応です。");
-      }
-      const recovered = parseDocument(value.document);
-      if (recovered.id !== documentId) throw new Error("復旧データ内の企画IDが一致しません。");
+      const recovered = readRecovery(actor, documentId).document;
       const currentItems = new Set(snapshot.document.items.map(item => item.id));
       const recoveredItems = new Map(recovered.items.map(item => [item.id, item.content]));
       const currentPageIds = new Set(snapshot.document.pages.map(current => current.id));
@@ -566,53 +472,27 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
         ...current,
         itemIds: [...recoveredPages.get(current.id)!.itemIds],
       })));
-      setThemeDraft(recovered.theme);
-      setStatus({ tone: "warn", text: "このブラウザ内の復旧用コピーを読み込みました。対象の編集を開始し、共有DBへ保存してください。" });
+      const themeChanged = !same(recovered.theme, snapshot.document.theme);
+      setStatus({
+        tone: "warn",
+        text: themeChanged
+          ? "このブラウザ内の復旧用コピーを読み込みました。共通設定にも未保存の変更が残っています。共通設定の画面で読み込んでください。"
+          : "このブラウザ内の復旧用コピーを読み込みました。画像ごとに「編集」してから、共有DBへ保存してください。",
+      });
     } catch (error) {
       setStatus({ tone: "error", text: `復旧できませんでした: ${(error as Error).message}` });
     }
   }
 
   function discardRecovery() {
-    try {
-      window.localStorage.removeItem(recoveryKey);
-    } catch { /* No recoverable local copy remains available to this page. */ }
+    clearRecovery(actor, documentId);
     setRecoveryAvailable(false);
     setRecoveryStatus("復旧用コピーを破棄しました。");
-  }
-
-  async function uploadImage(kind: "item" | "theme", targetId: string, file: File): Promise<string | null> {
-    const lock = activeLocks[keyOf(kind, targetId)];
-    if (!lock) {
-      setStatus({ tone: "warn", text: "画像を選ぶ前に編集ロックを取得してください。" });
-      return null;
-    }
-    const form = new FormData(), assetId = crypto.randomUUID();
-    form.set("file", file);
-    form.set("assetId", assetId);
-    form.set("kind", kind);
-    form.set("targetId", targetId);
-    form.set("clientId", lock.clientId);
-    form.set("token", lock.token);
-    form.set("generation", String(lock.generation));
-    setBusy(true);
-    setStatus({ tone: "info", text: "画像を検証して共有Storageへ保存しています…" });
-    try {
-      const result = await generatorJson<{ id: string }>(await fetch(`/api/generator/documents/${documentId}/assets`, { method: "POST", body: form }));
-      setStatus({ tone: "success", text: "画像を保存しました。この対象の「保存」で、版に確定してください。" });
-      return result.id;
-    } catch (error) {
-      setStatus({ tone: "error", text: (error as Error).message });
-      return null;
-    } finally {
-      setBusy(false);
-    }
   }
 
   const restoreVersions = history.filter(entry => entry.version < snapshot.version);
   const latestReimportVersion = history.find(entry => entry.operation === "reimport")?.version || 0;
   const savedPage = page ? snapshot.document.pages.find(value => value.id === page.id) || null : null;
-  const itemDirty = (id: string) => Boolean(drafts[id]) && !same(drafts[id], items.get(id)?.content);
   // 未保存の背景色は表示中のページ以外にもあり得る。書き出せない理由には全ページ分を挙げる。
   const dirtyPages = snapshot.document.pages
     .map((value, index) => ({ value, index }))
@@ -622,15 +502,27 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     structurePages!.map(value => ({ id: value.id, itemIds: value.itemIds })),
     snapshot.document.pages.map(value => ({ id: value.id, itemIds: value.itemIds })),
   );
-  const themeDirty = !same(themeDraft, snapshot.document.theme);
   const unsavedLabels = [
     ...snapshot.document.items.filter(item => itemDirty(item.id)).map(item => `作品「${item.content.fields.title || "作品名未入力"}」`),
     ...dirtyPages.map(({ index }) => `画像 ${snapshot.document.series === "weekly" ? index : index + 2} の背景色`),
     ...(structureDirty ? ["並び順"] : []),
-    ...(themeDirty ? ["共通設定"] : []),
   ];
+  const imageDirty = Boolean(page && pageHasUnsaved(page.id));
+  const imageEditing = Boolean(page && editingPageId === page.id);
+  const pageNumber = previewPage?.no ?? (snapshot.document.series === "weekly" ? currentIndex : currentIndex + 2);
 
-  function targetState(kind: LockKind, targetId: string, isDirty: boolean, onBegin: () => void, onSave: () => void, direct = false): TargetState {
+  /** この画像が最後に保存されたのはいつか。文書の通し番号ではなく、画像ごとに見せる。 */
+  const imageSaved = page
+    ? history.find(entry => (entry.targetKind === "item" && page.itemIds.includes(entry.targetId || ""))
+      || (entry.targetKind === "page" && entry.targetId === page.id)) || null
+    : null;
+
+  const foreignOnPage = page
+    ? snapshot.locks.find(lock => !activeLocks[keyOf(lock.kind as LockKind, lock.targetId)]
+      && ((lock.kind === "page" && lock.targetId === page.id) || (lock.kind === "item" && page.itemIds.includes(lock.targetId))))
+    : undefined;
+
+  function targetState(kind: LockKind, targetId: string, isDirty: boolean, onBegin: () => void, onSave: () => void): TargetState {
     const locked = Boolean(activeLocks[keyOf(kind, targetId)]);
     const foreign = locked ? undefined : snapshot.locks.find(value => value.kind === kind && value.targetId === targetId);
     return {
@@ -641,25 +533,28 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       transferable: Boolean(foreign && foreign.owner === actor),
       dirty: isDirty,
       disabled: busy,
-      direct,
       versions: kind === "structure" ? restoreVersions.filter(entry => entry.version >= latestReimportVersion) : restoreVersions,
       onBegin,
       onSave,
-      onRelease: () => void release(kind, targetId),
-      onRestore: version => void save(kind, targetId, undefined, version),
-      onTransfer: () => void acquire(kind, targetId, "transfer"),
+      onRelease: () => void session.release(kind, targetId),
+      onRestore: version => void saveSingle(kind, targetId, undefined, version),
+      onTransfer: () => void session.acquire(kind, targetId, "transfer"),
     };
   }
 
   const heldElsewhere = snapshot.locks.filter(lock => !activeLocks[keyOf(lock.kind as LockKind, lock.targetId)]);
   const panelTabs: SegmentOption<PanelKey>[] = [
-    { value: "info", label: "情報修正", dot: activeItem && itemDirty(activeItem.id) ? "warn" : activeItem && activeLocks[keyOf("item", activeItem.id)] ? "success" : undefined },
-    { value: "background", label: "背景設定", dot: pageDirty ? "warn" : savedPage && activeLocks[keyOf("page", savedPage.id)] ? "success" : undefined },
-    { value: "theme", label: "共通設定", dot: themeDirty ? "warn" : activeLocks[keyOf("theme", documentId)] ? "success" : undefined },
+    { value: "info", label: "情報修正", dot: activeItem && itemDirty(activeItem.id) ? "warn" : undefined },
+    { value: "background", label: "背景設定", dot: pageDirty ? "warn" : undefined },
   ];
   const bodyDiagnostic = diagnostics && previewPage && diagnostics.pageId === previewPage.id ? diagnostics.body : [];
 
   function selectPage(index: number) {
+    const nextPage = visiblePages[index];
+    // 直していない画像のロックは持ち歩かない。未保存があるときだけ、戻れるように残す。
+    if (editingPageId && nextPage && editingPageId !== nextPage.id && !pageHasUnsaved(editingPageId)) {
+      void endImageEdit(editingPageId, true);
+    }
     setPageIndex(index);
     setSlotIndex(0);
   }
@@ -679,46 +574,6 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       source: value.touch ? "previewTouch" : "preview",
     });
   }
-
-  // 対象ごとの操作列はタブと同じ行へ出すため、JSXの外で組み立てる。
-  // `direct` の自動ロック取得は、表示されている対象の分だけ走る（従来と同じ）。
-  const itemTargetState = activeItem
-    ? targetState(
-      "item",
-      activeItem.id,
-      itemDirty(activeItem.id),
-      async () => {
-        const lock = await acquire("item", activeItem.id);
-        if (lock) setDrafts(current => current[activeItem.id]
-          ? current
-          : { ...current, [activeItem.id]: cloneContent(activeItem.content) });
-      },
-      () => void save("item", activeItem.id, drafts[activeItem.id] || activeItem.content),
-      true,
-    )
-    : null;
-  const pageTargetState = savedPage
-    ? targetState(
-      "page",
-      savedPage.id,
-      pageDirty,
-      () => void acquire("page", savedPage.id),
-      () => void save("page", savedPage.id, { bgColor: pageColors[savedPage.id] ?? savedPage.bgColor ?? FALLBACK_PAGE_COLOR }),
-      true,
-    )
-    : null;
-  const themeTargetState = targetState(
-    "theme",
-    documentId,
-    themeDirty,
-    async () => {
-      const lock = await acquire("theme", documentId);
-      if (lock) setThemeDraft(snapshot.document.theme);
-    },
-    () => void save("theme", documentId, themeDraft),
-  );
-  const activeTarget = panel === "theme" ? themeTargetState : panel === "background" ? pageTargetState : itemTargetState;
-  const activeTargetLabel = panel === "theme" ? "共通設定" : panel === "background" ? "背景" : "作品";
 
   // 文書全体の集計（未保存◯件）だけでは、どの画像かがサムネイルから分からない。
   const pageBadges = derivePageBadges({
@@ -743,22 +598,26 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   );
 
   return (
-    <GeneratorRuntimeProvider documentId={documentId} theme={themeDraft} period={snapshot.document.period}>
+    <GeneratorRuntimeProvider documentId={documentId} theme={snapshot.document.theme} period={snapshot.document.period}>
       <div className="generator-workspace relative left-1/2 w-[calc(100vw-2rem)] max-w-[100rem] -translate-x-1/2 space-y-4">
-        {/* 企画名・版・未保存件数・移動を1行に畳む。空けた縦はプレビューへ回す。 */}
+        {/* 企画名・未保存件数・移動を1行に畳む。空けた縦はプレビューへ回す。 */}
         <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
             <Link href="/generator" className="shrink-0 text-xs text-violet-300 hover:underline">← 企画一覧</Link>
             <h1 className="min-w-0 truncate text-base font-bold sm:text-lg">
               {seriesLabels[snapshot.document.series]} {periodLabel(snapshot.document)}
             </h1>
-            <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-              version {snapshot.version} · 更新者 {snapshot.updatedBy}
-            </span>
             {unsavedLabels.length > 0 ? <Chip tone="warn">未保存 {unsavedLabels.length}件</Chip> : <Chip tone="success">すべて保存済み</Chip>}
           </div>
           {/* shrink-0 にすると、狭い画面でボタンが画面外へはみ出して押せなくなる。 */}
           <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/generator/${documentId}/settings`}
+              className="inline-flex min-h-9 items-center rounded-xl border px-3 text-xs hover:bg-white/5"
+              style={{ borderColor: "var(--border-subtle)" }}
+            >
+              共通設定
+            </Link>
             <Link
               href={`/generator/${documentId}/history`}
               className="inline-flex min-h-9 items-center rounded-xl border px-3 text-xs hover:bg-white/5"
@@ -766,7 +625,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             >
               変更履歴
             </Link>
-            <SecondaryButton disabled={busy} onClick={() => void reload()} className="min-h-9 px-3 text-xs">最新版を再読込</SecondaryButton>
+            <SecondaryButton disabled={busy} onClick={() => void reload()} className="min-h-9 px-3 text-xs">共有DBを再読込</SecondaryButton>
             {/* 共有DBの再読込とは別物。Release Master側で直した文字情報だけを下書きへ入れる。 */}
             <SecondaryButton disabled={busy} onClick={() => void refreshFromSource()} className="min-h-9 px-3 text-xs">Release Masterから再取得</SecondaryButton>
             {/* 作品数・採用区分を共同編集の新しいversionとして変える。未保存下書きがある時はopenReimportで止める。 */}
@@ -800,7 +659,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => void acquire(lock.kind as LockKind, lock.targetId, "transfer")}
+                      onClick={() => void session.acquire(lock.kind as LockKind, lock.targetId, "transfer")}
                       className="rounded border px-2 py-0.5 disabled:opacity-40"
                       style={{ borderColor: "var(--border-subtle)" }}
                     >
@@ -851,15 +710,48 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
           <Panel className="xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:overflow-hidden">
             <div className="shrink-0 space-y-2">
-              {/* 1段目＝編集する対象、2段目＝その対象の状態と保存・復元。主操作までの段を4から2へ。 */}
+              {/* 画像ごとの状態と操作。この1行で「いま何ができるか」と「保存」を完結させる。 */}
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border px-2 py-1.5" style={{ borderColor: "var(--border-subtle)" }}>
+                <span className="text-xs font-semibold">画像 {pageNumber}</span>
+                {imageEditing
+                  ? <Chip tone="success">編集中 · 自動延長</Chip>
+                  : foreignOnPage
+                    ? <Chip tone="warn">{foreignOnPage.owner === actor ? "自分の別端末が編集中" : `${foreignOnPage.owner} が編集中`}</Chip>
+                    : null}
+                {imageDirty ? <Chip tone="warn">未保存</Chip> : <Chip tone="info">共有DBと一致</Chip>}
+                <span className="flex-1" />
+                {imageEditing ? (
+                  <>
+                    <PrimaryButton disabled={busy || !imageDirty} onClick={() => void saveImage()} className="min-h-9 px-3 text-xs">保存</PrimaryButton>
+                    <SecondaryButton disabled={busy} onClick={() => void endImageEdit(page!.id)} className="min-h-9 px-3 text-xs">編集を終了</SecondaryButton>
+                  </>
+                ) : (
+                  <>
+                    <PrimaryButton
+                      disabled={busy || !page || Boolean(foreignOnPage && foreignOnPage.owner !== actor)}
+                      onClick={() => void beginImageEdit()}
+                      className="min-h-9 px-3 text-xs"
+                    >
+                      この画像を編集
+                    </PrimaryButton>
+                    {foreignOnPage && foreignOnPage.owner === actor && (
+                      <SecondaryButton
+                        disabled={busy}
+                        onClick={() => void session.acquire(foreignOnPage.kind as LockKind, foreignOnPage.targetId, "transfer")}
+                        className="min-h-9 px-3 text-xs"
+                      >
+                        この端末へ引き継ぐ
+                      </SecondaryButton>
+                    )}
+                  </>
+                )}
+              </div>
+              <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                {imageSaved
+                  ? `最終保存 version ${imageSaved.version} · ${imageSaved.actor} · ${savedAtFormat.format(new Date(imageSaved.createdAt))}`
+                  : "この画像は取り込み後まだ保存されていません。"}
+              </p>
               <SegmentedControl label="編集パネル" options={panelTabs} value={panel} onChange={next => setPanel(next)} />
-              {activeTarget && (
-                <TargetStatus
-                  state={activeTarget}
-                  label={activeTargetLabel}
-                  trailing={activeTarget.locked ? <RestoreControl state={activeTarget} compact /> : null}
-                />
-              )}
               {panel === "info" && page?.kind === "others" && pageItems.length > 1 ? (
                 <label className="block text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
                   Other Releasesの作品
@@ -882,31 +774,25 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                   options={pageItems.map((item, index) => ({
                     value: String(index),
                     label: index === 0 ? "上段" : "下段",
-                    dot: itemDirty(item.id) ? "warn" : activeLocks[keyOf("item", item.id)] ? "success" : undefined,
+                    dot: itemDirty(item.id) ? "warn" : undefined,
                   }))}
                 />
               ) : null}
+              {imageEditing && activeItem && panel === "info" && (
+                <RestoreControl state={itemTargetStateFor(activeItem.id)} compact />
+              )}
+              {imageEditing && savedPage && panel === "background" && (
+                <RestoreControl state={pageTargetStateFor(savedPage.id)} compact />
+              )}
             </div>
 
             <div className="mt-3 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-hidden">
-              {panel === "theme" ? (
+              {panel === "background" ? (
                 <div className="xl:overflow-y-auto xl:pr-1">
-                  <ThemeInspector
-                    state={themeTargetState}
-                    theme={themeDraft}
-                    onTheme={setThemeDraft}
-                    onImage={async (target, file) => {
-                      const id = await uploadImage("theme", documentId, file);
-                      if (id) setThemeDraft(current => ({ ...current, [target]: id }));
-                    }}
-                  />
-                </div>
-              ) : panel === "background" ? (
-                <div className="xl:overflow-y-auto xl:pr-1">
-                  {savedPage && pageTargetState ? (
+                  {savedPage ? (
                     <PageInspector
-                      state={pageTargetState}
-                      pageNumber={previewPage?.no ?? (snapshot.document.series === "weekly" ? currentIndex : currentIndex + 2)}
+                      state={pageTargetStateFor(savedPage.id)}
+                      pageNumber={pageNumber}
                       color={pageColors[savedPage.id] ?? savedPage.bgColor ?? FALLBACK_PAGE_COLOR}
                       defined={Boolean(pageColors[savedPage.id] ?? savedPage.bgColor)}
                       onColor={value => setPageColors(current => ({ ...current, [savedPage.id]: value }))}
@@ -915,16 +801,16 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                     <p className="text-sm" style={{ color: "var(--text-secondary)" }}>背景を編集できる画像がありません。</p>
                   )}
                 </div>
-              ) : activeItem && page && (page.kind === "adopted" || page.kind === "listed" || page.kind === "feature" || page.kind === "others") && itemTargetState ? (
+              ) : activeItem && page && (page.kind === "adopted" || page.kind === "listed" || page.kind === "feature" || page.kind === "others") ? (
                 <ItemInspector
                   key={`${activeItem.id}:${snapshot.itemVersions[activeItem.id]}`}
                   item={activeItem}
                   draft={drafts[activeItem.id]}
                   pageKind={page.kind}
                   diagnostic={bodyDiagnostic.find(value => value.slotId === activeItem.id) || null}
-                  state={itemTargetState}
+                  state={itemTargetStateFor(activeItem.id)}
                   onDraft={content => setDrafts(current => ({ ...current, [activeItem.id]: content }))}
-                  onImage={file => uploadImage("item", activeItem.id, file)}
+                  onImage={file => session.uploadImage("item", activeItem.id, file)}
                   selection={selection}
                   onSelection={next => setSelectionState({ ...next, itemId: activeItem.id, slotIndex: Math.min(slotIndex, Math.max(0, pageItems.length - 1)) })}
                   allowTracking={!phone}
@@ -951,11 +837,11 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
               "structure",
               documentId,
               structureDirty,
-              async () => {
-                const lock = await acquire("structure", documentId);
+              () => void (async () => {
+                const lock = await session.acquire("structure", documentId);
                 if (lock) setStructurePages(snapshot.document.pages.map(value => ({ ...value, itemIds: [...value.itemIds] })));
-              },
-              () => void save("structure", documentId, {
+              })(),
+              () => void saveSingle("structure", documentId, {
                 pages: (structurePages || snapshot.document.pages).map(value => ({ id: value.id, itemIds: value.itemIds })),
               }),
             )}
@@ -968,4 +854,13 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       </div>
     </GeneratorRuntimeProvider>
   );
+
+  /** 作品・背景の状態は画像の操作列がまとめて出すので、ここでは復元と入力欄の可否にだけ使う。 */
+  function itemTargetStateFor(itemId: string): TargetState {
+    return targetState("item", itemId, itemDirty(itemId), () => void beginImageEdit(), () => void saveImage());
+  }
+
+  function pageTargetStateFor(pageId: string): TargetState {
+    return targetState("page", pageId, pageDirty, () => void beginImageEdit(), () => void saveImage());
+  }
 }

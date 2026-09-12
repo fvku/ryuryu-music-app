@@ -80,13 +80,14 @@ export default function PageNavigator({
   pages: CanvasPreviewPage[];
   pageIndex: number;
   onSelect(index: number): void;
-  onReorder(): void;
-  reorderDirty: boolean;
+  /** 省略すると並び順ボタンを出さない（共通設定画面のように、並びを触らせない画面で使う）。 */
+  onReorder?: () => void;
+  reorderDirty?: boolean;
   orientation: "vertical" | "horizontal";
   states?: Record<string, PageBadges>;
 }) {
   const vertical = orientation === "vertical";
-  const reorder = (
+  const reorder = !onReorder ? null : (
     <button
       type="button"
       onClick={onReorder}

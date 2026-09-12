@@ -107,3 +107,32 @@ export function derivePageBadges({
   }
   return result;
 }
+
+/**
+ * 画像ごとの保存で、実際に共有DBへ送る対象。作品（掲載なら上下、Othersなら触った分）と背景色を並べる。
+ * まとめて確定するAPIが無いため、これを順に保存する。順序は作品 → 背景で固定する
+ * （背景だけ先に確定して、作品の失敗で見た目が中途半端になるのを避けるため）。
+ */
+export type ImageSaveTarget = { kind: "item" | "page"; targetId: string; label: string };
+
+export function imageSaveTargets({
+  page,
+  savedBgColor,
+  pageColors,
+  titleOf,
+  isItemDirty,
+}: {
+  page: { id: string; itemIds: string[] };
+  /** 共有DBに入っている背景色。未設定はnull。 */
+  savedBgColor: string | null;
+  pageColors: Record<string, string>;
+  titleOf(itemId: string): string;
+  isItemDirty(itemId: string): boolean;
+}): ImageSaveTarget[] {
+  const targets: ImageSaveTarget[] = page.itemIds
+    .filter(isItemDirty)
+    .map(id => ({ kind: "item" as const, targetId: id, label: `作品「${titleOf(id) || "作品名未入力"}」` }));
+  const color = pageColors[page.id];
+  if (color !== undefined && color !== savedBgColor) targets.push({ kind: "page", targetId: page.id, label: "背景色" });
+  return targets;
+}
