@@ -1097,3 +1097,77 @@ Simulatorとデスクトップブラウザでは確認済みだが、物理iPhon
 - `npx tsc --noEmit --incremental false`、`npm run lint`、`npm test`（21ファイル・338件）、`node tools/generator-lab/test/weekly-check.mjs`（24件）：すべて成功。
 - 実Release Masterで2026-09-11の週を取り込むと、othersが洋楽13件（アーティストa-z）→邦楽6件（同）の順になることを確認した。
 - 罫は上記のとおりcanvasの画素で実測。共有DBは変更していない。
+
+## 28. 2026-09-12：制作フローとUIの再定義（v2）を実装
+
+利用者の指摘「下書きと保存のしくみが複雑」「途中変更ができない」に対する再構成。
+仕様は[制作フローとUIの再定義（v2）](./generator-flow-v2.md)、Codexへの依頼と回答は[Codex向け引き継ぎ](./codex-generator-handoff.md)。
+ブランチは`feat/generator-flow-v2`。
+
+### 利用者の決定（2026-09-12）
+
+| 論点 | 決定 |
+| --- | --- |
+| 背景色 | カバーから自動抽出し、初期値として入れる |
+| 編集の開始 | 画像ごとの「編集」ボタンを押してから編集する |
+| 保存の粒度 | 画像ごとに1つの保存ボタンへ束ねる |
+| 並び順 | Monthly／Japanは取り込み規則。Weeklyは採用が行順、Other Releasesは従来規則 |
+
+上2件は既存文書に「変えない」と書かれていた決定で、利用者の承認を得て書き換えた。
+対象は本書と[引き継ぎプロンプト](./claude-generator-ui-handoff.md)の自動ロック、
+[操作仕様 §7](./generator-specification.md)と`tools/generator-lab/core/colors.mjs`の自動抽出。
+
+### 変更したファイルとUI
+
+| ファイル | 変更 |
+| --- | --- |
+| `app/generator/[id]/session.ts` | 新規。スナップショット・対象別ロック・対象別保存・画像アップロード・履歴を1か所へ。編集画面と共通設定画面で共有する |
+| `app/generator/[id]/recovery.ts` | 新規。ローカル復旧の読み書き。キー・`schemaVersion`・拒否条件は従来どおりで、両画面が同じ入れ物を使う |
+| `app/generator/[id]/settings/` | 新規。共通設定（波・合成背景・PNGサイズ）の画面。全画像のサムネイルで効き方が見える |
+| `app/generator/[id]/GeneratorWorkspace.tsx` | タブを2つに、編集開始ボタン、画像ごとの保存、画像単位の版表示、更新導線の統合 |
+| `app/generator/[id]/SourceUpdateDialog.tsx` | 新規。作品の増減と文字情報を1つのダイアログの2節にする |
+| `app/generator/[id]/ReimportDialog.tsx` / `SourceRefreshDialog.tsx` | Modalを持つダイアログから、上のダイアログへ入る節へ作り替えた |
+| `app/generator/[id]/source-payload.ts` | 新規。Release Masterの行から取り込み基準を組み直す純関数 |
+| `lib/generator/cover-color.ts` | 新規。カバーから背景色の候補を出す純関数 |
+| `app/generator/cover-color-client.ts` | 新規。ジャケットの画素を読んで候補を出す。描画コアと同じ画像キャッシュを使う |
+| `app/generator/runtime.tsx` | `jacketSource` / `loadJacket` を公開。ページ全体を組まずにジャケット1枚を読む |
+| `app/generator/PageNavigator.tsx` | `onReorder` を任意にした。共通設定画面では並び順ボタンを出さない |
+| `app/generator/[id]/Inspectors.tsx` | 背景設定に候補のスウォッチ。並び順の復元候補が限られる理由を出す |
+
+### 決めたこと・守ったこと
+
+- **保存の粒度はUIだけの変更。** 画像ごとの「保存」は、内部では対象別PATCHを順に呼ぶ。
+  ロック・`expectedVersion`・`requestId`・履歴の粒度は変えていない。
+- 保存が途中で失敗したときは、Codexの回答（v2 §8-2）に合わせた。対象別の競合はその対象だけ失敗として
+  残りを続け、認証の失敗と結果不明（通信断・5xx）はそこで列を止める。
+- **更新の実行順序は固定**：作品の増減を新しいversionとして確定 → 文字情報と取り込み基準を下書きへ。
+  逆順にはできない。下書きがあると取り込み直しがDB側で止まるため。未保存があるときはダイアログを開かない。
+- 取り込み基準（`item.source`）を進めるのは、利用者が項目を選んだ作品と、カバー画像が変わった作品だけ。
+  手を入れた作品まで黙って進めると、次の更新で差分が出なくなる。
+- 背景色の抽出は、実物投稿7枚を画素で測って決めた。合成後の背景は彩度12〜33%・明度55〜78%だったので、
+  色の面は彩度25〜60%・明度45〜75%へ寄せる。**人が選んだ色相がジャケットの主要色と160°以上離れた画像が
+  7枚中3枚あった**ため、単一の推定値ではなく候補を並べる。
+- 未設定の画像で「編集」を押したときだけ初期値を入れる。見て回っただけで未保存が増え、
+  PNGの書き出しが止まるのを避けるため。
+- 別の画像へ移るとき、直していない画像のロックは返す。未保存があるときだけ残す。
+
+### 実行した確認
+
+- `npx tsc --noEmit --incremental false`、`npm run lint`、`npm test`（25ファイル・374件）、`npm run build`：すべて成功。
+- 背景色の実測は`tools/generator-lab/reference`の投稿7枚。`sharp`で背景帯とジャケットの画素を読んだ。
+- 新しい純関数にテストを書いた。`imageSaveTargets`（5件）、`cover-color`（9件）、`source-payload`（10件）。
+
+### 未確認事項
+
+- **実ブラウザでの確認をしていない。** このセッションではブラウザからlocalhostを開けなかった
+  （プレビューの起動はできるが、画面の表示が拒否される）。次の担当者か次のセッションで、
+  `/generator/uipreview-temp`と実文書の両方を見ること。
+- 実共有DBでの保存・更新・背景色の確定は未実施。依頼待ち。
+- `202609120001_generator_item_source.sql`（Codex）は共有DBへ未適用。適用前は作品の保存に`source`を載せると失敗する。
+- 掲載画像（作品2件）とOther Releases（最大60件）での画像ごとの保存は、実データで未確認。
+- 背景色の候補が実際に使えるかは、実ジャケットで未確認。
+
+### Codexへ確認・引き継ぐ事項
+
+- `source`付きの保存は、マイグレーション適用まで本番で使えない。適用の順番を合わせたい。
+- Other Releasesで60作品を続けて保存する場合の所要時間は未計測。
