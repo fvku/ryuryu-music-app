@@ -9,7 +9,7 @@
 | Supabase | Organization `fvku's Org`、project ref `jmgpepnycyyjujkrrvwy`、東京。表示名`hyoryu-tools`への変更はユーザーへ依頼済み。2026-09-11の確認時は管理画面がサインイン画面へ遷移し、管理API認証も無いため完了未確認。[設定](https://supabase.com/dashboard/project/jmgpepnycyyjujkrrvwy/settings/general) |
 | 旧Vercel | `fvkus-projects/prototype`、ID `prj_xbRKxSjaNMm9loxkzJt2QQRmqB80`。pause API成功、再取得で`paused:true`、公開URLがHTTP 503になった。[管理画面](https://vercel.com/fvkus-projects/prototype) |
 | 旧Cron | `/api/cron/resolve`、`0 3 * * *`（UTC、JST 12:00）。2026-09-11にVercel Settings → Cron Jobsで無効化し、再取得で`disabledAt: 2026-09-10T15:02:09.987Z`を確認した。[無効化手順](https://vercel.com/docs/cron-jobs/manage-cron-jobs) |
-| 新DB | `generator_*`の5テーブル、保存・ロック・履歴・構成版・画像ライフサイクル・再取り込みRPCを適用済み。[初期SQL](../supabase/migrations/202609040001_generator.sql)、[追加SQL](../supabase/migrations/202609050001_generator_completion.sql)、[再取り込みSQL](../supabase/migrations/202609110001_generator_reimport.sql) |
+| 新DB | `generator_*`の5テーブル、保存・ロック・履歴・構成版・画像ライフサイクル・再取り込みRPCを適用済み。[初期SQL](../supabase/migrations/202609040001_generator.sql)、[追加SQL](../supabase/migrations/202609050001_generator_completion.sql)、[再取り込みSQL](../supabase/migrations/202609110001_generator_reimport.sql)、[source更新SQL](../supabase/migrations/202609120001_generator_item_source.sql) |
 | 新Storage | `generator-assets`作成済み。非公開、PNG/JPEG/WebP、1ファイル10MiBまで。サーバーで形式・寸法・40MP上限を検証してからready確定し、認可ルート経由で取得する。[画像実装](../lib/generator/image.ts) |
 | 環境 | Git対象外の`.env.development.local`にサーバー専用接続を設定。既存legacy service_roleキーを利用し、DBパスワードはコピーしていない。ファイル権限600。Vercel Productionには`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`GENERATOR_ENABLED=true`を暗号化登録し、再デプロイはReady。Previewには本番DB接続を登録していない。[設定処理](../tools/generator-admin/configure.mjs) |
 
@@ -54,7 +54,7 @@ DB追加前に、`pl_*`の全行、列・制約・ポリシー、Storageのバ�
 
 根拠：[権限の確認処理](../tools/generator-admin/reuse-project.mjs)、[実DBスモークテスト](../tools/generator-admin/live-smoke.mts)。ローカルの本体テスト267件、ESLint、型検査、本番ビルドも成功した。
 
-3つのマイグレーションは**既に適用済み**なので、編集・再適用しない。以後の変更は新しい追加マイグレーションとこの適用記録を照合して進める。
+4つのマイグレーション（`202609120001_generator_item_source.sql`を含む）は**既に適用済み**なので、編集・再適用しない。以後の変更は新しい追加マイグレーションとこの適用記録を照合して進める。
 
 ## 今後の分離・削除方針
 

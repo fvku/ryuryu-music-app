@@ -431,7 +431,7 @@ v2では版の表示を画像単位に組み替えるので、「この画像の
 
 1. `item.source`は案2を採用した。item PATCHが従来の`content`と、任意のRelease Master由来`source`を同じ
    itemロック・版・requestIdで原子的に保存する。手動ジャケットの`content.jacketAssetId`はsource更新で消えない。
-   新規SQLは`202609120001_generator_item_source.sql`で、共有DBには未適用。
+   新規SQLは`202609120001_generator_item_source.sql`。2026-09-12に共有DBへ適用済み（利用者がSQL Editorで実行し、Claude Codeが関数の存在を確認）。
 2. 画像保存は部分成功を正式な扱いとし、一括RPCは追加しない。最大60作品＋背景を同時1件・固定待機0msでPATCHする。
    2xxは確定済みにし、通信断・5xxだけは同じrequestIdと本文で結果を確定するまで列を止める。
 3. Weekly採用をRelease Master行順へ変更した。初回と`reimport`の`resort: true`で同じ規則を使い、
