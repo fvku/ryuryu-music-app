@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { releaseMasterCover } from "../cover-source";
+import { httpsImageUrl, releaseMasterCover } from "../cover-source";
 
 describe("releaseMasterCover", () => {
   it("uses the 画像リンク変換 column first", () => {
@@ -19,5 +19,26 @@ describe("releaseMasterCover", () => {
 
   it("returns null when the row has neither", () => {
     expect(releaseMasterCover({ coverUrlLarge: "", coverUrl: "  " })).toBeNull();
+  });
+});
+
+describe("httpsImageUrl", () => {
+  it("accepts an https URL from any host", () => {
+    expect(httpsImageUrl("https://images.example.test/a.jpg")).toBe("https://images.example.test/a.jpg");
+  });
+
+  it("trims surrounding spaces from a pasted value", () => {
+    expect(httpsImageUrl("  https://images.example.test/a.jpg  ")).toBe("https://images.example.test/a.jpg");
+  });
+
+  it("rejects http, other schemes and non-URLs", () => {
+    expect(httpsImageUrl("http://images.example.test/a.jpg")).toBeNull();
+    expect(httpsImageUrl("javascript:alert(1)")).toBeNull();
+    expect(httpsImageUrl("これはURLではない")).toBeNull();
+    expect(httpsImageUrl("")).toBeNull();
+  });
+
+  it("rejects a value longer than the stored limit", () => {
+    expect(httpsImageUrl(`https://images.example.test/${"a".repeat(2000)}.jpg`)).toBeNull();
   });
 });

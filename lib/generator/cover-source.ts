@@ -12,3 +12,18 @@ import type { ReleaseMasterAlbum } from "../types";
 export function releaseMasterCover(album: Pick<ReleaseMasterAlbum, "coverUrl" | "coverUrlLarge">): string | null {
   return album.coverUrlLarge.trim() || album.coverUrl.trim() || null;
 }
+
+/**
+ * カバー画像として使えるURLか。文書に入る値の検査（`parseItemSource`）と同じ条件に合わせてある。
+ * httpsだけを通し、長さは2000文字まで。取得元のホストは問わない。
+ */
+export function httpsImageUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 2000) return null;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}

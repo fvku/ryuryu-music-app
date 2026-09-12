@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { GeneratorDocument, ItemContent } from "@/lib/generator/model";
 import { applySelectedSpacing, rebaseKerns, selectedSpacing } from "@/lib/generator/text-edit";
 import type { BodyDiagnostic } from "../GeneratorPreview";
+import { JacketUrlError, jacketFileFromUrl } from "../jacket-url";
 import { Checkbox, Chip, Field, SecondaryButton, SelectInput, TextArea, TextInput } from "../ui";
 import { type TargetState } from "./Inspectors";
 import { cloneContent, same, type FieldSelection } from "./workspace-types";
@@ -138,6 +139,33 @@ export default function ItemInspector({
   const appliedRef = useRef("");
   const [editHistory, setEditHistory] = useState<{ undo: ItemContent[]; redo: ItemContent[] }>({ undo: [], redo: [] });
   const readOnly = !state.locked || state.disabled;
+  const [jacketUrl, setJacketUrl] = useState("");
+  const [jacketNote, setJacketNote] = useState<{ tone: "warn" | "info"; text: string } | null>(null);
+  const [fetchingJacket, setFetchingJacket] = useState(false);
+
+  /** 貼ったURLの画像をブラウザで読み、既存のジャケット差し替えとして保存する。 */
+  async function applyJacketUrl(draft: ItemContent) {
+    setFetchingJacket(true);
+    setJacketNote({ tone: "info", text: "画像を読み込んでいます…" });
+    try {
+      const file = await jacketFileFromUrl(jacketUrl);
+      const id = await onImage(file);
+      if (!id) {
+        setJacketNote({ tone: "warn", text: "画像を共有Storageへ保存できませんでした。" });
+        return;
+      }
+      applyDraft({ ...draft, jacketAssetId: id });
+      setJacketUrl("");
+      setJacketNote({ tone: "info", text: "URLの画像に差し替えました。この画像の「保存」で版に確定します。" });
+    } catch (error) {
+      setJacketNote({
+        tone: "warn",
+        text: error instanceof JacketUrlError ? error.message : `画像を取り込めませんでした: ${(error as Error).message}`,
+      });
+    } finally {
+      setFetchingJacket(false);
+    }
+  }
 
   function applyDraft(next: ItemContent) {
     if (same(value, next)) return;
@@ -461,7 +489,9 @@ export default function ItemInspector({
           {jacketMissing && !value.jacketAssetId && (
             <p className="mt-1 text-[10px] leading-4" style={{ color: "#fcd34d" }}>
               Release Masterの「画像リンク変換」にも「spotifyカバー」にもURLが無いか、画像を読み込めませんでした。
-              {readOnly ? "「この画像を編集」を押すと、ここから差し替えられます。" : "下から画像を選ぶと差し替えられます。"}
+              {readOnly
+                ? "「この画像を編集」を押すと、ファイルを選ぶか画像のURLを貼って差し替えられます。"
+                : "下からファイルを選ぶか、画像のURLを貼ってください。"}
             </p>
           )}
           {!readOnly && (
@@ -477,12 +507,33 @@ export default function ItemInspector({
                 }}
                 className="block w-full text-[11px]"
               />
+              <p className="text-[10px]" style={{ color: "var(--text-secondary)" }}>PNG・JPEG・WebP、10MB以下。</p>
+              <div className="flex gap-2">
+                <TextInput
+                  value={jacketUrl}
+                  onChange={event => setJacketUrl(event.target.value)}
+                  placeholder="画像のURLを貼る（https）"
+                  disabled={readOnly || fetchingJacket}
+                  className="min-w-0 flex-1 !mt-0 text-[11px]"
+                />
+                <SecondaryButton
+                  disabled={readOnly || fetchingJacket || !jacketUrl.trim()}
+                  onClick={() => void applyJacketUrl(value)}
+                  className="min-h-9 shrink-0 px-3 text-[11px]"
+                >
+                  URLから取り込む
+                </SecondaryButton>
+              </div>
+              {jacketNote && (
+                <p className="text-[10px] leading-4" style={{ color: jacketNote.tone === "warn" ? "#fcd34d" : "var(--text-secondary)" }}>
+                  {jacketNote.text}
+                </p>
+              )}
               {value.jacketAssetId && (
                 <SecondaryButton onClick={() => applyDraft({ ...value, jacketAssetId: null })} className="min-h-9 px-3 text-[11px]">
                   Release Masterの画像へ戻す
                 </SecondaryButton>
               )}
-              <p className="text-[10px]" style={{ color: "var(--text-secondary)" }}>PNG・JPEG・WebP、10MB以下。</p>
             </div>
           )}
         </li>}
