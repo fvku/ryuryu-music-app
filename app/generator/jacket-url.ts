@@ -23,7 +23,13 @@ function load(src: string): Promise<HTMLImageElement> {
     const image = new Image();
     image.crossOrigin = "anonymous";
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new JacketUrlError("画像を読み込めませんでした。URLが画像を直接指しているか確認してください。"));
+    // onerrorでは、CORSで止められたのか404なのかを区別できない。
+    // 実際に多いのはCORS非対応の配信元（Bandcampのf4.bcbits.comなど、2026-09-13に実測）なので、
+    // そちらを先に挙げ、いま使える手順まで書く。
+    image.onerror = () => reject(new JacketUrlError(
+      "この画像はブラウザから読み込めませんでした。配信元がブラウザからの読み取りを許していない（Bandcampなど）か、"
+      + "URLが画像を直接指していない可能性があります。画像を保存してから、上のファイル選択で差し替えてください。",
+    ));
     image.src = src;
   });
 }
