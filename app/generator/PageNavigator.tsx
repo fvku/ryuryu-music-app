@@ -8,7 +8,7 @@ import { Chip } from "./ui";
 const THUMBNAIL = 200;
 
 /** 画像ごとの状態。文書全体の集計だけでは、どの画像かがサムネイルから分からないため。 */
-export type PageBadges = { dirty: boolean; lockedBy: string | null; needsColor: boolean };
+export type PageBadges = { dirty: boolean; lockedBy: string | null; needsColor: boolean; held?: boolean };
 
 type Badge = { key: string; label: string; short: string; title: string; bg: string; fg: string };
 
@@ -17,6 +17,9 @@ function badgesOf(state: PageBadges | undefined): Badge[] {
   const list: Badge[] = [];
   if (state.dirty) {
     list.push({ key: "dirty", label: "未保存", short: "未", title: "共有DBに未保存の変更があります", bg: "rgba(245,158,11,.18)", fg: "#fcd34d" });
+  }
+  if (state.held) {
+    list.push({ key: "held", label: "編集中", short: "編", title: "この端末が編集権を持っています", bg: "rgba(16,185,129,.18)", fg: "#6ee7b7" });
   }
   if (state.lockedBy) {
     list.push({ key: "lock", label: "他が編集中", short: "他", title: `${state.lockedBy} が編集中です`, bg: "rgba(244,63,94,.16)", fg: "#fda4af" });

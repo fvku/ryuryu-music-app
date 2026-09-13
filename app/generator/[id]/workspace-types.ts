@@ -85,6 +85,7 @@ export function derivePageBadges({
   dirtyPageIds,
   pageColors,
   foreignLocks,
+  heldLocks = [],
 }: {
   pages: { id: string; itemIds: string[]; bgColor?: string | null }[];
   isItemDirty(itemId: string): boolean;
@@ -94,6 +95,8 @@ export function derivePageBadges({
   pageColors: Record<string, string>;
   /** この端末が持っていないロック。 */
   foreignLocks: { kind: string; targetId: string; owner: string }[];
+  /** この端末が持っているロック。表示中でない画像の分も見えるようにする。 */
+  heldLocks?: { kind: string; targetId: string }[];
 }): Record<string, PageBadges> {
   const result: Record<string, PageBadges> = {};
   for (const page of pages) {
@@ -102,6 +105,9 @@ export function derivePageBadges({
     result[page.id] = {
       dirty: dirtyPageIds.has(page.id) || page.itemIds.some(id => isItemDirty(id)),
       lockedBy: foreign ? foreign.owner : null,
+      // 未保存の画像から離れるとロックを持ったままにする。見えないと解放できないので印を出す。
+      held: heldLocks.some(lock => (lock.kind === "page" && lock.targetId === page.id)
+        || (lock.kind === "item" && page.itemIds.includes(lock.targetId))),
       needsColor: !(pageColors[page.id] ?? page.bgColor),
     };
   }

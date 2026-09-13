@@ -389,9 +389,11 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       setEditingPageId(null);
     }
     // 自分の別端末・前に開いていた画面が持ったままのロックも、同じ理由で邪魔になる。
+    // 画面が持っている一覧は古いことがあるので、共有DBから取り直してから判断する。
     // 引き取ってから解放する。**他の人のロックには触れない。**
-    const mineElsewhere = snapshot.locks.filter(lock => (lock.kind === "item" || lock.kind === "page")
-      && lock.owner === actor && !activeLocks[keyOf(lock.kind as LockKind, lock.targetId)]);
+    const latest = await session.fetchSnapshot();
+    const mineElsewhere = (latest?.locks || snapshot.locks).filter(lock => (lock.kind === "item" || lock.kind === "page")
+      && lock.owner === actor && !locksRef.current[keyOf(lock.kind as LockKind, lock.targetId)]);
     for (const lock of mineElsewhere) {
       const taken = await session.acquire(lock.kind as LockKind, lock.targetId, "transfer");
       if (taken) await session.release(lock.kind as LockKind, lock.targetId);
@@ -709,6 +711,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     dirtyPageIds: new Set(dirtyPages.map(entry => entry.value.id)),
     pageColors,
     foreignLocks: heldElsewhere,
+    heldLocks: Object.values(activeLocks),
   });
 
   const navigator = (orientation: "vertical" | "horizontal") => (

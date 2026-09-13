@@ -56,12 +56,15 @@ export function useGeneratorSession({ initialSnapshot, actor, initialStatus }: {
     });
   }, []);
 
+  /**
+   * ロックの正本は`locksRef`。取得した直後に解放する、といった同じ処理の中で続けて使うため、
+   * 参照を**同期的に**進めてから描画用のstateへ反映する。
+   * stateの更新関数の中で参照を書き換えると、次の行で読んでも古いままになることがある。
+   */
   const setLocks = useCallback((value: (current: Record<string, ActiveLock>) => Record<string, ActiveLock>) => {
-    setActiveLocks(current => {
-      const next = value(current);
-      locksRef.current = next;
-      return next;
-    });
+    const next = value(locksRef.current);
+    locksRef.current = next;
+    setActiveLocks(next);
   }, []);
 
   useEffect(() => {
