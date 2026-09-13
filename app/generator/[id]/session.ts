@@ -263,6 +263,31 @@ export function useGeneratorSession({ initialSnapshot, actor, initialStatus }: {
     }
   }, [documentId]);
 
+  /** URLの画像はサーバーで取得する。配信元のCORSに依存せず、元バイトを再圧縮せず保存できる。 */
+  const uploadImageUrl = useCallback(async (targetId: string, url: string): Promise<string | null> => {
+    const lock = locksRef.current[keyOf("item", targetId)];
+    if (!lock) {
+      setStatus({ tone: "warn", text: "画像URLを取り込む前に「編集」を押してください。" });
+      return null;
+    }
+    setBusy(true);
+    setStatus({ tone: "info", text: "画像URLを安全に取得し、共有Storageへ保存しています…" });
+    try {
+      const result = await generatorJson<{ id: string }>(await fetch(`/api/generator/documents/${documentId}/assets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, assetId: crypto.randomUUID(), ...lockPayload(lock) }),
+      }));
+      setStatus({ tone: "success", text: "URLの画像を保存しました。「保存」で版に確定してください。" });
+      return result.id;
+    } catch (error) {
+      setStatus({ tone: "error", text: (error as Error).message });
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }, [documentId]);
+
   const fetchSnapshot = useCallback(async (): Promise<GeneratorSnapshot | null> => {
     try {
       return await generatorJson<GeneratorSnapshot>(await fetch(`/api/generator/documents/${documentId}`, { cache: "no-store" }));
@@ -291,6 +316,7 @@ export function useGeneratorSession({ initialSnapshot, actor, initialStatus }: {
     releaseMany,
     saveTarget,
     uploadImage,
+    uploadImageUrl,
     fetchSnapshot,
     pendingSaves,
     clientId,

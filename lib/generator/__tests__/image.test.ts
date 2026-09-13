@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inspectGeneratorImage } from "../image";
+import { detectGeneratorImageMime, inspectGeneratorImage } from "../image";
 
 function png(width: number, height: number) {
   const bytes = new Uint8Array(24), view = new DataView(bytes.buffer);
@@ -9,6 +9,7 @@ function png(width: number, height: number) {
 
 describe("generator image validation", () => {
   it("reads PNG dimensions from its signature and IHDR", () => expect(inspectGeneratorImage(png(1200, 800), "image/png")).toEqual({ mimeType: "image/png", width: 1200, height: 800 }));
+  it("detects MIME from bytes without trusting a response header", () => expect(detectGeneratorImageMime(png(1200, 800))).toBe("image/png"));
   it("rejects a claimed type mismatch", () => expect(() => inspectGeneratorImage(png(10, 10), "image/jpeg")).toThrow("PNG・JPEG・WebP"));
   it("rejects decompression-sized images", () => expect(() => inspectGeneratorImage(png(10000, 10000), "image/png")).toThrow("PNG・JPEG・WebP"));
   it("reads a JPEG start-of-frame", () => {

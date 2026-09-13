@@ -27,3 +27,9 @@ export function httpsImageUrl(value: string): string | null {
     return null;
   }
 }
+
+/** 外部カバーを、認証付き同一Originの画像取得APIへ向ける。 */
+export function generatorRemoteImageUrl(value: string): string | null {
+  const src = httpsImageUrl(value);
+  return src ? `/api/generator/remote-image?url=${encodeURIComponent(src)}` : null;
+}

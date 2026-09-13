@@ -948,6 +948,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                   state={itemTargetStateFor(activeItem.id)}
                   onDraft={content => setDrafts(current => ({ ...current, [activeItem.id]: content }))}
                   onImage={file => session.uploadImage("item", activeItem.id, file)}
+                  onImageUrl={url => session.uploadImageUrl(activeItem.id, url)}
                   selection={selection}
                   onSelection={next => setSelectionState({ ...next, itemId: activeItem.id, slotIndex: Math.min(slotIndex, Math.max(0, pageItems.length - 1)) })}
                   allowTracking={!phone}

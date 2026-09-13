@@ -10,6 +10,14 @@ function dimensions(width: number, height: number): Pick<GeneratorImage, "width"
   return { width, height };
 }
 
+/** 外部レスポンスのContent-Typeを信用せず、許可した画像形式を署名から決める。 */
+export function detectGeneratorImageMime(bytes: Uint8Array): GeneratorImage["mimeType"] {
+  if ([137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)) return "image/png";
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
+  if (String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP") return "image/webp";
+  invalid();
+}
+
 export function inspectGeneratorImage(bytes: Uint8Array, claimedType: string): GeneratorImage {
   if (bytes.length < 24 || bytes.length > 10 * 1024 * 1024) invalid();
   if ([137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)) {

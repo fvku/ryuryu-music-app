@@ -13,7 +13,7 @@
 | 保存 | 文書作成・一覧・読込、全項目編集、アルバム／ページ色／共通設定／構成の対象別保存、アカウント別ブラウザ復旧 | 共有DBへの自動保存は採用せず、対象別の明示保存をv1仕様とする |
 | ロック | 対象別取得・30秒延長・解放・編集者表示・同じ人の端末引き継ぎUI、3分失効 | 3端末受入 |
 | 履歴 | 保存と履歴の同時確定、履歴画面、対象別の過去版復元 | 過去版の独立プレビュー、文書全体の一括復元 |
-| 画像 | MIME・マジックバイト・寸法・10MB／40MP検査、非公開Storageへの準備・確定・認可読取 | 実機の写真入力受入 |
+| 画像 | ファイル／公開HTTPS URL入力、マジックバイト・寸法・10MB／40MP検査、非公開Storageへの準備・確定・認可読取、外部カバーの認証付き中継 | 実機の写真入力受入 |
 | 描画 | Monthly／Japanの採用・掲載、Weeklyの表紙・メイン・Others、即時プレビュー、はみ出し検査、1200／2400px PNG・全ページZIP。実共有W36文書で7枚ZIPまで確認済み | 物理iPhone実機での反復出力負荷試験 |
 | 構成 | 構成版、構成ロック、採用／掲載内の並び替え、Weeklyのメイン↔Others swap、対象別復元 | 作品追加・削除・再取り込み |
 
@@ -33,7 +33,7 @@
 
 ## 3. API
 
-すべて`/api/generator/documents`配下。入力型は[モデル](../lib/generator/model.ts)・[操作パーサー](../lib/generator/commands.ts)、サンプル文書は[テストfixture](../lib/generator/__tests__/fixture.ts)を参照する。fixtureは実データではない。
+文書操作は`/api/generator/documents`配下。入力型は[モデル](../lib/generator/model.ts)・[操作パーサー](../lib/generator/commands.ts)、サンプル文書は[テストfixture](../lib/generator/__tests__/fixture.ts)を参照する。fixtureは実データではない。
 
 | メソッド・相対パス | 入力／用途 |
 | --- | --- |
@@ -43,19 +43,23 @@
 | PATCH `/:id` | 対象の保存、または`restoreVersion`を指定した復元 |
 | POST `/:id/locks` | `action: acquire / heartbeat / release / transfer` |
 | GET `/:id/revisions?before=N` | Nより前の履歴メタデータ、最新50件 |
-| POST `/:id/assets` | ロックを伴う画像検証・非公開Storage保存・ready確定 |
+| POST `/:id/assets` | ロックを伴う画像検証・非公開Storage保存・ready確定。ファイルはmultipart、ジャケットURLは`{url, assetId, kind: "item", targetId, clientId, token, generation}`のJSON |
 | GET `/:id/assets/:assetId` | 同じ文書に属するready画像だけを認可取得 |
+| GET `/api/generator/remote-image?url=...` | Release Master由来の外部カバーを認証・検証後に同一Originで中継 |
 
 PATCHには`requestId, kind, targetId, clientId, token, generation, expectedVersion`と、`content`または`restoreVersion`の片方を送る。`kind`は`item / page / theme`。item保存に限り、Release Masterから再取得した完全な`source`を`content`と一緒に任意指定できる。`source.kind`は`release-master`だけを更新でき、手動作品のsourceは変更できない。source更新とcontent更新は同じitem version・履歴へ原子的に確定し、`content.jacketAssetId`をsource更新だけで消さない。item復元ではsourceとcontentを同じ対象として戻す。sourceを含む保存とitem復元は新しい`generator_item_save` RPCを使い、未適用DBがsourceを無視してcontentだけ確定することを防ぐ。ページ内容は`{bgColor}`のみ。themeとstructureの対象IDには文書IDを使う。ロックAPIは`structure`も受け付け、延長・解放では`generation`が必須。[ルート実装](../app/api/generator/documents/)、[操作検証](../lib/generator/commands.ts)、[source更新SQL](../supabase/migrations/202609120001_generator_item_source.sql)
 
 `202609120001_generator_item_source.sql`は2026-09-12に共有Supabaseへ適用した（利用者がSQL Editorで実行、`Success. No rows returned`）。適用後、`generator_item_save`・`generator_save`・`generator_reimport`の3つがRPCとして存在することを、存在しない文書IDで確認した（`NOT_FOUND`で返るため書き込みは発生しない）。`202609110001_generator_reimport.sql`以前は変更していない。
 
-全APIで毎回許可メンバーを検査し、更新者はセッションから確定する。クライアント指定のメールは受け付けない。書き込みは同一OriginとJSONを必須とし、本文は実際の読み込み量で1MiBまで。レスポンスはキャッシュしない。[HTTP処理](../lib/generator/http.ts)、[認可・入力制限](../lib/generator/access.ts)
+全APIで毎回許可メンバーを検査し、更新者はセッションから確定する。クライアント指定のメールは受け付けない。書き込みは同一Originを必須とする。JSON本文は実際の読み込み量で1MiBまで、画像ファイルはmultipartで10MiBまで。レスポンスはキャッシュしない。[HTTP処理](../lib/generator/http.ts)、[認可・入力制限](../lib/generator/access.ts)
+
+URL画像の取得は公開HTTPSだけを許す。URL内の資格情報を拒否し、DNS解決結果に私設・loopback・link-local・予約済みIPが1つでも含まれれば取得しない。検査済みIPへ接続を固定してDNS rebindingを防ぎ、最大3回のリダイレクトでも同じ検査を繰り返す。資格情報は外部へ送らず、各応答10秒、実受信10MiBで打ち切る。外部の`Content-Type`は信用せず、取得したバイトの署名と寸法でPNG／JPEG／WebPを判定する。[外部画像取得](../lib/generator/remote-image.ts)、[HTTP検証](../lib/generator/__tests__/http.test.ts)、[SSRF検証](../lib/generator/__tests__/remote-image.test.ts)
 
 ローカルの本番モード確認に限り、`GENERATOR_LOCAL_PREVIEW_AUTH_BYPASS=true`と`GENERATOR_LOCAL_PREVIEW_ACTOR=<許可メンバー>`をプロセスへ一時指定するとGoogle OAuthを迂回できる。`AUTH_URL`または`NEXTAUTH_URL`のホストがlocalhost／loopbackで、Vercel環境ではなく、指定actorが許可リストに含まれる場合だけ有効。本番・Previewデプロイの環境変数には登録しない。この迂回は認証入口だけで、共有DB、対象別ロック、Origin検査、版競合、履歴、Storageの経路は変えない。
 
 - 401：ログインまたはGoogle再ログインが必要。403：現在の許可リスト外、またはOrigin違反。
 - 400／413／415：入力形式・サイズ・Content-Typeの不備。
+- 422 `IMAGE_FETCH_FAILED`：公開画像URLの応答・リダイレクト・時間切れ等で画像を取得できない。
 - 409：版・ロック・画像準備状態・期間重複等の競合。最新状態の確認が必要。
 - 503 `GENERATOR_NOT_CONFIGURED`：共有保存未設定。ローカル下書き成功とは別。
 - 503 `STORAGE_UNAVAILABLE`：外部保存の失敗または結果不明。成功扱いにせず、結果不明時は同じ操作ID・本文で再確認する。

@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import type { GeneratorDocument, ItemContent } from "@/lib/generator/model";
 import { applySelectedSpacing, rebaseKerns, selectedSpacing } from "@/lib/generator/text-edit";
 import type { BodyDiagnostic } from "../GeneratorPreview";
-import { JacketUrlError, jacketFileFromUrl } from "../jacket-url";
 import { Checkbox, Chip, Field, SecondaryButton, SelectInput, TextArea, TextInput } from "../ui";
 import { type TargetState } from "./Inspectors";
 import { cloneContent, same, type FieldSelection } from "./workspace-types";
@@ -115,6 +114,7 @@ export default function ItemInspector({
   jacketMissing = false,
   onDraft,
   onImage,
+  onImageUrl,
   selection,
   onSelection,
   allowTracking,
@@ -128,6 +128,7 @@ export default function ItemInspector({
   jacketMissing?: boolean;
   onDraft(value: ItemContent): void;
   onImage(file: File): Promise<string | null>;
+  onImageUrl(url: string): Promise<string | null>;
   selection: FieldSelection;
   onSelection(next: { key: FieldKey; start: number; end: number; source: FieldSelection["source"] }): void;
   /** iPhoneでは字間の調整を出さない。値そのものは保持したまま、操作だけを外す。 */
@@ -143,24 +144,23 @@ export default function ItemInspector({
   const [jacketNote, setJacketNote] = useState<{ tone: "warn" | "info"; text: string } | null>(null);
   const [fetchingJacket, setFetchingJacket] = useState(false);
 
-  /** 貼ったURLの画像をブラウザで読み、既存のジャケット差し替えとして保存する。 */
+  /** 貼ったURLはサーバーで安全に取得し、既存のジャケット差し替えとして保存する。 */
   async function applyJacketUrl(draft: ItemContent) {
     setFetchingJacket(true);
-    setJacketNote({ tone: "info", text: "画像を読み込んでいます…" });
+    setJacketNote({ tone: "info", text: "画像URLから取り込んでいます…" });
     try {
-      const file = await jacketFileFromUrl(jacketUrl);
-      const id = await onImage(file);
+      const id = await onImageUrl(jacketUrl.trim());
       if (!id) {
-        setJacketNote({ tone: "warn", text: "画像を共有Storageへ保存できませんでした。" });
+        setJacketNote({ tone: "warn", text: "画像を取り込めませんでした。画面上部の理由を確認してください。" });
         return;
       }
       applyDraft({ ...draft, jacketAssetId: id });
       setJacketUrl("");
       setJacketNote({ tone: "info", text: "URLの画像に差し替えました。この画像の「保存」で版に確定します。" });
-    } catch (error) {
+    } catch {
       setJacketNote({
         tone: "warn",
-        text: error instanceof JacketUrlError ? error.message : `画像を取り込めませんでした: ${(error as Error).message}`,
+        text: "画像を取り込めませんでした。画面上部の理由を確認してください。",
       });
     } finally {
       setFetchingJacket(false);

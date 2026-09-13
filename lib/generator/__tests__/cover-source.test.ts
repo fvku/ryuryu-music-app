@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { httpsImageUrl, releaseMasterCover } from "../cover-source";
+import { generatorRemoteImageUrl, httpsImageUrl, releaseMasterCover } from "../cover-source";
 
 describe("releaseMasterCover", () => {
   it("uses the 画像リンク変換 column first", () => {
@@ -40,5 +40,13 @@ describe("httpsImageUrl", () => {
 
   it("rejects a value longer than the stored limit", () => {
     expect(httpsImageUrl(`https://images.example.test/${"a".repeat(2000)}.jpg`)).toBeNull();
+  });
+});
+
+describe("generatorRemoteImageUrl", () => {
+  it("routes an external cover through the authenticated same-origin endpoint", () => {
+    expect(generatorRemoteImageUrl("https://f4.bcbits.com/img/a0712120107_10.jpg"))
+      .toBe("/api/generator/remote-image?url=https%3A%2F%2Ff4.bcbits.com%2Fimg%2Fa0712120107_10.jpg");
+    expect(generatorRemoteImageUrl("http://localhost/cover.jpg")).toBeNull();
   });
 });
