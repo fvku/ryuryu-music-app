@@ -127,6 +127,7 @@ SQLでは見ない。TS側の`parseDocument`が正本なので、**APIが呼び�
 GET /api/generator/documents/<id>/reimport
 ```
 
+- **差分の取得は読み取り専用で、`structure`ロックを要求しない。** 画像や背景の編集中でも確認できる。
 - 文書の`series`と`period`から対象期間を決める（Weeklyは`period.start`の金曜、Monthly／Japanは`period.start`の先頭7文字）。
 - Release Masterを直読みする（`app/api/generator/source/route.ts`と同じ読み取り・正規化を共用する）。
 - `selectWeeklyAlbums` / `selectReleaseMasterAlbums`で対象行を出し、現在の作品と突き合わせる。
@@ -150,6 +151,7 @@ GET /api/generator/documents/<id>/reimport
 POST /api/generator/documents/<id>/reimport
 ```
 
+- 作品構成を確定する書き込みなので、実行直前に取得した`structure`ロックを必須とする。
 - body：`{ requestId, clientId, token, generation, expectedVersion, addKeys[], removeItemIds[], resort: boolean }`
 - サーバ側でもう一度Release Masterを読み、選ばれた分だけを反映した**完全なページ配列と追加作品**を組み立てる。
   クライアントから作品の中身を受け取らない（取り込み規則をサーバに集約する）。
@@ -160,18 +162,19 @@ POST /api/generator/documents/<id>/reimport
 
 ---
 
-## 5. UI（Claude Code担当。実装は機能側が入ってから）
+## 5. UI
 
-- 編集画面のヘッダーに「Release Masterから取り込み直す」。「最新版を再読込」「Release Masterから再取得」と並べる。
-  3つの違いが分かる文言にすること（共有DBの再読込／文字情報の更新／作品の増減）。
+- 編集画面のヘッダーは「最新版に更新」と「Release Master 再読込」の2本。後者のダイアログへ文字情報と作品構成の差分を統合する。
 - 確認ダイアログ：追加・削除・区分移動を画像ごとに並べ、削除は編集済みだけ既定OFF。並べ直しのチェック。実行後の枚数を出す。
-- 実行には`structure`ロックが要る。並び順モーダルと同じく明示的な編集開始を使う。
+- ダイアログを開いて差分を見る間はロックを取らず、現在の画像編集ロックも解放しない。
+- 作品の追加・削除・区分移動・並べ直しを実行するときだけ、自分の画像ロックを解放して`structure`ロックを取得し、POSTする。他の利用者が画像を編集中なら確定を待つ。文字情報・カバー差分をローカル下書きへ入れるだけなら`structure`ロックは取らない。
+- DBのpage↔structure排他は維持する。構成変更では、残るページでも`itemIds`が変わり得るため、旧構成を見て選んだ背景色が別の作品構成へ保存される競合を防ぐ。
 - 未保存の下書きがある状態でも実行できる（2026-09-13に変更）。生き残る作品の下書きはそのまま残し、外れる作品のぶんだけ破棄する。破棄する下書きがあるときは、削除の行に「未保存あり」を出して実行前に見せる。
 - 実行後は`snapshot`で全体を差し替える。下書き・ページ色は生き残るID のぶんだけ引き継ぎ、並びの一時状態は作り直す。
 
 ---
 
-## 6. 未決事項（Codexの判断が要る）
+## 6. 設計時の未決事項（§8で解決済み）
 
 1. `#`週番号（`period.weekNumber`）がRelease Master側で変わっていた場合、取り込み直しで更新するか。
    更新するなら`data.period`を書き換えることになる。表紙とファイル名に効く。

@@ -1,10 +1,11 @@
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { fixture } from "./fixture";
-const mocks = vi.hoisted(() => ({ auth: vi.fn(), fetchGeneratorImage: vi.fn() }));
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), fetchGeneratorImage: vi.fn(), readGeneratorReleaseMaster: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/lib/generator/remote-image", () => ({ fetchGeneratorImage: mocks.fetchGeneratorImage }));
+vi.mock("@/lib/generator/release-master", () => ({ readGeneratorReleaseMaster: mocks.readGeneratorReleaseMaster }));
 import { GET, POST } from "@/app/api/generator/documents/route";
 import { GET as read, PATCH } from "@/app/api/generator/documents/[id]/route";
 import { POST as lock } from "@/app/api/generator/documents/[id]/locks/route";
@@ -13,6 +14,7 @@ import { POST as uploadAsset } from "@/app/api/generator/documents/[id]/assets/r
 import { GET as readAsset } from "@/app/api/generator/documents/[id]/assets/[assetId]/route";
 import { GET as source } from "@/app/api/generator/source/route";
 import { GET as remoteImage } from "@/app/api/generator/remote-image/route";
+import { GET as reimportDiff } from "@/app/api/generator/documents/[id]/reimport/route";
 
 const email = "kohei.fuku0926@gmail.com";
 const validSession = { user: { email }, loginProvider: "google", googleVerifiedEmail: email };
@@ -25,6 +27,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   mocks.auth.mockReset(); mocks.auth.mockResolvedValue(validSession);
   mocks.fetchGeneratorImage.mockReset();
+  mocks.readGeneratorReleaseMaster.mockReset(); mocks.readGeneratorReleaseMaster.mockResolvedValue([]);
   fetchMock = vi.fn().mockImplementation(async () => Response.json({ version: 1 })); vi.stubGlobal("fetch", fetchMock);
   vi.stubEnv("ALLOWED_MEMBER_EMAILS", ""); vi.stubEnv("GENERATOR_ENABLED", "true");
   vi.stubEnv("SUPABASE_URL", "https://preview-test.supabase.co");
@@ -119,6 +122,24 @@ describe("authenticated generator routes", () => {
     expect((await history(new Request("https://app.example/api?before=0"), context())).status).toBe(400);
     expect((await history(new Request("https://app.example/api?before=3"), context())).status).toBe(200);
     expect(JSON.parse(fetchMock.mock.calls.at(-1)![1].body)).toHaveProperty("p_before", 3);
+  });
+  it("reads a reimport diff without acquiring a structure lock", async () => {
+    const document = fixture();
+    fetchMock.mockResolvedValueOnce(Response.json({
+      document, version: 1, themeVersion: 1, structureVersion: 1,
+      pageVersions: Object.fromEntries(document.pages.map(page => [page.id, 1])),
+      itemVersions: Object.fromEntries(document.items.map(item => [item.id, 1])),
+      updatedAt: "2026-09-13T00:00:00.000Z", updatedBy: email, locks: [],
+    }));
+    const result = await reimportDiff(
+      new Request(`https://app.example/api/generator/documents/${document.id}/reimport`),
+      { params: Promise.resolve({ id: document.id }) },
+    );
+    expect(result.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/rest/v1/rpc/generator_read");
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain("generator_lock");
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain("generator_reimport");
   });
   it("validates, registers and uploads an image without exposing its lock token", async () => {
     const id = randomUUID(), assetId = randomUUID(), itemId = randomUUID(), clientId = randomUUID();

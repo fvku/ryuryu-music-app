@@ -43,11 +43,15 @@
 | PATCH `/:id` | 対象の保存、または`restoreVersion`を指定した復元 |
 | POST `/:id/locks` | `action: acquire / heartbeat / release / transfer` |
 | GET `/:id/revisions?before=N` | Nより前の履歴メタデータ、最新50件 |
+| GET `/:id/reimport` | Release Masterとの差分を読み取り専用で取得。ロック不要 |
+| POST `/:id/reimport` | 作品の増減・区分移動・並べ直しを`structure`ロック付きで確定 |
 | POST `/:id/assets` | ロックを伴う画像検証・非公開Storage保存・ready確定。ファイルはmultipart、ジャケットURLは`{url, assetId, kind: "item", targetId, clientId, token, generation}`のJSON |
 | GET `/:id/assets/:assetId` | 同じ文書に属するready画像だけを認可取得 |
 | GET `/api/generator/remote-image?url=...` | Release Master由来の外部カバーを認証・検証後に同一Originで中継 |
 
 PATCHには`requestId, kind, targetId, clientId, token, generation, expectedVersion`と、`content`または`restoreVersion`の片方を送る。`kind`は`item / page / theme`。item保存に限り、Release Masterから再取得した完全な`source`を`content`と一緒に任意指定できる。`source.kind`は`release-master`だけを更新でき、手動作品のsourceは変更できない。source更新とcontent更新は同じitem version・履歴へ原子的に確定し、`content.jacketAssetId`をsource更新だけで消さない。item復元ではsourceとcontentを同じ対象として戻す。sourceを含む保存とitem復元は新しい`generator_item_save` RPCを使い、未適用DBがsourceを無視してcontentだけ確定することを防ぐ。ページ内容は`{bgColor}`のみ。themeとstructureの対象IDには文書IDを使う。ロックAPIは`structure`も受け付け、延長・解放では`generation`が必須。[ルート実装](../app/api/generator/documents/)、[操作検証](../lib/generator/commands.ts)、[source更新SQL](../supabase/migrations/202609120001_generator_item_source.sql)
+
+`GET /:id/reimport`は既存文書とRelease Masterを読むだけで、`generator_lock`を呼ばない。UIも差分確認時にはロックを取らず、実際に作品構成を変えるPOSTの直前だけ`structure`ロックを取得する。page↔structureの書き込み排他は維持する。残るページでも構成変更により`itemIds`が変わり得るため、旧画像を見て編集した背景色を新しい構成へ競合保存させないためである。文字情報・カバー差分をローカル下書きへ取り込むだけの操作は構成書き込みではない。
 
 `202609120001_generator_item_source.sql`は2026-09-12に共有Supabaseへ適用した（利用者がSQL Editorで実行、`Success. No rows returned`）。適用後、`generator_item_save`・`generator_save`・`generator_reimport`の3つがRPCとして存在することを、存在しない文書IDで確認した（`NOT_FOUND`で返るため書き込みは発生しない）。`202609110001_generator_reimport.sql`以前は変更していない。
 

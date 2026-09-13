@@ -26,7 +26,6 @@ import {
   derivePageBadges,
   imageSaveTargets,
   keyOf,
-  lockPayload,
   same,
   targetLabels,
   type ActiveLock,
@@ -377,36 +376,9 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
   /**
    * Release Masterをもう一度読み、作品の増減と文字情報の差分をまとめて確認する。
-   * 作品が消えると下書きの行き先が無くなるので、未保存があるときは開かない。
+   * 読み取りだけなので編集ロックは取らない。下書きがあっても差分を確認できる。
    */
   async function openSourceUpdate() {
-    // DBの規則で、画像（page）のロックを持ったままでは並び順（structure）のロックを取れない
-    // （202609040001_generator.sql の generator_lock）。読み直しは文書全体の操作なので、
-    // 自分が開いている画像の編集を先に終わらせる。下書きは残る。
-    const held = Object.values(locksRef.current).filter(entry => entry.kind === "item" || entry.kind === "page");
-    if (held.length) {
-      await session.releaseMany(held);
-      setEditingPageId(null);
-    }
-    // 自分の別端末・前に開いていた画面が持ったままのロックも、同じ理由で邪魔になる。
-    // 画面が持っている一覧は古いことがあるので、共有DBから取り直してから判断する。
-    // 引き取ってから解放する。**他の人のロックには触れない。**
-    const latest = await session.fetchSnapshot();
-    const mineElsewhere = (latest?.locks || snapshot.locks).filter(lock => (lock.kind === "item" || lock.kind === "page")
-      && lock.owner === actor && !locksRef.current[keyOf(lock.kind as LockKind, lock.targetId)]);
-    for (const lock of mineElsewhere) {
-      const taken = await session.acquire(lock.kind as LockKind, lock.targetId, "transfer");
-      if (taken) await session.release(lock.kind as LockKind, lock.targetId);
-    }
-    const lock = await session.acquire("structure", documentId);
-    if (!lock) {
-      setStatus({
-        tone: "error",
-        text: "いま読み直せません。ほかの人が画像や背景を編集していると、作品の増減を確認できません。"
-          + "編集が終わるのを待つか、その人に「編集を終了」を押してもらってください。",
-      });
-      return;
-    }
     setBusy(true);
     setStatus({ tone: "info", text: "Release Masterを読み直しています…" });
     try {
@@ -437,7 +409,6 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           : { tone: "success", text: "Release Masterと同じ内容です。更新するものはありません。" });
     } catch (error) {
       setStatus({ tone: "error", text: `Release Masterを読み直せませんでした: ${(error as Error).message}` });
-      await session.release("structure", documentId);
     } finally {
       setBusy(false);
     }
@@ -445,22 +416,71 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
   async function closeSourceUpdate() {
     setSourceUpdate(null);
+    // POSTの応答が不明だった場合は再試行用にstructureロックを保持する。利用者が閉じたら返す。
     await session.release("structure", documentId);
   }
 
   /**
+   * 作品構成を確定する直前にだけstructureロックを取る。
+   * DBはpageとstructureの同時ロックを拒否するため、自分の画像ロックはここで返す。
+   */
+  async function acquireReimportLock(removeItemIds: string[]): Promise<ActiveLock | null> {
+    // 先に共有DBのロックを確認し、既知の競合があるときは自分の画像編集を終わらせない。
+    const latest = await session.fetchSnapshot();
+    if (!latest) return null;
+    const removed = new Set(removeItemIds);
+    const localStructure = locksRef.current[keyOf("structure", documentId)];
+    const blocked = latest.locks.some(lock => (lock.kind === "page" && lock.owner !== actor)
+      || (lock.kind === "structure" && !localStructure)
+      || (lock.kind === "item" && removed.has(lock.targetId) && lock.owner !== actor));
+    if (blocked) {
+      setStatus({
+        tone: "error",
+        text: "差分は確認できますが、作品構成はいま確定できません。ほかの人が画像・削除対象を編集しているか、"
+          + "別の画面で構成を更新しています。"
+          + "編集が終わってから、もう一度実行してください。",
+      });
+      return null;
+    }
+    const held = Object.values(locksRef.current).filter(entry => entry.kind === "item" || entry.kind === "page");
+    if (held.length) {
+      await session.releaseMany(held);
+      setEditingPageId(null);
+    }
+    // 同じ利用者の別端末に残る画像ロックは引き取って返す。他の利用者のロックには触れない。
+    const mineElsewhere = latest.locks.filter(lock => (lock.kind === "item" || lock.kind === "page")
+      && lock.owner === actor && !locksRef.current[keyOf(lock.kind as LockKind, lock.targetId)]);
+    for (const foreignLock of mineElsewhere) {
+      const taken = await session.acquire(foreignLock.kind as LockKind, foreignLock.targetId, "transfer");
+      if (taken) await session.release(foreignLock.kind as LockKind, foreignLock.targetId);
+    }
+    const lock = await session.acquire("structure", documentId);
+    if (!lock) {
+      setStatus({
+        tone: "error",
+        text: "差分は確認できますが、作品構成はいま確定できません。ほかの編集操作と重なりました。"
+          + "編集が終わってから、もう一度実行してください。",
+      });
+    }
+    return lock;
+  }
+
+  /**
    * 更新を実行する。作品の増減を新しいversionとして確定してから、文字情報を下書きへ入れる。
-   * 逆順にはできない。下書きがあると取り込み直しがDB側で止まるため。
+   * 構成変更後の作品IDへ文字差分を当てるため、この順序を維持する。
    */
   async function applySourceUpdate(value: SourceUpdate) {
     const structureChanged = value.addKeys.length > 0 || value.removeItemIds.length > 0 || value.resort
       || (sourceUpdate?.diff.moved.length || 0) > 0;
     let document = snapshot.document;
     if (structureChanged) {
-      const next = await runReimport(value);
+      const lock = await acquireReimportLock(value.removeItemIds);
+      if (!lock) return;
+      const next = await runReimport(value, lock);
       if (!next) return;
       document = next.document;
     } else {
+      // 通常は未取得。結果不明の構成保存を取りやめて選択を変えた場合だけ、保持中のロックを返す。
       await session.release("structure", documentId);
     }
     const sources = sourceUpdate?.sources || {};
@@ -476,12 +496,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   }
 
   /** 作品の増減だけを共有DBへ確定する。成功したスナップショットを返す。 */
-  async function runReimport(value: SourceUpdate): Promise<GeneratorSnapshot | null> {
-    const lock = activeLocks[keyOf("structure", documentId)];
-    if (!lock) { setStatus({ tone: "warn", text: "更新の編集ロックを取得し直してください。" }); return null; }
-    // 自分が削除対象の作品を開いていた場合、その作品ロックだけを先に返す。
-    const doomed = Object.values(locksRef.current).filter(entry => entry.kind === "item" && value.removeItemIds.includes(entry.targetId));
-    if (doomed.length) await session.releaseMany(doomed);
+  async function runReimport(value: SourceUpdate, lock: ActiveLock): Promise<GeneratorSnapshot | null> {
     const change = {
       clientId: lock.clientId, token: lock.token, generation: lock.generation,
       expectedVersion: snapshot.structureVersion, addKeys: value.addKeys,
@@ -498,17 +513,12 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId, ...change }),
       }));
       pendingSaves.delete(requestKey);
-      // 保存済みならstructureロックはもう不要。失敗しても期限切れで解放される。
-      await fetch(`/api/generator/documents/${documentId}/locks`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "release", ...lockPayload(lock) }),
-      }).catch(() => undefined);
       const removed = new Set(value.removeItemIds);
       const retainedLocks = snapshot.locks.filter(entry => !(entry.kind === "structure" && entry.targetId === documentId)
         && !(entry.kind === "item" && removed.has(entry.targetId)));
       durationHydratedDocument.current = null;
       setSnapshot(snapshotWithLocks(next, retainedLocks));
-      await session.releaseMany(Object.values(locksRef.current).filter(entry => entry.kind === "structure" || removed.has(entry.targetId)));
+      await session.releaseMany([lock]);
       // 既存作品の内容は取り込み直しで変わらないので、生き残る作品の下書きはそのまま使える。
       // 消えた作品・消えた画像のぶんだけ落とす（行き先が無くなるため）。
       const survivingItems = new Set(next.document.items.map(item => item.id));
@@ -532,7 +542,10 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       return next;
     } catch (error) {
       const apiError = error as GeneratorApiError;
-      if (apiError.status !== undefined && apiError.status < 500) pendingSaves.delete(requestKey);
+      if (apiError.status !== undefined && apiError.status < 500) {
+        pendingSaves.delete(requestKey);
+        await session.releaseMany([lock]);
+      }
       setStatus(apiError.code === "VERSION_CONFLICT" || apiError.code === "LOCK_LOST"
         ? { tone: "error", text: "確認中に別の変更が保存されました。「最新版に更新」してから、差分を確認し直してください。" }
         : { tone: "error", text: apiError.message });
