@@ -47,8 +47,10 @@ export function StatusBanner({
         : "flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm"}`}
       style={{ borderColor: style.border, backgroundColor: style.background, color: style.text }}
     >
-      <span className={dense ? "w-full min-w-0 sm:flex-1" : "min-w-[14rem] flex-1"}>{children}</span>
-      {actions && <span className={`flex flex-wrap items-center ${dense ? "w-full min-w-0 gap-x-3 gap-y-1 sm:w-auto sm:shrink-0" : "shrink-0 gap-2"}`}>{actions}</span>}
+      {/* 操作側を shrink-0 にすると、編集者が複数いるときに本文の幅が0まで潰れて1文字ずつ折り返す。
+          本文に下限を持たせ、操作側は折り返して高さで吸収する。 */}
+      <span className={dense ? "w-full min-w-[12rem] sm:flex-1" : "min-w-[14rem] flex-1"}>{children}</span>
+      {actions && <span className={`flex flex-wrap items-center ${dense ? "w-full min-w-0 gap-x-3 gap-y-1 sm:w-auto sm:max-w-[60%]" : "shrink-0 gap-2"}`}>{actions}</span>}
     </div>
   );
 }
