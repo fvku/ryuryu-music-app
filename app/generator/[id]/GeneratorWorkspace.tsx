@@ -380,8 +380,31 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
    * 作品が消えると下書きの行き先が無くなるので、未保存があるときは開かない。
    */
   async function openSourceUpdate() {
+    // DBの規則で、画像（page）のロックを持ったままでは並び順（structure）のロックを取れない
+    // （202609040001_generator.sql の generator_lock）。読み直しは文書全体の操作なので、
+    // 自分が開いている画像の編集を先に終わらせる。下書きは残る。
+    const held = Object.values(locksRef.current).filter(entry => entry.kind === "item" || entry.kind === "page");
+    if (held.length) {
+      await session.releaseMany(held);
+      setEditingPageId(null);
+    }
+    // 自分の別端末・前に開いていた画面が持ったままのロックも、同じ理由で邪魔になる。
+    // 引き取ってから解放する。**他の人のロックには触れない。**
+    const mineElsewhere = snapshot.locks.filter(lock => (lock.kind === "item" || lock.kind === "page")
+      && lock.owner === actor && !activeLocks[keyOf(lock.kind as LockKind, lock.targetId)]);
+    for (const lock of mineElsewhere) {
+      const taken = await session.acquire(lock.kind as LockKind, lock.targetId, "transfer");
+      if (taken) await session.release(lock.kind as LockKind, lock.targetId);
+    }
     const lock = await session.acquire("structure", documentId);
-    if (!lock) return;
+    if (!lock) {
+      setStatus({
+        tone: "error",
+        text: "いま読み直せません。ほかの人が画像や背景を編集していると、作品の増減を確認できません。"
+          + "編集が終わるのを待つか、その人に「編集を終了」を押してもらってください。",
+      });
+      return;
+    }
     setBusy(true);
     setStatus({ tone: "info", text: "Release Masterを読み直しています…" });
     try {
