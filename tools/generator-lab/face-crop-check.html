@@ -1,0 +1,78 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>表紙の帯：顔検出による切り抜き位置の試験</title>
+<style>
+  body { font: 14px/1.7 system-ui; margin: 24px; max-width: 90em; }
+  pre { background: #111; color: #eee; padding: 12px; border-radius: 8px; overflow: auto; font-size: 12px; }
+  .row { display: flex; gap: 12px; align-items: flex-start; margin: 10px 0; }
+  .row canvas { border: 1px solid #ccc; }
+</style>
+<h1>表紙の帯：顔検出による切り抜き位置の試験</h1>
+<p>実物投稿の作品面からジャケットを切り出し、顔検出の結果と、実物の表紙で使われている横位置（帯の中心）を比べる。</p>
+<pre id="out">実行中…</pre>
+<div id="shots"></div>
+<script type="module">
+import { FaceDetector, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs';
+
+// 実物の表紙から逆算した帯の中心（ジャケット幅に対する割合）。measure は scratchpad の band-crop.mjs
+const TRUTH = {
+  '2026#37': [0.667, 0.317, 0.501, 0.501, 0.501],
+  '2026#36': [0.500, 0.284, 0.500, 0.500, 0.500],
+};
+const load = src => new Promise((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => resolve(image); image.onerror = () => reject(new Error(`読み込めません: ${src}`));
+  image.src = src;
+});
+const out = [];
+const shots = document.getElementById('shots');
+try {
+  const fileset = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm');
+  const detector = await FaceDetector.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite', delegate: 'CPU' },
+    runningMode: 'IMAGE', minDetectionConfidence: 0.3,
+  });
+  out.push(`Chrome内蔵 FaceDetector: ${'FaceDetector' in window ? 'あり' : 'なし'}`);
+  for (const [week, truth] of Object.entries(TRUTH)) {
+    for (let rank = 0; rank < 5; rank++) {
+      const post = await load(`./reference/${encodeURIComponent(week)}/2026_W-${rank + 1}.png`);
+      const s = post.width / 1200;
+      const jacket = document.createElement('canvas');
+      jacket.width = jacket.height = 800;
+      jacket.getContext('2d').drawImage(post, 200 * s, 50 * s, 800 * s, 800 * s, 0, 0, 800, 800);
+      const t0 = performance.now();
+      // short range は顔が画面の大半を占める前提のモデルなので、小さい顔のために分割しても試す
+      const whole = detector.detect(jacket).detections;
+      const tiles = [];
+      for (const [tx, ty] of [[0, 0], [400, 0], [0, 400], [400, 400], [200, 200]]) {
+        const tile = document.createElement('canvas'); tile.width = tile.height = 400;
+        tile.getContext('2d').drawImage(jacket, tx, ty, 400, 400, 0, 0, 400, 400);
+        for (const d of detector.detect(tile).detections)
+          tiles.push({ ...d, boundingBox: { originX: d.boundingBox.originX + tx, originY: d.boundingBox.originY + ty, width: d.boundingBox.width, height: d.boundingBox.height } });
+      }
+      const ms = performance.now() - t0;
+      const describe = list => list.map(d => {
+        const b = d.boundingBox;
+        return `x${((b.originX + b.width / 2) / 800 * 100).toFixed(0)}% y${((b.originY + b.height / 2) / 800 * 100).toFixed(0)}% 幅${(b.width / 800 * 100).toFixed(0)}% 確度${d.categories[0].score.toFixed(2)}`;
+      }).join(' ／ ') || 'なし';
+      out.push(`\n${week} ${rank + 1}位  実物の帯中心 ${(truth[rank] * 100).toFixed(1)}%  （${ms.toFixed(0)}ms）`);
+      out.push(`   全体: ${describe(whole)}`);
+      out.push(`   分割: ${describe(tiles)}`);
+
+      const row = document.createElement('div'); row.className = 'row';
+      const view = document.createElement('canvas'); view.width = view.height = 400;
+      const v = view.getContext('2d');
+      v.drawImage(jacket, 0, 0, 400, 400);
+      v.lineWidth = 2;
+      v.strokeStyle = '#0f0'; for (const d of whole) { const b = d.boundingBox; v.strokeRect(b.originX / 2, b.originY / 2, b.width / 2, b.height / 2); }
+      v.strokeStyle = '#ff0'; for (const d of tiles) { const b = d.boundingBox; v.strokeRect(b.originX / 2, b.originY / 2, b.width / 2, b.height / 2); }
+      v.strokeStyle = '#f0f'; v.strokeRect((truth[rank] - 0.1) * 400, 1, 80, 398);
+      const label = document.createElement('div'); label.textContent = `${week} ${rank + 1}位（桃＝実物の帯、緑＝全体検出、黄＝分割検出）`;
+      row.append(view, label); shots.appendChild(row);
+    }
+  }
+} catch (error) {
+  out.push(`失敗: ${error.stack || error.message}`);
+}
+document.getElementById('out').textContent = out.join('\n');
+</script>

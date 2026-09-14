@@ -115,6 +115,25 @@ describe("Weekly Release Master import", () => {
     // アルバム（洋楽→邦楽→洋邦が空）→ EP（洋楽→邦楽）。各区分の中はアーティスト名のa-z順。
     expect(others).toEqual(["Western", "Solo", "Domestic", "Unknown", "[EP] Western EP", "[EP] Japanese EP"]);
   });
+  it("orders same-genre Japanese artist names by Intl.Collator('ja'), not raw code point (2026#37実物投稿で確認)", () => {
+    const week = { date: "2026-08-07", weekAdoption: "掲載", genre: "邦楽" } as const;
+    // 実物投稿（2026#37）の並び: OZworld → ハク。→ ポルノグラフィティ → 斉藤和義 → 福山雅治 → 幽体コミュニケーションズ → 緑黄色社会。
+    // 単純な文字コード順（小文字化・コードポイント比較）では記号・数字・ローマ字が先、和文はその後に
+    // コードポイント順で並ぶため、この並びを再現できなかった。
+    const input = [
+      album({ no: "1", title: "あたまご", artist: "緑黄色社会", ...week }),
+      album({ no: "2", title: "忘れて", artist: "幽体コミュニケーションズ", ...week }),
+      album({ no: "3", title: "超新星", artist: "福山雅治", ...week }),
+      album({ no: "4", title: "日常Days", artist: "斉藤和義", ...week }),
+      album({ no: "5", title: "果実", artist: "ポルノグラフィティ", ...week }),
+      album({ no: "6", title: "世界が変わる時", artist: "ハク。", ...week }),
+      album({ no: "7", title: "おくまれお", artist: "OZworld", ...week }),
+    ];
+    const doc = importWeeklyDocument(input, "2026-08-07");
+    const items = new Map(doc.items.map(item => [item.id, item]));
+    const others = doc.pages.at(-1)!.itemIds.map(id => items.get(id)!.content.fields.title);
+    expect(others).toEqual(["おくまれお", "世界が変わる時", "果実", "日常Days", "超新星", "忘れて", "あたまご"]);
+  });
   it("uses exactly the WEEK groups and keeps an empty others page", () => {
     const doc = importWeeklyDocument([album({ date: "2026-08-07", weekAdoption: "採用" }), album({ no: "2", title: "Second", date: "2026-08-06", weekAdoption: "採用" })], "2026-08-07");
     expect(doc.pages.map(page => [page.kind, page.itemIds.length])).toEqual([["cover", 0], ["feature", 1], ["feature", 1], ["others", 0]]);

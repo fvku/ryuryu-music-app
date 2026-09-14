@@ -29,16 +29,30 @@ export function sortAlbums(albums: ReleaseMasterAlbum[]): ReleaseMasterAlbum[] {
 function genreRank(album: ReleaseMasterAlbum): number {
   return album.genre === "洋楽" ? 0 : album.genre === "邦楽" ? 1 : 2;
 }
+// Other Releasesのアーティスト名の照合順。🔴 2026-09-14訂正：コードポイント比較ではなく
+// Intl.Collator('ja')（日本語ロケールの一般的な辞書順）を使う。
+// 2026#37の実物投稿を突き合わせると、邦楽区分の並びは「OZworld → ハク。→ ポルノグラフィティ →
+// 斉藤和義 → 福山雅治 → 幽体コミュニケーションズ → 緑黄色社会」で、単純な文字コード順
+// （記号・数字が先、和文はA-Zの後）では再現できなかった。Intl.Collator('ja')に掛け直すと
+// 実物の並びと完全に一致した（漢字は読みを持たないため厳密な五十音順ではないが、CLDRの
+// 日本語照合規則に沿った一般的な並びが実物と一致している）。genreRankで洋楽／邦楽を先に
+// 分けているので、ローマ字表記の邦楽アーティスト（OZworldなど）が西洋の名前と混ざる心配はない
+// （同じ邦楽区分の中で照合されるだけ）。sortAlbums（Monthly／Japan／Weekly featureの並び）は
+// EP→日付→アーティストの日付優先の並びで、アーティスト名は同日タイブレークにしか使わないため、
+// こちらは変更しない。
+const artistCollator = new Intl.Collator("ja");
+function byArtistJa(a: ReleaseMasterAlbum, b: ReleaseMasterAlbum): number {
+  return artistCollator.compare(a.artist.trim(), b.artist.trim());
+}
 /**
  * Other Releasesの並び（Koheiの指示、2026-09-11）。
- * アルバム（洋楽 → 邦楽）→ EP（洋楽 → 邦楽）の順で、各区分の中はアーティスト名のa-z順。
+ * アルバム（洋楽 → 邦楽）→ EP（洋楽 → 邦楽）の順で、各区分の中はアーティスト名の照合順（a-z・五十音）。
  * 実運用のEPは邦楽なので、見た目は「洋楽アルバム → 邦楽アルバム → 邦楽EP」になる。
  * 日付は見ない（発売日でメインとOther Releasesの並びが揺れるのを避ける）。
- * アーティスト名は小文字にしてコードポイント比較するため、記号・数字が先、和文はA-Zの後になる。
  */
 export function sortWeeklyOthers(albums: ReleaseMasterAlbum[]): ReleaseMasterAlbum[] {
   return albums.slice().sort((a, b) => Number(ep.test(a.title)) - Number(ep.test(b.title))
-    || genreRank(a) - genreRank(b) || byArtist(a, b));
+    || genreRank(a) - genreRank(b) || byArtistJa(a, b));
 }
 function calendarDate(value: string): string | null {
   const match = value.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);

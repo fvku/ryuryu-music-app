@@ -1313,3 +1313,59 @@ UI側が差分を開く前に行っていた画像ロックの解放・別端末
 - 文字情報・カバー差分を下書きへ入れるだけなら`structure`ロックを取らない。
 - DB側の排他は維持した。残るページでも並べ直しで`itemIds`が変わり得るため、
   旧構成を見て選んだ背景色を新しい構成へ保存できてしまう、というのがCodexの理由。
+
+## 30. 2026-09-14：W37目視差分の修正（太さ・位置・並び順・表紙の顔検出クロップ）
+
+利用者からの2件の指摘（表紙のジャケット切り取りを顔中心にできるか、Other Releasesが太い）をきっかけに、
+`tools/generator-lab/reference/2026#37`（実物投稿7枚）を新設の検証ツールで測り直し、
+指摘の2件を含む5件の差分を修正した。詳細な実測根拠は`docs/generator-weekly-design.md`の
+2026-09-14追記、Codexへの相談は`docs/codex-generator-handoff.md`の同日追記を参照。
+
+### 変更したファイル
+
+| ファイル | 変更 |
+| --- | --- |
+| `tools/generator-lab/core/layout.mjs` | `OTHERS.TYPE.body`（weight 300・size 31・renderWeight廃止）、`TYPE.heading.size`（72）、`OTHERS.MIN_LEAD`新設（fits()の下限をsizeから独立）、`META_BASELINE`（1092.5）、`META_CELL.y`（1063.5） |
+| `tools/generator-lab/core/render.mjs` | `drawCover(ctx, img, c, focusX=0.5)`、`drawWeeklyCover`・`drawPage`が`slot.jacket.focusX`を読む経路 |
+| `tools/generator-lab/core/face-crop.mjs`（新規） | MediaPipe Tasks Visionをesm動的import（CDN）で読み、顔の水平中心を返す`detectFocusX()` |
+| `app/generator/runtime.tsx` | `LegacySlot.jacket.focusX`、`preparePage()`が表紙ページだけ顔検出を実行（4秒タイムアウト・srcごとキャッシュ・失敗時undefined） |
+| `lib/generator/source.ts` | `sortWeeklyOthers`のアーティスト比較を`Intl.Collator('ja')`へ（`byArtistJa`新設。`sortAlbums`は変更なし） |
+| `tools/generator-lab/weekly-weight-check.html`（新規） | 実物投稿とPNG書き出し経路の候補をインク幅・塗り量・ベースライン位置で照合する検証ツール |
+| `tools/generator-lab/face-crop-check.html`（新規） | 顔検出の結果と実物の切り抜き位置を並べて見る検証ツール |
+
+### 維持した機能契約
+
+- `GeneratorTheme`・DBスキーマ・ロック・保存契約は無変更。顔検出の結果は今回は**保存しない**
+  （毎回の描画で検出し直す。キャッシュはブラウザのメモリ内のみ、リロードで消える）。
+- `focusX`の既定値0.5は、従来の中央切り出し（`c.x + (c.w - w) / 2`）と数学的に完全に同一。
+  検出に失敗した作品・表紙以外のページは、これまでと1pxも変わらない。
+- `Layout.WEEKLY.OTHERS.fits()`の実際の閾値（29px）はこれまでと変えていない
+  （`TYPE.body.size`から独立させただけ）。既存の警告・出力可否の挙動は変わらない。
+
+### 実行した自動テスト
+
+`node --test tools/generator-lab/test/*.mjs`（61件）・`npx vitest run`（407件、新規2件含む）・
+`npx tsc --noEmit --incremental false`・`npm run lint`・`npm run build`、すべて成功。
+
+### 実ブラウザ確認
+
+`generator-preview-3458`（ローカル本番プレビュー、Google認証迂回）で実共有文書「2026 WEEK 37」
+（`c3f67801-8f91-4418-8475-802c622d4815`）を開いて確認した。**共有DBへの保存は行っていない（閲覧のみ）。**
+
+- コンソールに`Graph successfully started running`・`Created TensorFlow Lite XNNPACK delegate for CPU`
+  が出て、MediaPipeの検出器が実際に初期化・動作したことを確認した。
+- 表紙プレビューのcanvasを直接切り出し、2位（Ezra Collective）・1位（Tyber/FKJ）の帯で、
+  実物投稿と近い位置に顔が寄っていることを画素で確認した。
+- Other Releasesページで、文字が明らかに細くなったこと（weight 300）、既存の並び順で
+  クラッシュせず描画されることを確認した（この文書はversion 16のまま＝**旧ロジックで確定済みの並び**を
+  表示しているだけなので、並び順修正そのものの確認は下記のvitestに依る）。
+- ネットワークログでPATCH/POSTが一切発生していないこと（GETのみ）を確認し、書き込みが起きていないことを担保した。
+
+### 未確認事項
+
+- **表紙の顔検出の手動上書き。** 自動検出が外れた場合（今回の実測ではDizzee Rascal「We Want Bass」）に
+  人が直す手段がまだ無い。保存が要るためCodexへ相談を残した（上記）。
+- 並び順修正（`Intl.Collator('ja')`）は既存の実共有文書には反映されない（並びはimport時に確定し、
+  既存文書を遡って並べ直す機能は無い）。新規にWeekly文書を取り込むと反映される。実際の取り込みでの
+  確認は、共有DBへの書き込みを伴うため今回は行っていない（vitestの単体テストで実物の並びと一致することは確認済み）。
+- 物理iPhone実機、Safari／Edge／Brave。

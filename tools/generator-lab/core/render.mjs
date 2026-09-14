@@ -157,13 +157,21 @@ const Render = (() => {
     });
   }
 
-  function drawCover(ctx, img, c) {
+  /**
+   * @param {number} focusX  横方向のcover-fit窓をどこに置くか（0=左端に寄せる、0.5=中央〈既定〉、1=右端に寄せる）。
+   *   既定の0.5は従来の `c.x + (c.w - w) / 2` と数学的に同一なので、呼び出し側を増やしていない箇所の
+   *   見た目は一切変わらない。表紙の帯（drawWeeklyCover）だけ、顔検出の結果でこれを動かす。
+   */
+  function drawCover(ctx, img, c, focusX = 0.5) {
     if (!img) return;
     const s = Math.max(c.w / img.width, c.h / img.height);
     const w = img.width * s, h = img.height * s;
     ctx.save(); ctx.beginPath(); ctx.rect(c.x, c.y, c.w, c.h); ctx.clip();
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, c.x + (c.w - w) / 2, c.y + (c.h - h) / 2, w, h);
+    // dx = c.x + c.w/2 - focusX*w。focusX=0.5のとき c.x + (c.w-w)/2 と一致する（既定と同じ式）。
+    // s = Math.max(...) により w>=c.w が保証されるので、下のclampは常に有効な範囲を持つ。
+    const dx = Math.min(c.x, Math.max(c.x - (w - c.w), c.x + c.w / 2 - focusX * w));
+    ctx.drawImage(img, dx, c.y + (c.h - h) / 2, w, h);
     ctx.restore();
   }
 
@@ -336,7 +344,10 @@ const Render = (() => {
    * （generator-weekly-design.md §6.2・§12、Layout.WEEKLY.COVERのコメント参照）。
    * オーバーレイの色（#0040C7@60%）、帯の順序、ロゴ、週タイトルはすべて実測で確定している。
    *
-   * @param {object} cover  { jackets: HTMLImageElement[5]（1〜5位の順）, year: number, week: number, logo: HTMLImageElement }
+   * @param {object} cover  { jackets: Array<HTMLImageElement|{img,focusX}|null>（1〜5位の順）,
+   *   year: number, week: number, logo: HTMLImageElement }
+   *   jacketsの各要素はHTMLImageElementそのものでもよい（focusX省略=中央切り出し、既定と同じ）。
+   *   顔検出の結果を渡すときは{img, focusX}にする（focusXは0〜1、face-crop.mjsのdetectFocusX参照）。
    * @param {object} images { background, wave, bgColor }
    */
   function drawWeeklyCover(ctx, cover, images) {
@@ -347,8 +358,10 @@ const Render = (() => {
     // 帯5本。各帯にランクどおりのジャケットを敷き、色オーバーレイを重ねる（帯ごとではなく全体に1回でよい。
     // 帯の外に出ない前提でクリップは省略できるが、drawCoverが各帯のセルでクリップするので安全）。
     C.RANK_TO_BAND.forEach((bandIndex, rank) => {
-      const jacket = cover.jackets && cover.jackets[rank];
-      if (jacket) drawCover(ctx, jacket, C.bandCell(bandIndex));
+      const entry = cover.jackets && cover.jackets[rank];
+      const jacket = entry && (entry.img !== undefined ? entry.img : entry);
+      const focusX = entry && entry.img !== undefined && entry.focusX != null ? entry.focusX : 0.5;
+      if (jacket) drawCover(ctx, jacket, C.bandCell(bandIndex), focusX);
     });
     ctx.fillStyle = C.OVERLAY.color;
     ctx.fillRect(0, 0, L.CANVAS, L.CANVAS);
@@ -421,7 +434,9 @@ const Render = (() => {
     if (page.kind === 'feature') return drawWeeklyFeature(ctx, top, bg);
     if (page.kind === 'others') return drawWeeklyOthers(ctx, page.slots, bg);
     if (page.kind === 'cover') return drawWeeklyCover(ctx, {
-      jackets: page.slots.map(slot => slot.jacket && slot.jacket.img),
+      // slot.jacket.focusX は preparePage()（app側）が顔検出で埋める。未検出・エラー時はundefinedのまま
+      // ＝drawWeeklyCover側の既定（0.5＝中央切り出し）に落ちる。
+      jackets: page.slots.map(slot => slot.jacket && slot.jacket.img && { img: slot.jacket.img, focusX: slot.jacket.focusX }),
       year: page.week && page.week.year,
       week: page.week && page.week.number,
       logo: images && images.logo,

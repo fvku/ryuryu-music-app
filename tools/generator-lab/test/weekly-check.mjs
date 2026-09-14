@@ -20,7 +20,9 @@ test('セル・ベースラインは実物投稿7枚の実測値のまま（勝�
   assert.deepStrictEqual(L.WEEKLY.CELLS.panel, { x: 200, y: 856, w: 800, h: 294 });
   assert.strictEqual(L.WEEKLY.TITLE_BASELINE, 948.5);
   assert.strictEqual(L.WEEKLY.ARTIST_BASELINE, 1017.5);
-  assert.strictEqual(L.WEEKLY.META_BASELINE, 1096);
+  // 🔴 2026-09-14訂正：1096→1092.5。2026#36・2026#37の6面で列ごとのインク下端の最頻値を測り直した
+  // （旧値はコンマ等のディセンダに引きずられていた。layout.mjsのコメント参照）。
+  assert.strictEqual(L.WEEKLY.META_BASELINE, 1092.5);
   assert.strictEqual(L.WEEKLY.META_GAP, 16);
 });
 test('ジャケットとパネルは罫の太さぶん離れており、塗りが罫へ重ならない', () => {
@@ -109,10 +111,22 @@ test('1行だけなら天地の中央に置く（bodyLayoutForのn===1と同じ�
   assert.strictEqual(one.lead, 0);
   assert.strictEqual(one.baseline, (BOX.y + BOX.y + BOX.h) / 2 + (ASCENT - DESCENT) / 2);
 });
-test('行送りがフォントサイズ(29px)を下回る件数はfits()がfalseを返す（はみ出し扱い。§6.4）', () => {
+test('行送りがMIN_LEAD(29px)を下回る件数はfits()がfalseを返す（はみ出し扱い。§6.4）', () => {
+  assert.strictEqual(L.WEEKLY.OTHERS.MIN_LEAD, 29);
   assert.strictEqual(L.WEEKLY.OTHERS.fits(30), true);   // 841/29 = 29.0 ちょうど
   assert.strictEqual(L.WEEKLY.OTHERS.fits(31), false);  // 841/30 ≈ 28.03 < 29
   assert.strictEqual(L.WEEKLY.OTHERS.fits(1), true);
+});
+test('本文の太さ・見出しのサイズは2026#36・2026#37の実測どおり（🔴2026-09-14訂正）', () => {
+  // 旧値（weight 400・size 29・renderWeight 350）は実際には一度も効かず400のまま描かれていた
+  // （drawWeeklyOthersがopt.renderWeightを渡していなかったため）。weight 300・size 31が実物と一致する。
+  assert.strictEqual(L.WEEKLY.OTHERS.TYPE.body.weight, 300);
+  assert.strictEqual(L.WEEKLY.OTHERS.TYPE.body.size, 31);
+  assert.strictEqual(L.WEEKLY.OTHERS.TYPE.body.renderWeight, undefined);
+  assert.strictEqual(L.WEEKLY.OTHERS.TYPE.heading.size, 72);
+  // fits()の下限はMIN_LEADという独立の定数であり、TYPE.body.sizeを再訂正しても連動して動かない
+  // （31を下限にすると実物のW36（30行・行送り29px）が「収まらない」と誤判定してしまうため）。
+  assert.notStrictEqual(L.WEEKLY.OTHERS.MIN_LEAD, L.WEEKLY.OTHERS.TYPE.body.size);
 });
 test('Render.drawWeeklyOthers / Pages.toWeeklyOtherLine がエクスポートされている', () => {
   assert.strictEqual(typeof Render.drawWeeklyOthers, 'function');

@@ -20,7 +20,12 @@ import type { GeneratorDocument } from "@/lib/generator/model";
 import type { ReleaseMasterAlbum } from "@/lib/types";
 import { pickWaveMonth, waveMonthWarning, type WaveChoice } from "./wave-month";
 
-export type LegacySlot = CanvasPreviewPage["slots"][number] & { jacket: { img: HTMLImageElement | null }; bgColor?: string };
+export type LegacySlot = CanvasPreviewPage["slots"][number] & {
+  // focusXは表紙（cover）ページの帯だけが使う。顔検出できなかった・未対象のページはundefinedのままで、
+  // Render.drawWeeklyCoverが既定の0.5（中央切り出し、従来どおり）にフォールバックする。
+  jacket: { img: HTMLImageElement | null; focusX?: number };
+  bgColor?: string;
+};
 export type LegacyPage = Omit<CanvasPreviewPage, "slots"> & { slots: LegacySlot[] };
 export type PageImages = { wave: HTMLImageElement | null; background: HTMLImageElement | null; logo: HTMLImageElement | null };
 type BandSegment = { text: string; key?: string };
@@ -210,6 +215,33 @@ export function loadJacket(src: string): Promise<HTMLImageElement> {
   return loadImage(src);
 }
 
+/** src → 検出結果（0〜1、または未検出でnull）。同じジャケットで検出をやり直さない。 */
+const focusCache = new Map<string, Promise<number | null>>();
+/** 1枚あたりこの時間で検出が終わらなければ諦めて中央（undefined）にする（CDN・モデル取得が重い初回対策）。 */
+const FACE_DETECT_TIMEOUT_MS = 4000;
+
+/**
+ * 表紙の帯5本ぶん、顔の水平位置を検出する。**失敗しても例外を投げない**
+ * （tools/generator-lab/core/face-crop.mjsのdetectFocusXがnullを返すのと同じ方針。
+ * 顔検出はあくまで見た目の改善であり、表紙の生成そのものを止める理由にはしない）。
+ * 検出結果はsrcごとにキャッシュするので、同じジャケットの2回目以降は即座に返る
+ * （プレビューの再描画・書き出し時の再準備の両方で同じキャッシュを使う）。
+ */
+async function detectCoverFocusX(images: (HTMLImageElement | null)[]): Promise<(number | undefined)[]> {
+  type FaceCropModule = { detectFocusX(image: HTMLImageElement): Promise<number | null> };
+  const faceCrop = await import("@/tools/generator-lab/core/face-crop.mjs").catch(() => null) as FaceCropModule | null;
+  const detectFocusX = faceCrop?.detectFocusX;
+  if (!detectFocusX) return images.map(() => undefined);
+  return Promise.all(images.map(async image => {
+    if (!image || !image.src) return undefined;
+    let promise = focusCache.get(image.src);
+    if (!promise) { promise = detectFocusX(image); focusCache.set(image.src, promise); }
+    const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), FACE_DETECT_TIMEOUT_MS));
+    const result = await Promise.race([promise, timeout]).catch(() => null);
+    return result == null ? undefined : result;
+  }));
+}
+
 /** ジャケットを解決して、描画コアが受け取れる形のページにする。 */
 export async function preparePage(runtime: GeneratorRuntime, documentId: string, page: CanvasPreviewPage): Promise<LegacyPage> {
   if (page.kind === "cover" && !runtime.coverFontReady()) throw new Error("Weekly表紙に必要な書体を読み込めません。");
@@ -221,11 +253,14 @@ export async function preparePage(runtime: GeneratorRuntime, documentId: string,
     || (slot.sourceNo && runtime.coversByNo.get(slot.sourceNo))
     || null);
   const jackets = await Promise.all(sources.map(source => source ? loadImage(source).catch(() => null) : Promise.resolve(null)));
+  // 表紙の帯だけ、人物の顔を中心に切り抜く（2026-09-14、2026#37の目視で指摘）。中央切り出しが既定の
+  // フォールバックなので、検出できなかった作品だけ従来どおりの見た目になる（他の帯を巻き込まない）。
+  const focusXs = page.kind === "cover" ? await detectCoverFocusX(jackets) : jackets.map(() => undefined);
   const bgColor = page.bgColor || FALLBACK_BACKGROUND;
   return {
     ...page,
     bgColor,
-    slots: page.slots.map((slot, index) => ({ ...slot, jacket: { img: jackets[index] }, ...(index === 0 ? { bgColor } : {}) })),
+    slots: page.slots.map((slot, index) => ({ ...slot, jacket: { img: jackets[index], focusX: focusXs[index] }, ...(index === 0 ? { bgColor } : {}) })),
   };
 }
 

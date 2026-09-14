@@ -271,15 +271,19 @@ const Layout = (() => {
     // ディセンダの無い3投稿（We Want Bass／ACT III／Kismet）のインク下端 y1017.5 で確定。
     // 設計文書のy980+高さ40=1020という予測より2.5px上だが、実測を正とする。
     ARTIST_BASELINE: 1017.5,
-    // メタ帯のベースライン。5投稿全てで最頻値1096（設計文書のy1064+高さ32=1096と一致）。
-    META_BASELINE: 1096,
+    // メタ帯のベースライン。🔴 2026-09-14訂正：1096は誤りだった。
+    // 2026-09-08の実測は行の全域を1本の帯として下端を拾っており、"12SONGS,"のようなコンマの
+    // ディセンダ（下がり）に引きずられて1096まで沈んでいた。2026#37受領時に、列ごとのインク下端の
+    // 最頻値（コンマ等の外れ値を1列単位で無視できる）で測り直すと、6投稿（2026#36・2026#37 各3面）
+    // すべてでy1092が最頻値・y1093が僅差の2位という同じ分布になった。中間の1092.5を正とする。
+    META_BASELINE: 1092.5,
     // メタ帯の要素間ギャップ。generator-weekly-design.md §6.1「要素間 gap16px」を
     // 既存のbandLayout()にそのまま渡すと、実物とインク位置が1px以内で一致することを確認済み
     // （Monthlyのbrand.TEXT.bandGap=24.5とは別の値。取り違えないこと）。
     META_GAP: 16,
     // bandLayout()のcell引数。cell.y+cell.h/2+13 が META_BASELINE と一致するように定義している
     // （drawBandLayout()の実装がこの式でベースラインを決めるため。text-layout.mjs参照）。
-    META_CELL: { x: 200, y: 1067, w: 800, h: 32 },
+    META_CELL: { x: 200, y: 1063.5, w: 800, h: 32 },
     TYPE: {
       // 字間-2%はimportWeeklyDocument()がtypography.titleとして持たせる想定（取り込み側の責務）。
       // ここ（版面側の既定値）に書いても、text-layout.mjs の linesOf() が
@@ -304,32 +308,46 @@ const Layout = (() => {
     // 天地のマージン（ここではASCENT/DESCENT）を固定し、そのあいだを行数で均等に割る。
     OTHERS: {
       CELL: { x: 200, y: 50, w: 800, h: 1100 },   // 内枠。featureのFrame 5と違い縦罫・横罫とも外周だけ
-      HEADING: { CELL: { x: 200, y: 50, w: 800, h: 172 }, BASELINE: 169.5 },  // 中央揃え。実測: インク下端169.5
-      // 本文の「天地幅」。実測30行で先頭行ベースライン248.5・最終行ベースライン1089.5、
-      // 行送り29.0（=(1089.5-248.5)/29）と、フォントサイズ29pxがほぼ一致した（境界に近い密度）。
+      HEADING: {
+        CELL: { x: 200, y: 50, w: 800, h: 172 },
+        // 🔴 2026-09-14訂正：169.5は据え置きだが、見出しサイズを71→72に訂正（下のTYPE.headingと対）。
+        BASELINE: 169.5,
+      },
+      // 本文の「天地幅」。実測30行で先頭行ベースライン248.5・最終行ベースライン1089.5。
       // ボックス(240,222)720×870 に対し ASCENT=26.5（天）・DESCENT=2.5（地）を引いた841pxを
       // 行数-1で割ると行送りが決まる。本文が1行だけの場合はbodyLayoutForと同様に天地中央に置く。
+      // 🔴 2026-09-14: 下のTYPE.body.sizeを29→31へ訂正したが、このASCENT/DESCENT/BOXは
+      // 29px想定で実測した値のまま据え置く（841pxという可用域自体はFigmaのフレーム寸法によるもので、
+      // 文字サイズに連動して動く根拠が無い。fits()の下限だけ別途MIN_LEADへ切り離した。下記参照）。
       BODY: {
         BOX: { x: 240, y: 222, w: 720, h: 870 },
         ASCENT: 26.5, DESCENT: 2.5,
       },
+      // 収まる最小行送り。🔴 2026-09-14: 従来はTYPE.body.sizeと同値（29）を使っていたが、
+      // 2026#36・2026#37の実測でTYPE.body.sizeを29→31へ訂正したため、この下限をサイズに連動させたままだと
+      // 実際に30行が収まっているW36が「収まらない」と誤判定されてしまう（841/(30-1)=29.0 < 31）。
+      // 下限そのものは実測（30行が収まる＝29px）から動いていないので、サイズから切り離して定数で持つ。
+      MIN_LEAD: 29,
       TYPE: {
-        heading: { family: 'Oswald', weight: 400, size: 71, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
+        // 🔴 2026-09-14訂正：71→72。総当たり実測（サイズ×太さ）で2026#36・2026#37どちらも
+        // 72px・Regular(400)が幅差1px未満・塗り差3%以内で最良だった（71pxは幅が5px前後不足）。
+        heading: { family: 'Oswald', weight: 400, size: 72, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
         // 曲名/アーティストは"Title / Artist"の1文字列として組む（区切りは半角スラッシュ、実物どおり）。
         // [EP]プレフィックスは落とさない（Weeklyの取り込み規則、generator-weekly-design.md §1）。
         // 和文アーティスト（石若駿、サバシスターなど）が混じるため、metaと同じ和文フォールバックを持つ。
-        // renderWeight: 🔵 2026-09-09、Koheiの「太く感じる」という指摘を受けて実測した。
-        // 実物（2026_W-6.png、30行）と突き合わせると幅は±0.5pxで一致する一方、インクの量は
-        // 欧文だけの行でも +20.1%、和文まじりの行でも同程度に濃く出ていた。和文だけの問題ではなく、
-        // SPEC §9.5 の「ChromeのfillTextはFigmaよりインクが濃い」がこの小さい文字で効いている。
-        // そこで本文（TYPE.body）と同じ手当てとして、**測る太さは400のまま、描く太さだけ下げる**。
-        // 350はOswald・Noto Sans JPとも可変フォントの範囲内で、字送り・折り返しは一切変わらない。
-        body: { family: 'Oswald", "Noto Sans JP', weight: 400, renderWeight: 350, size: 29, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
+        //
+        // 🔴 2026-09-14訂正：weight 400/size 29 → **weight 300/size 31**。
+        // 2026-09-09の「renderWeight:350で描く太さだけ下げる」補正は、drawWeeklyOthers()が
+        // TextEngine.drawSingle()へopt.renderWeightを渡していなかったため一度も効いておらず、
+        // 実際にはweight 400のまま描かれていた（実物比+20〜27%の濃さで「太い」という指摘どおり）。
+        // 2026#36・2026#37 計9行の総当たり実測（サイズ×太さ）では、renderWeightの小細工なしに
+        // weight 300・size 31が幅差±2%・塗り差±3%以内でどの行も一致した。字送り・折り返し・
+        // はみ出し判定はすべてこのweight/sizeで測るので、renderWeightは廃止する。
+        body: { family: 'Oswald", "Noto Sans JP', weight: 300, size: 31, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
       },
       /**
        * n行を天地の中で均等に配置する行送りとベースライン。Layout.bodyLayoutFor と同型。
-       * 収まる最小行送り＝フォントサイズ（29px）を下回ったら呼び出し側がoverflowとして扱う
-       * （othersFits(n)を使うこと）。
+       * 収まる最小行送り（MIN_LEAD）を下回ったら呼び出し側がoverflowとして扱う（fits(n)を使うこと）。
        */
       layoutFor(lineCount) {
         const n = Math.max(1, lineCount || 1);
@@ -341,7 +359,7 @@ const Layout = (() => {
       },
       fits(lineCount) {
         const n = Math.max(1, lineCount || 1);
-        return n === 1 || WEEKLY.OTHERS.layoutFor(n).lead >= WEEKLY.OTHERS.TYPE.body.size;
+        return n === 1 || WEEKLY.OTHERS.layoutFor(n).lead >= WEEKLY.OTHERS.MIN_LEAD;
       },
     },
 

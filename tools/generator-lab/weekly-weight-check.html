@@ -1,0 +1,348 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Weeklyの文字の太さ照合</title>
+<style>
+  body { font: 14px/1.7 system-ui; margin: 24px; max-width: 90em; }
+  pre { background: #111; color: #eee; padding: 12px; border-radius: 8px; overflow: auto; font-size: 12px; }
+  .strip { display: flex; align-items: center; gap: 10px; margin: 2px 0; }
+  .strip code { min-width: 16em; font-size: 11px; }
+</style>
+<h1>Weeklyの文字の太さ照合</h1>
+<p>実物投稿（<code>reference/&lt;週&gt;/</code>、2400×2400）の文字を切り出し、<strong>PNG書き出しと同じ経路</strong>
+（1200基準×2倍×<code>EXPORT_SUPER_SAMPLE</code>で描いて縮小、<code>TextEngine</code>・<code>bandLayout</code>を通す）で
+描いた候補と<strong>インクの幅</strong>と<strong>塗りの量</strong>で比べる。
+<code>?ref=2026%2336</code> で週を切り替える。</p>
+<pre id="out">実行中…</pre>
+<div id="shots"></div>
+
+<script type="module">
+import Layout from './core/layout.mjs';
+import TextEngine from './core/textEngine.mjs';
+import { bandLayout, drawBandLayout } from './core/text-layout.mjs';
+
+const W = Layout.WEEKLY, O = W.OTHERS, SS = Layout.EXPORT_SUPER_SAMPLE;
+const REF = new URLSearchParams(location.search).get('ref') || '2026#37';
+const WEIGHTS = [200, 250, 300, 350, 400];
+
+// 実物の文字列（投稿画像から読み取ったもの）。others.index は上から0始まりの行番号。
+const WEEKS = {
+  '2026#37': {
+    features: [
+      { file: 1, title: 'Tyber', artist: 'FKJ', meta: ['12songs, 35min 58sec', 'Neo-Soul', 'France'] },
+      { file: 2, title: 'Here Because of Hope', artist: 'Ezra Collective', meta: ['17songs, 63min 17sec', 'Jazz Fusion', 'UK'] },
+      { file: 3, title: 'Distance in Static', artist: 'Bonobo', meta: ['14songs, 50min 7sec', 'Electronic', 'UK'] },
+      { file: 5, title: 'Yours Sincerely', artist: null, meta: ['10songs, 26min 12sec', 'Folk', 'Japan'] },
+    ],
+    others: { count: 28, rows: [
+      { index: 1, text: 'Believer / Angela Autumn' },
+      { index: 3, text: 'Ball of Light / Chrome Sparks' },
+      { index: 7, text: 'The Wise Ones / Gretchen Parlato' },
+      { index: 11, text: 'Eternal Spring / Jack Wyllie' },
+      { index: 17, text: 'Hard Life / The Tubs' },
+    ] },
+  },
+  '2026#36': {
+    features: [
+      { file: 1, title: 'I Know Too Much', artist: 'Ellie Goulding', meta: ['10songs, 34min 56sec', 'Alt-Pop', 'UK'] },
+      { file: 3, title: 'ACT III', artist: 'Kasabian', meta: ['13songs, 32min 29sec', 'Rock', 'UK'] },
+    ],
+    others: { count: 30, rows: [
+      { index: 2, text: 'AURA / Amelie Lens' },
+      { index: 10, text: 'BLISS / Harrison Gordon' },
+      { index: 11, text: 'Obsessions / Hot Since 82' },
+      { index: 22, text: 'Foreword / Yaelokre' },
+    ] },
+  },
+};
+
+const load = src => new Promise((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => resolve(image); image.onerror = () => reject(new Error(`読み込めません: ${src}`));
+  image.src = src;
+});
+
+async function loadFonts() {
+  // 候補の中間ウェイト（250・350）も描けるよう、可変軸の範囲で読み込む
+  await new Promise((resolve, reject) => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=Oswald:wght@200..700&family=Noto+Sans+JP:wght@100..900&display=block';
+    link.onload = resolve; link.onerror = () => reject(new Error('Google Fontsを読み込めません'));
+    document.head.appendChild(link);
+  });
+  for (const w of WEIGHTS) {
+    await document.fonts.load(`${w} 40px "Oswald"`, 'ABCabc0123・');
+    await document.fonts.load(`${w} 40px "Noto Sans JP"`, '・細野晴臣');
+  }
+  await document.fonts.ready;
+}
+
+/** インクの左右端と塗りの量。地は切り出しの中央値（jp-font-check.html と同じ定義） */
+function measure(data, w, h) {
+  const lum = new Float32Array(w * h);
+  for (let i = 0, p = 0; i < lum.length; i++, p += 4)
+    lum[i] = 0.3 * data[p] + 0.59 * data[p + 1] + 0.11 * data[p + 2];
+  const sorted = Float32Array.from(lum).sort();
+  const base = sorted[Math.floor(sorted.length / 2)];
+  const span = Math.max(1, 255 - base);
+  let x0 = w, x1 = -1, ink = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const v = (lum[y * w + x] - base) / span;
+    if (v > 0.46) { if (x < x0) x0 = x; if (x > x1) x1 = x; }
+    ink += Math.max(0, v);
+  }
+  return { width: x1 < 0 ? 0 : x1 - x0 + 1, ink, x0, x1, base };
+}
+function measureTight(ctx, x, y, w, h, pad) {
+  const rough = measure(ctx.getImageData(x, y, w, h).data, w, h);
+  if (rough.x1 < 0) return rough;
+  const nx = Math.max(0, x + rough.x0 - pad);
+  const nw = Math.min(ctx.canvas.width - nx, rough.x1 - rough.x0 + 1 + pad * 2);
+  return { ...measure(ctx.getImageData(nx, y, nw, h).data, nw, h), nx, nw };
+}
+
+/**
+ * 書き出しと同じ経路で、1200基準の矩形 box だけを描く。
+ * renderTiled() と同じく scale×SS の変換で描いてから高品質縮小する。影もそのまま（変換の影響を受けない）。
+ */
+function renderBox(box, scale, bg, draw) {
+  const big = document.createElement('canvas');
+  big.width = Math.round(box.w * scale * SS); big.height = Math.round(box.h * scale * SS);
+  const b = big.getContext('2d');
+  b.setTransform(scale * SS, 0, 0, scale * SS, -box.x * scale * SS, -box.y * scale * SS);
+  b.fillStyle = bg; b.fillRect(box.x, box.y, box.w, box.h);
+  draw(b);
+  const out = document.createElement('canvas');
+  out.width = Math.round(box.w * scale); out.height = Math.round(box.h * scale);
+  const o = out.getContext('2d', { willReadFrequently: true });
+  o.imageSmoothingEnabled = true; o.imageSmoothingQuality = 'high';
+  o.drawImage(big, 0, 0, out.width, out.height);
+  return out;
+}
+
+function withShadow(ctx, shadow, fn) {
+  if (!shadow) return fn();
+  ctx.save();
+  ctx.shadowOffsetX = shadow.dx; ctx.shadowOffsetY = shadow.dy; ctx.shadowBlur = shadow.blur; ctx.shadowColor = shadow.color;
+  try { fn(); } finally { ctx.restore(); }
+}
+
+const lines = [];
+const shots = document.getElementById('shots');
+const pct = v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+const px = v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}px`;
+
+function strip(label, canvas, zoom = 0.5) {
+  const wrap = document.createElement('div'); wrap.className = 'strip';
+  const tag = document.createElement('code'); tag.textContent = label;
+  canvas.style.width = `${canvas.width * zoom}px`;
+  wrap.append(tag, canvas); shots.appendChild(wrap);
+}
+function cropOf(ctx, x, y, w, h) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  c.getContext('2d').drawImage(ctx.canvas, x, y, w, h, 0, 0, w, h);
+  return c;
+}
+
+/**
+ * 1要素ぶんの比較。box は1200基準の切り出し。drawAt(ctx, weight) は候補を描く。
+ * production は現行の描画で実際に使われている太さ。
+ */
+function compare(label, sctx, scale, box, production, drawAt, weights = WEIGHTS) {
+  const x = Math.round(box.x * scale), y = Math.round(box.y * scale);
+  const w = Math.round(box.w * scale), h = Math.round(box.h * scale);
+  const real = measureTight(sctx, x, y, w, h, Math.round(8 * scale));
+  const gray = `rgb(${real.base},${real.base},${real.base})`;
+  const rows = weights.map(weight => {
+    const canvas = renderBox(box, scale, gray, ctx => drawAt(ctx, weight));
+    const got = measureTight(canvas.getContext('2d'), 0, 0, canvas.width, canvas.height, Math.round(8 * scale));
+    return { weight, canvas, dw: (got.width - real.width) / scale, dInk: (got.ink - real.ink) / real.ink * 100 };
+  });
+  // 塗り差が0になる太さを線形補間で求める
+  let match = null;
+  for (let i = 0; i + 1 < rows.length; i++) {
+    const a = rows[i], b = rows[i + 1];
+    if ((a.dInk <= 0 && b.dInk >= 0) || (a.dInk >= 0 && b.dInk <= 0))
+      match = a.weight + (b.weight - a.weight) * (0 - a.dInk) / (b.dInk - a.dInk || 1);
+  }
+  const prod = rows.find(r => r.weight === production);
+  lines.push(`\n■ ${label}`);
+  lines.push(`   実物: インク幅 ${(real.width / scale).toFixed(1)}px`);
+  for (const r of rows)
+    lines.push(`   ${String(r.weight).padStart(3)}${r.weight === production ? '（現行）' : '　　　　'}  幅差 ${px(r.dw)}  塗り差 ${pct(r.dInk)}`);
+  lines.push(`   → 塗りが実物と一致する太さ ≈ ${match == null ? '範囲外' : match.toFixed(0)}　現行${production}は ${pct(prod.dInk)}`);
+
+  const head = document.createElement('h3'); head.textContent = label; head.style.fontSize = '13px';
+  shots.appendChild(head);
+  strip('実物', cropOf(sctx, x, y, w, h));
+  strip(`現行 ${production}`, prod.canvas);
+  const best = rows.reduce((p, r) => Math.abs(r.dInk) < Math.abs(p.dInk) ? r : p);
+  if (best !== prod) strip(`最も近い ${best.weight}`, best.canvas);
+  return { label, production, match, prodInk: prod.dInk };
+}
+
+try {
+  await loadFonts();
+  const week = WEEKS[REF];
+  if (!week) throw new Error(`未登録の週です: ${REF}`);
+  const dir = `./reference/${encodeURIComponent(REF)}`;
+  lines.push(`参照: ${REF}　書き出し経路: ×2 ×SS${SS}`);
+  const summary = [];
+  const featureBaselines = [];
+  const cx = Layout.CANVAS / 2;
+
+  for (const f of week.features) {
+    const post = await load(`${dir}/2026_W-${f.file}.png`);
+    const scale = post.width / Layout.CANVAS;
+    const src = document.createElement('canvas'); src.width = post.width; src.height = post.height;
+    const sctx = src.getContext('2d', { willReadFrequently: true }); sctx.drawImage(post, 0, 0);
+
+    const TY = W.TYPE;
+    summary.push(compare(`W-${f.file} 作品名「${f.title}」 Oswald ${TY.title.size}px`, sctx, scale,
+      { x: 206, y: W.TITLE_BASELINE - 52, w: 788, h: 66 }, TY.title.weight,
+      (ctx, weight) => withShadow(ctx, TY.title.shadow, () =>
+        TextEngine.drawSingle(ctx, f.title, TY.title, { cx, baseline: W.TITLE_BASELINE, align: 'center', renderWeight: weight }))));
+
+    if (f.artist) summary.push(compare(`W-${f.file} アーティスト「${f.artist}」 Oswald ${TY.artist.size}px`, sctx, scale,
+      { x: 206, y: W.ARTIST_BASELINE - 40, w: 788, h: 52 }, TY.artist.weight,
+      (ctx, weight) => TextEngine.drawSingle(ctx, f.artist, TY.artist, { cx, baseline: W.ARTIST_BASELINE, align: 'center', renderWeight: weight })));
+
+    const segments = [
+      { key: 'duration', text: f.meta[0], case: 'UPPER' }, { text: '・', case: 'ORIGINAL' },
+      { key: 'genreMemo', text: f.meta[1], case: 'UPPER' }, { text: '・', case: 'ORIGINAL' },
+      { key: 'country', text: f.meta[2], case: 'UPPER' },
+    ];
+    summary.push(compare(`W-${f.file} メタ帯「${f.meta.join(' ・ ')}」 Oswald ${TY.meta.size}px`, sctx, scale,
+      { x: 206, y: W.META_BASELINE - 30, w: 788, h: 40 }, TY.meta.weight,
+      (ctx, weight) => withShadow(ctx, TY.meta.shadow, () =>
+        drawBandLayout(ctx, bandLayout(ctx, segments, { ...TY.meta, renderWeight: weight }, W.META_CELL, {}, W.META_GAP)))));
+
+    featureBaselines.push({ file: f.file, sctx, scale, f, segments });
+  }
+
+  const post = await load(`${dir}/2026_W-6.png`);
+  const scale = post.width / Layout.CANVAS;
+  const src = document.createElement('canvas'); src.width = post.width; src.height = post.height;
+  const sctx = src.getContext('2d', { willReadFrequently: true }); sctx.drawImage(post, 0, 0);
+
+  summary.push(compare(`W-6 見出し「Other Releases」 Oswald ${O.TYPE.heading.size}px`, sctx, scale,
+    { x: 206, y: O.HEADING.BASELINE - 66, w: 788, h: 84 }, O.TYPE.heading.weight,
+    (ctx, weight) => TextEngine.drawSingle(ctx, 'Other Releases', O.TYPE.heading, { cx, baseline: O.HEADING.BASELINE, align: 'center', renderWeight: weight })));
+
+  const layout = O.layoutFor(week.others.count);
+  // 描画経路（render.mjs drawWeeklyOthers）は opt.renderWeight を渡していないので、実際の太さは weight のまま
+  const drawnWeight = O.TYPE.body.weight;
+  for (const row of week.others.rows) {
+    const baseline = layout.baseline + layout.lead * row.index;
+    summary.push(compare(`W-6 本文${row.index + 1}行目「${row.text}」 Oswald ${O.TYPE.body.size}px`, sctx, scale,
+      { x: O.BODY.BOX.x, y: baseline - 23, w: O.BODY.BOX.w, h: 29 }, drawnWeight,
+      (ctx, weight) => TextEngine.drawSingle(ctx, row.text, O.TYPE.body, { cx, baseline, align: 'center', renderWeight: weight })));
+  }
+
+  // ── サイズ×太さの総当たり（Other Releases）─────────────────────────
+  // renderWeight（描く太さだけ変える）ではなく、測る太さ・サイズも一緒に変えて、
+  // 幅と塗りの両方が実物に合う組み合わせを探す。字送りは weight で測るので、本来の指定値はこちらで決まる。
+  function grid(label, box, sizes, weights, drawWith, now) {
+    const x = Math.round(box.x * scale), y = Math.round(box.y * scale);
+    const w = Math.round(box.w * scale), h = Math.round(box.h * scale);
+    const real = measureTight(sctx, x, y, w, h, Math.round(8 * scale));
+    const gray = `rgb(${real.base},${real.base},${real.base})`;
+    const cells = [];
+    for (const size of sizes) for (const weight of weights) {
+      const canvas = renderBox(box, scale, gray, ctx => drawWith(ctx, size, weight));
+      const got = measureTight(canvas.getContext('2d'), 0, 0, canvas.width, canvas.height, Math.round(8 * scale));
+      const dwPct = (got.width - real.width) / real.width * 100;
+      const dInk = (got.ink - real.ink) / real.ink * 100;
+      cells.push({ size, weight, canvas, dw: (got.width - real.width) / scale, dwPct, dInk, err: (dwPct * 3) ** 2 + dInk ** 2 });
+    }
+    const current = now && cells.find(c => c.size === now.size && c.weight === now.weight);
+    cells.sort((a, b) => a.err - b.err);
+    const head = document.createElement('h3'); head.textContent = `総当たり ${label}`; head.style.fontSize = '13px';
+    shots.appendChild(head);
+    strip('実物', cropOf(sctx, x, y, w, h));
+    if (current) strip(`${current.size}px ${current.weight}`, current.canvas);
+    strip(`最良 ${cells[0].size}px ${cells[0].weight}`, cells[0].canvas);
+    lines.push(`\n■ 総当たり ${label}　実物インク幅 ${(real.width / scale).toFixed(1)}px`);
+    for (const c of cells.slice(0, 5))
+      lines.push(`   ${String(c.size).padStart(4)}px ${c.weight}  幅差 ${px(c.dw)}（${pct(c.dwPct)}）  塗り差 ${pct(c.dInk)}`);
+    return cells[0];
+  }
+  const best = [];
+  best.push({ label: '見出し', ...grid('見出し「Other Releases」', { x: 206, y: O.HEADING.BASELINE - 70, w: 788, h: 90 },
+    [70, 71, 72, 73], [300, 350, 400, 450],
+    (ctx, size, weight) => TextEngine.drawSingle(ctx, 'Other Releases', { ...O.TYPE.heading, size, weight }, { cx, baseline: O.HEADING.BASELINE, align: 'center' }), O.TYPE.heading) });
+  for (const row of week.others.rows) {
+    const baseline = layout.baseline + layout.lead * row.index;
+    best.push({ label: row.text, ...grid(`本文「${row.text}」`, { x: O.BODY.BOX.x, y: baseline - Math.min(26, layout.lead - 5), w: O.BODY.BOX.w, h: Math.min(26, layout.lead - 5) + 6 },
+      [27, 28, 29, 30, 31, 32, 33], [250, 275, 300, 325, 350, 375, 400],
+      (ctx, size, weight) => TextEngine.drawSingle(ctx, row.text, { ...O.TYPE.body, size, weight }, { cx, baseline, align: 'center' }), O.TYPE.body) });
+  }
+  lines.push('\n■ 総当たりの最良');
+  for (const b of best) lines.push(`   ${b.size}px ${b.weight}（幅差 ${px(b.dw)} 塗り差 ${pct(b.dInk)}）  ${b.label}`);
+
+  // ── ベースラインの位置合わせ ───────────────────────────────────
+  // 行ごとの縦のインク分布（横に合計したもの）を、候補を上下にずらしながら実物と突き合わせる。
+  // 横位置のずれに影響されない。返すのは「現行のベースラインから何px動かすと合うか」。
+  function profile(ctx, w, h, base) {
+    const data = ctx.getImageData(0, 0, w, h).data, rows = new Float32Array(h);
+    const span = Math.max(1, 255 - base);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const p = (y * w + x) * 4;
+      rows[y] += Math.max(0, (0.3 * data[p] + 0.59 * data[p + 1] + 0.11 * data[p + 2] - base) / span);
+    }
+    return rows;
+  }
+  function fitBaseline(label, ctxOf, box, baseline, draw, pad = 8) {
+    const big = { x: box.x, y: box.y - pad, w: box.w, h: box.h + pad * 2 };
+    const sc = ctxOf.scale;
+    const x = Math.round(big.x * sc), y = Math.round(big.y * sc), w = Math.round(big.w * sc), h = Math.round(big.h * sc);
+    const realCanvas = cropOf(ctxOf.ctx, x, y, w, h);
+    const base = measure(realCanvas.getContext('2d').getImageData(0, 0, w, h).data, w, h).base;
+    const real = profile(realCanvas.getContext('2d'), w, h, base);
+    let bestShift = 0, bestErr = Infinity;
+    for (let shift = -6; shift <= 6; shift += 0.5) {
+      const canvas = renderBox(big, sc, `rgb(${base},${base},${base})`, c => draw(c, baseline + shift));
+      const got = profile(canvas.getContext('2d'), w, h, base);
+      let err = 0; for (let i = 0; i < h; i++) err += (got[i] - real[i]) ** 2;
+      if (err < bestErr) { bestErr = err; bestShift = shift; }
+    }
+    lines.push(`   ${label}: 現行 ${baseline.toFixed(2)} → 実物 ${(baseline + bestShift).toFixed(2)}（${bestShift >= 0 ? '+' : ''}${bestShift}）`);
+    return baseline + bestShift;
+  }
+  lines.push('\n■ ベースライン（W-6）');
+  const here = { ctx: sctx, scale };
+  fitBaseline('見出し 72px 400', here, { x: 206, y: O.HEADING.BASELINE - 66, w: 788, h: 84 }, O.HEADING.BASELINE,
+    (ctx, b) => TextEngine.drawSingle(ctx, 'Other Releases', { ...O.TYPE.heading, size: 72 }, { cx, baseline: b, align: 'center' }));
+  const fitted = [];
+  for (const row of week.others.rows) {
+    const baseline = layout.baseline + layout.lead * row.index;
+    fitted.push([row.index, fitBaseline(`本文${row.index + 1}行目 31px 300`, here, { x: O.BODY.BOX.x, y: baseline - 22, w: O.BODY.BOX.w, h: 28 }, baseline,
+      (ctx, b) => TextEngine.drawSingle(ctx, row.text, { ...O.TYPE.body, size: 31, weight: 300 }, { cx, baseline: b, align: 'center' }), 1)]);
+  }
+  // 行番号→ベースラインの直線あてはめ
+  const n = fitted.length, sx = fitted.reduce((a, [i]) => a + i, 0), sy = fitted.reduce((a, [, b]) => a + b, 0);
+  const sxx = fitted.reduce((a, [i]) => a + i * i, 0), sxy = fitted.reduce((a, [i, b]) => a + i * b, 0);
+  const lead = (n * sxy - sx * sy) / (n * sxx - sx * sx), first = (sy - lead * sx) / n;
+  lines.push(`   本文の直線あてはめ: 1行目 ${first.toFixed(2)}、行送り ${lead.toFixed(3)}、最終行(${week.others.count}行目) ${(first + lead * (week.others.count - 1)).toFixed(2)}`);
+  lines.push(`   現行の layoutFor(${week.others.count}): 1行目 ${layout.baseline.toFixed(2)}、行送り ${layout.lead.toFixed(3)}`);
+
+  lines.push('\n■ ベースライン（作品面）');
+  for (const { file, sctx: fctx, scale: fscale, f, segments } of featureBaselines) {
+    const at = { ctx: fctx, scale: fscale }, TY = W.TYPE;
+    fitBaseline(`W-${file} 作品名`, at, { x: 206, y: W.TITLE_BASELINE - 52, w: 788, h: 66 }, W.TITLE_BASELINE,
+      (ctx, b) => TextEngine.drawSingle(ctx, f.title, TY.title, { cx, baseline: b, align: 'center' }));
+    if (f.artist) fitBaseline(`W-${file} アーティスト`, at, { x: 206, y: W.ARTIST_BASELINE - 40, w: 788, h: 52 }, W.ARTIST_BASELINE,
+      (ctx, b) => TextEngine.drawSingle(ctx, f.artist, TY.artist, { cx, baseline: b, align: 'center' }));
+    fitBaseline(`W-${file} メタ帯`, at, { x: 206, y: W.META_BASELINE - 30, w: 788, h: 40 }, W.META_BASELINE,
+      (ctx, b) => drawBandLayout(ctx, bandLayout(ctx, segments, TY.meta, { ...W.META_CELL, y: W.META_CELL.y + (b - W.META_BASELINE) }, {}, W.META_GAP)));
+  }
+
+  lines.push('\n\n■ まとめ（塗りが実物と一致する太さ）');
+  for (const s of summary)
+    lines.push(`   ${s.match == null ? '  範囲外' : s.match.toFixed(0).padStart(5)}  現行${s.production}（${pct(s.prodInk)}）  ${s.label}`);
+  window.__summary = summary.map(({ label, production, match, prodInk }) => ({ label, production, match, prodInk }));
+} catch (error) {
+  lines.push(`失敗: ${error.stack || error.message}`);
+}
+document.getElementById('out').textContent = lines.join('\n');
+</script>
