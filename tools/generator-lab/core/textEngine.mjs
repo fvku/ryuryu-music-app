@@ -21,7 +21,13 @@ const TextEngine = (() => {
   // ---- クラスタ分割 ----
   // 和文は1文字＝1クラスタ、欧文は1単語＝1クラスタ（単語内のカーニングを保つため）。
   // 空白はクラスタの区切りとして扱い、直前のクラスタに空白ぶんの送りとして持たせる。
-  const LATIN = /[A-Za-z0-9À-ɏ'’\-–—.,&()\/]/;
+  // 🔴 2026-09-17追加：U+221E（∞）をラテン側へ含めた。isMixed()はこの分類で「和文が混じるか」を
+  // 判定し、混じると判定された文字はTY.titleJPなど和文用スペック（Noto Sans JP）で描かれる。
+  // ∞はOswald側にも実在するのに、この分類漏れで毎回Noto Sans JP（実物比+18%幅・別字形）に
+  // 差し替わっていた（2026#37 Sylvan Esso「Ow ∞」、docs/generator-weekly-w37-diff-plan.md §2 A3）。
+  // fonts.mjsのloadSymbolFaces()と対で機能する：分類をラテン側にしても、Oswald側にその記号の
+  // グリフが読み込まれていなければ結局ブラウザがフォールバックしてしまうため、両方必要。
+  const LATIN = /[A-Za-z0-9À-ɏ'’\-–—.,&()\/∞]/;
   // cl.at / cl.len は元の文字列でのクラスタの位置と長さ。
   // 文字ごとのカーニング（SPEC.md §5）を、どの文字に効かせるか決めるのに使う。
   function toClusters(s) {
@@ -81,12 +87,20 @@ const TextEngine = (() => {
       cl.kern = kernOf(cl, t);
       cl.adv = cl.glyphW + track * cl.text.length - cl.trim + cl.spaceW + cl.kern - spaceKern;
       if (track !== 0 || cl.kern !== 0 || (t.kerns && Object.keys(t.kerns).some(i => +i >= cl.at && +i < cl.at + cl.text.length))) {
-        let offset = 0;
+        // 🔴 2026-09-17修正：1文字ずつ measureText(ch) で測ると、隣接文字とのペアカーニング
+        // （例: 大文字「T」の直後の小文字がその下へ食い込む詰め）がブラウザ側で失われ、
+        // 字間0でも字間≠0の版と同じ幅で描かれてしまっていた（「Tyber」が実物98.5pxに対し102.0px、
+        // docs/generator-weekly-w37-diff-plan.md §2 A4）。先頭からの累積幅の差分で各文字の
+        // 送り幅を求めると、直前の文字を含めて測るためペアカーニングを保ったまま字間を足せる。
+        let offset = 0, acc = '', prevW = 0;
         cl.parts = Array.from(cl.text, ch => {
           const at = cl.at + offset; offset += ch.length;
+          acc += ch;
+          const cum = ctx.measureText(acc).width;
+          const glyphW = cum - prevW; prevW = cum;
           let kern = 0;
           for (let i = at; i < at + ch.length; i++) kern += t.kerns?.[i] || 0;
-          return { text: ch, adv: ctx.measureText(ch).width + track * ch.length + kern * t.size };
+          return { text: ch, adv: glyphW + track * ch.length + kern * t.size };
         });
         cl.adv = cl.parts.reduce((n, p) => n + p.adv, 0) - cl.trim + cl.spaceW;
       }
@@ -221,12 +235,16 @@ const TextEngine = (() => {
       cl.kern = kernOf(cl, spec);
       cl.adv = cl.glyphW + cl.spaceW + cl.track * cl.text.length + cl.kern - spaceKern;
       if (cl.track || cl.kern || spec.kerns && Object.keys(spec.kerns).length) {
-        let offset = 0;
+        // 🔴 2026-09-17修正：prepare()と同じペアカーニング欠落を修正（累積幅の差分で測る）。
+        let offset = 0, acc = '', prevW = 0;
         cl.parts = Array.from(cl.text, ch => {
           const at = cl.at + offset; offset += ch.length;
+          acc += ch;
+          const cum = ctx.measureText(acc).width;
+          const glyphW = cum - prevW; prevW = cum;
           let kern = 0;
           for (let i = at; i < at + ch.length; i++) kern += spec.kerns?.[i] || 0;
-          return { text: ch, adv: ctx.measureText(ch).width + cl.track * ch.length + kern * spec.size };
+          return { text: ch, adv: glyphW + cl.track * ch.length + kern * spec.size };
         });
         cl.adv = cl.parts.reduce((n, p) => n + p.adv, 0) + cl.spaceW;
       }

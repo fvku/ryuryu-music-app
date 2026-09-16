@@ -92,41 +92,45 @@ test('makeSlot→toWeeklyDrawDataの型は{title,artist,meta,tracking,kerns,typo
   assert.deepStrictEqual(Object.keys(d).sort(), ['artist', 'kerns', 'meta', 'title', 'tracking', 'typography']);
 });
 
-console.log('\nLayout.WEEKLY.OTHERS — Other Releasesの行送り自動調整（Koheiの決定。実物投稿30行で実測）');
-test('実測値：30行で行送り29px・先頭行ベースライン248.5px（2026_W-6.pngで実測）', () => {
-  assert.deepStrictEqual(L.WEEKLY.OTHERS.layoutFor(30), { lead: 29, baseline: 248.5 });
+console.log('\nLayout.WEEKLY.OTHERS — Other Releasesの行送り自動調整（Koheiの決定。実物投稿W36・W37で実測。🔴2026-09-17再実測）');
+test('実測値：28行（W37）で行送り31px、30行（W36）で行送り29px。天地の可用域870pxを行数で単純に割る', () => {
+  assert.deepStrictEqual(L.WEEKLY.OTHERS.layoutFor(28), { lead: 31, baseline: 222 + 31 / 2 + 11.7 });
+  assert.deepStrictEqual(L.WEEKLY.OTHERS.layoutFor(30), { lead: 29, baseline: 222 + 29 / 2 + 11.7 });
 });
-test('件数が変わると天地幅(841px)を均等に割り直す（詰める／広げる）', () => {
+test('件数が変わると天地幅(870px)を均等に割り直す（詰める／広げる）', () => {
   // 15行なら天地幅は同じでも1行あたりの取り分は増える＝行送りは広がる
   const wide = L.WEEKLY.OTHERS.layoutFor(15);
   assert.ok(wide.lead > 29, `件数が減れば行送りは広がるはず: ${wide.lead}`);
-  assert.strictEqual(wide.lead, 841 / 14);
+  assert.strictEqual(wide.lead, Math.floor(870 / 15));
   // 40行なら逆に詰まる
   const tight = L.WEEKLY.OTHERS.layoutFor(40);
   assert.ok(tight.lead < 29, `件数が増えれば行送りは詰まるはず: ${tight.lead}`);
 });
 test('1行だけなら天地の中央に置く（bodyLayoutForのn===1と同じ規則）', () => {
-  const { BOX, ASCENT, DESCENT } = L.WEEKLY.OTHERS.BODY;
+  const { BOX } = L.WEEKLY.OTHERS.BODY;
   const one = L.WEEKLY.OTHERS.layoutFor(1);
   assert.strictEqual(one.lead, 0);
-  assert.strictEqual(one.baseline, (BOX.y + BOX.y + BOX.h) / 2 + (ASCENT - DESCENT) / 2);
+  assert.strictEqual(one.baseline, BOX.y + BOX.h / 2 + L.WEEKLY.OTHERS.CENTER_OFFSET);
 });
-test('行送りがMIN_LEAD(29px)を下回る件数はfits()がfalseを返す（はみ出し扱い。§6.4）', () => {
-  assert.strictEqual(L.WEEKLY.OTHERS.MIN_LEAD, 29);
-  assert.strictEqual(L.WEEKLY.OTHERS.fits(30), true);   // 841/29 = 29.0 ちょうど
-  assert.strictEqual(L.WEEKLY.OTHERS.fits(31), false);  // 841/30 ≈ 28.03 < 29
+test('行送りがMIN_LEAD(26px)を下回る件数はfits()がfalseを返す（はみ出し扱い。§6.4）', () => {
+  assert.strictEqual(L.WEEKLY.OTHERS.MIN_LEAD, 26);
+  assert.strictEqual(L.WEEKLY.OTHERS.fits(33), true);   // floor(870/33) = 26 ちょうど
+  assert.strictEqual(L.WEEKLY.OTHERS.fits(34), false);  // floor(870/34) = 25 < 26
   assert.strictEqual(L.WEEKLY.OTHERS.fits(1), true);
 });
-test('本文の太さ・見出しのサイズは2026#36・2026#37の実測どおり（🔴2026-09-14訂正）', () => {
-  // 旧値（weight 400・size 29・renderWeight 350）は実際には一度も効かず400のまま描かれていた
-  // （drawWeeklyOthersがopt.renderWeightを渡していなかったため）。weight 300・size 31が実物と一致する。
-  assert.strictEqual(L.WEEKLY.OTHERS.TYPE.body.weight, 300);
-  assert.strictEqual(L.WEEKLY.OTHERS.TYPE.body.size, 31);
+test('本文の書体は2026#36・2026#37の再実測どおり（🔴2026-09-17再訂正）', () => {
+  // 2026-09-14の実測は幅・塗りの量だけで照合しており字高を見ていなかった。
+  // 「Light 31px・字間0」と「Regular 26px・字間+5%」は幅・塗りの量がほぼ同じになるため区別できず、
+  // 字高が実物より15〜19%大きいまま見落としていた（docs/generator-weekly-w37-diff-plan.md §2 A1）。
+  assert.strictEqual(L.WEEKLY.OTHERS.TYPE.body.weight, 400);
+  assert.strictEqual(L.WEEKLY.OTHERS.TYPE.body.size, 26);
+  assert.strictEqual(L.WEEKLY.OTHERS.TYPE.body.tracking, 0.05);
   assert.strictEqual(L.WEEKLY.OTHERS.TYPE.body.renderWeight, undefined);
   assert.strictEqual(L.WEEKLY.OTHERS.TYPE.heading.size, 72);
-  // fits()の下限はMIN_LEADという独立の定数であり、TYPE.body.sizeを再訂正しても連動して動かない
-  // （31を下限にすると実物のW36（30行・行送り29px）が「収まらない」と誤判定してしまうため）。
-  assert.notStrictEqual(L.WEEKLY.OTHERS.MIN_LEAD, L.WEEKLY.OTHERS.TYPE.body.size);
+  // fits()の下限（MIN_LEAD）はTYPE.body.sizeと同じ値(26)だが、両方とも実測から独立に決めた別々の定数。
+  // 2026-09-14の教訓（size変更にMIN_LEADが連動せず誤判定した事故）を繰り返さないよう、
+  // 値が一致していても由来が別であることをここに書き残す（連動させる書き方に戻さないこと）。
+  assert.strictEqual(L.WEEKLY.OTHERS.MIN_LEAD, L.WEEKLY.OTHERS.TYPE.body.size);
 });
 test('Render.drawWeeklyOthers / Pages.toWeeklyOtherLine がエクスポートされている', () => {
   assert.strictEqual(typeof Render.drawWeeklyOthers, 'function');
@@ -174,7 +178,8 @@ test('drawPage / inspectPage がcover・feature・othersをMonthlyの掲載枠�
   assert.doesNotThrow(() => Render.drawPage(ctx, { kind: 'feature', slots: [slot], bgColor: '#123456', week: { year: 2026, number: 36 } }, {}));
   assert.doesNotThrow(() => Render.drawPage(ctx, { kind: 'others', slots: [slot], bgColor: '#123456', week: { year: 2026, number: 36 } }, {}));
   assert.deepStrictEqual(Render.inspectPage(ctx, { kind: 'cover', slots: [slot] }), []);
-  assert.ok(Render.inspectPage(ctx, { kind: 'others', slots: Array.from({ length: 31 }, () => slot) }).some(value => value.includes('最大30件')));
+  // 🔴 2026-09-17：本文をweight300/31px→400/26pxへ訂正したのに伴い上限も30件→33件になった（§2 A1・A2参照）。
+  assert.ok(Render.inspectPage(ctx, { kind: 'others', slots: Array.from({ length: 34 }, () => slot) }).some(value => value.includes('最大33件')));
 });
 
 console.log('\nFonts — セルフホスト書体（表紙専用、失敗してもMonthly/Japanを止めない設計。§12）');

@@ -1369,3 +1369,56 @@ UI側が差分を開く前に行っていた画像ロックの解放・別端末
   既存文書を遡って並べ直す機能は無い）。新規にWeekly文書を取り込むと反映される。実際の取り込みでの
   確認は、共有DBへの書き込みを伴うため今回は行っていない（vitestの単体テストで実物の並びと一致することは確認済み）。
 - 物理iPhone実機、Safari／Edge／Brave。
+
+## 31. 2026-09-17：W37を再度実物投稿と突き合わせ、5件の差分を修正（Sonnet 5・エフォート高）
+
+利用者から「W37を参考にもう一度figma本番画像と現行の出力を比較し、修正方針を作ってほしい」との依頼。
+`tools/generator-lab/reference/2026#37`（実物投稿7枚）と、実共有文書「2026 WEEK 37」を
+`generator-preview-3458`で開いて書き出したZIPを画素単位で突き合わせ、先に
+`docs/generator-weekly-w37-diff-plan.md`へ方針をまとめた。実装前にAskUserQuestionで4点
+（行送り式、作品名の初期字間、表紙の顔検出の保守化、HUGの扱い）を確認し、すべて承認/指示どおりに実装した。
+
+### 変更したファイル
+
+| ファイル | 変更 |
+| --- | --- |
+| `tools/generator-lab/core/layout.mjs` | `OTHERS.TYPE.body`（weight400・size26・字間+5%）、`layoutFor(n)`を`floor(870/n)`の単純割りへ、`MIN_LEAD`を26へ |
+| `tools/generator-lab/core/textEngine.mjs` | `LATIN`正規表現へ∞（U+221E）を追加、`prepare()`／`prepareMixed()`のペアカーニング欠落を修正（累積幅の差分で送り幅を測る） |
+| `tools/generator-lab/core/fonts.mjs` | `loadSymbolFaces()`新設。Google Fontsの`text=`指定でOswaldの記号グリフ（∞）だけ追加取得 |
+| `tools/generator-lab/core/face-crop.mjs` | 採否を`MIN_SCORE=0.3→0.7`、集合写真判定（`CLUSTER_WIDTH`・`GROUP_SPREAD`）を新設 |
+| `tools/generator-lab/core/render.mjs` | Other Releasesのはみ出し警告の「最大◯件」を決め打ちからその場で算出する式へ |
+| `tools/generator-lab/test/weekly-check.mjs` | 上記の新しい値・式へ回帰テストを更新 |
+
+### 維持した機能契約
+
+- `GeneratorTheme`・DBスキーマ・ロック・保存契約は無変更。顔検出の結果は今回も保存しない。
+- カーニング修正・∞の文字分類修正は**Monthly／Japanの描画にも影響する**一般修正（字間≠0の作品名、
+  Oswaldに無い記号を含む作品名）。Weekly専用の値は変えていない。
+
+### 実行した自動テスト
+
+`node --test tools/generator-lab/test/*.mjs`（61件）・`npx vitest run`（407件）・
+`npx tsc --noEmit --incremental false`・`npm run lint`・`npm run build`、すべて成功。
+
+### 実ブラウザ確認
+
+`generator-preview-3458`で実共有文書「2026 WEEK 37」を開き、「全ページを書き出す」のZIPを
+（`<a download>`のクリックをフックして）ローカルに保存、実物投稿7枚と画素で突き合わせた。
+**共有DBへの書き込みは行っていない（閲覧のみ、GETのみ）。**
+
+- W-4（Ow ∞）：作品名の幅が122.5px→103.5pxへ（実物と完全一致）、全画面平均差0.98→0.73階調。
+- W-1（Tyber）：作品名の幅が102.0px→99.0pxへ（実物98.5px、カーニング復元を確認）。
+- W-3（Bonobo）：表紙の帯のずれが152px→0pxへ（抽象画の誤検出が解消、ジャケット位置が実物と完全一致）。
+- W-6（Other Releases）：字高が実物と一致する帯（cap21px・x-height15px）に変わったことを確認。
+  行送りが新しい文書の27行（実物は28行、HUGを含まない）でも`floor(870/27)=32px`の一定間隔になることを確認。
+  表紙全体の平均差は10.00→6.39階調。
+
+### 未確認・今回は意図的に行っていないこと
+
+- **W37共有文書のデータ差分（B1〜B8）は直していない。** ジャンル・国の欠落、ジャケット解像度
+  （SpotifyのURL/`spotifyカバー`の低解像度のまま）、地の色、作品名の字間、Other Releasesの
+  誤記・並び順は、いずれもRelease Masterの「再読込」や手動編集という**共有DBへの書き込み**を伴うため、
+  Koheiの操作に委ねた（`docs/generator-weekly-w37-diff-plan.md` §3.2）。
+- HUGはRelease MasterのWEEK列が空欄のため、利用者の指示どおり取り込み対象外のまま（コード変更なし）。
+- 表紙の顔検出の手動上書きは引き続き無い（§30から持ち越し）。
+- 物理iPhone実機、Safari／Edge／Brave。

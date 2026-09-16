@@ -469,7 +469,10 @@ const Render = (() => {
 
   function inspectWeeklyOthers(ctx, page) {
     const warnings = [], O = L.WEEKLY.OTHERS;
-    if (!O.fits(page.slots.length)) warnings.push(`Other Releasesの${page.slots.length}件が表示領域に収まりません（最大30件）`);
+    // 🔴 2026-09-17：本文をweight300/31px→400/26pxへ訂正したのに伴い、上限も30件→33件になった
+    // （floor(870/33)=26=MIN_LEADがちょうど境界。O.fits()と同じ式で毎回算出し、決め打ちの数を持たない）。
+    const maxLines = Math.floor(O.BODY.BOX.h / O.MIN_LEAD);
+    if (!O.fits(page.slots.length)) warnings.push(`Other Releasesの${page.slots.length}件が表示領域に収まりません（最大${maxLines}件）`);
     page.slots.forEach((slot, index) => {
       const line = Pages.toWeeklyOtherLine(slot);
       if (line && singleWidth(ctx, line, O.TYPE.body) > O.BODY.BOX.w) warnings.push(`${index + 1}行目の作品名／アーティスト名が枠に収まりません`);

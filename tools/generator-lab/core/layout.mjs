@@ -301,11 +301,11 @@ const Layout = (() => {
       artistJP: { family: 'Noto Sans JP', weight: 300, size: 42, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
     },
 
-    // Other Releases（`others`）🔵 2026-09-08実測（2026_W-6.png、実データ30行）
+    // Other Releases（`others`）🔵 2026-09-08実測（2026_W-6.png、実データ30行）、🔴2026-09-17再実測
     // 罫・パネルはfeatureとまったく同じ規則（外側6px白罫、黒系60%パネル、実測で確認）。
     // Koheiの指示（2026-09-08）：件数は週によって変動するので、行送りを表示エリアに合わせて
-    // 自動で詰める／広げる。Monthlyの本文（bodyLayoutFor）とまったく同じ考え方で、
-    // 天地のマージン（ここではASCENT/DESCENT）を固定し、そのあいだを行数で均等に割る。
+    // 自動で詰める／広げる。天地の可用域（BODY.BOX.h）を行数で単純に割った行送りで、
+    // 各行を上から等間隔に並べる（2026-09-17、実物の実測どおりに訂正。下記BODY参照）。
     OTHERS: {
       CELL: { x: 200, y: 50, w: 800, h: 1100 },   // 内枠。featureのFrame 5と違い縦罫・横罫とも外周だけ
       HEADING: {
@@ -313,21 +313,18 @@ const Layout = (() => {
         // 🔴 2026-09-14訂正：169.5は据え置きだが、見出しサイズを71→72に訂正（下のTYPE.headingと対）。
         BASELINE: 169.5,
       },
-      // 本文の「天地幅」。実測30行で先頭行ベースライン248.5・最終行ベースライン1089.5。
-      // ボックス(240,222)720×870 に対し ASCENT=26.5（天）・DESCENT=2.5（地）を引いた841pxを
-      // 行数-1で割ると行送りが決まる。本文が1行だけの場合はbodyLayoutForと同様に天地中央に置く。
-      // 🔴 2026-09-14: 下のTYPE.body.sizeを29→31へ訂正したが、このASCENT/DESCENT/BOXは
-      // 29px想定で実測した値のまま据え置く（841pxという可用域自体はFigmaのフレーム寸法によるもので、
-      // 文字サイズに連動して動く根拠が無い。fits()の下限だけ別途MIN_LEADへ切り離した。下記参照）。
+      // 本文の「天地幅」。🔴 2026-09-17訂正：ASCENT/DESCENTを引いた可用域を行数-1で割る式は廃止。
+      // 実共有文書「2026 WEEK 37」を実物投稿と突き合わせ直すと、実物は先頭行・最終行を固定せず、
+      // 天地の範囲(870px)を行数で単純に割った行送り（W37=28行→31px、W36=30行→29px、いずれも
+      // floor(870/行数)と一致）で、各行のベースラインがその行送りの整数倍ちょうどに並んでいた
+      // （21行の等間隔をpx単位で確認。旧式は末尾行が最大3.5px下にずれ、行数が少ない週ほどずれが拡大する）。
+      // 詳細はdocs/generator-weekly-w37-diff-plan.md §2 A2。
       BODY: {
         BOX: { x: 240, y: 222, w: 720, h: 870 },
-        ASCENT: 26.5, DESCENT: 2.5,
       },
-      // 収まる最小行送り。🔴 2026-09-14: 従来はTYPE.body.sizeと同値（29）を使っていたが、
-      // 2026#36・2026#37の実測でTYPE.body.sizeを29→31へ訂正したため、この下限をサイズに連動させたままだと
-      // 実際に30行が収まっているW36が「収まらない」と誤判定されてしまう（841/(30-1)=29.0 < 31）。
-      // 下限そのものは実測（30行が収まる＝29px）から動いていないので、サイズから切り離して定数で持つ。
-      MIN_LEAD: 29,
+      // 🔴 2026-09-17：下のTYPE.body.sizeを31→26へ訂正したのに伴い、収まる最小行送りも26へ下げた
+      // （字が小さくなった分、より多くの行数が収まる＝最大33行）。行送りがこれを下回ったら出力不可。
+      MIN_LEAD: 26,
       TYPE: {
         // 🔴 2026-09-14訂正：71→72。総当たり実測（サイズ×太さ）で2026#36・2026#37どちらも
         // 72px・Regular(400)が幅差1px未満・塗り差3%以内で最良だった（71pxは幅が5px前後不足）。
@@ -336,26 +333,29 @@ const Layout = (() => {
         // [EP]プレフィックスは落とさない（Weeklyの取り込み規則、generator-weekly-design.md §1）。
         // 和文アーティスト（石若駿、サバシスターなど）が混じるため、metaと同じ和文フォールバックを持つ。
         //
-        // 🔴 2026-09-14訂正：weight 400/size 29 → **weight 300/size 31**。
-        // 2026-09-09の「renderWeight:350で描く太さだけ下げる」補正は、drawWeeklyOthers()が
-        // TextEngine.drawSingle()へopt.renderWeightを渡していなかったため一度も効いておらず、
-        // 実際にはweight 400のまま描かれていた（実物比+20〜27%の濃さで「太い」という指摘どおり）。
-        // 2026#36・2026#37 計9行の総当たり実測（サイズ×太さ）では、renderWeightの小細工なしに
-        // weight 300・size 31が幅差±2%・塗り差±3%以内でどの行も一致した。字送り・折り返し・
-        // はみ出し判定はすべてこのweight/sizeで測るので、renderWeightは廃止する。
-        body: { family: 'Oswald", "Noto Sans JP', weight: 300, size: 31, color: '#ffffff', case: 'ORIGINAL', tracking: 0 },
+        // 🔴 2026-09-17再訂正：weight 300/size 31 → **weight 400/size 26・字間+5%**。
+        // 2026-09-14の実測は幅と塗りの量だけで照合しており、字高（キャップハイト）を見ていなかった。
+        // 「Light 31px・字間0」と「Regular 26px・字間+5%」は幅・塗りの量がほぼ同じになるため
+        // 区別できず、字高が実物21pxに対し24〜25pxと15〜19%大きいまま見落としていた。
+        // 2026#36・2026#37 計9行の総当たり実測（幅・塗り量・字高の3点）では、weight 400・size 26・
+        // 字間+5%が幅差1px未満・塗り差+1.6%・字高一致でどの行も最良だった。
+        // 詳細はdocs/generator-weekly-w37-diff-plan.md §2 A1。
+        body: { family: 'Oswald", "Noto Sans JP', weight: 400, size: 26, color: '#ffffff', case: 'ORIGINAL', tracking: 0.05 },
       },
       /**
-       * n行を天地の中で均等に配置する行送りとベースライン。Layout.bodyLayoutFor と同型。
+       * n行を天地の中で均等に配置する行送りとベースライン。
+       * 🔴 2026-09-17：先頭行・最終行を固定して割る式から、天地の可用域(BOX.h)を行数で単純に割る式へ
+       * 変更した（実物の実測どおり。上記BODYのコメント参照）。CENTER_OFFSETは字面（キャップ〜ベースライン間の
+       * 中心）を行送りの中央に置くための下方オフセットで、Oswald 26px時の(ascent-descent)/2の実測値。
        * 収まる最小行送り（MIN_LEAD）を下回ったら呼び出し側がoverflowとして扱う（fits(n)を使うこと）。
        */
+      CENTER_OFFSET: 11.7,
       layoutFor(lineCount) {
         const n = Math.max(1, lineCount || 1);
-        const { BOX, ASCENT, DESCENT } = WEEKLY.OTHERS.BODY;
-        const top = BOX.y, bottom = BOX.y + BOX.h;
-        const first = top + ASCENT, last = bottom - DESCENT;
-        if (n === 1) return { lead: 0, baseline: (top + bottom) / 2 + (ASCENT - DESCENT) / 2 };
-        return { lead: (last - first) / (n - 1), baseline: first };
+        const { BOX } = WEEKLY.OTHERS.BODY;
+        if (n === 1) return { lead: 0, baseline: BOX.y + BOX.h / 2 + WEEKLY.OTHERS.CENTER_OFFSET };
+        const lead = Math.floor(BOX.h / n);
+        return { lead, baseline: BOX.y + lead / 2 + WEEKLY.OTHERS.CENTER_OFFSET };
       },
       fits(lineCount) {
         const n = Math.max(1, lineCount || 1);

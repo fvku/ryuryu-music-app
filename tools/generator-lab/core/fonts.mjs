@@ -41,6 +41,40 @@ const Fonts = (() => {
     }));
   }
 
+  // 🔴 2026-09-17追加：OswaldのGoogle Fonts標準サブセット（latin/latin-ext等）にはU+221E（∞）が
+  // 含まれない。そのため作品名に∞が出ると（例: 2026#37 Sylvan Esso「Ow ∞」）Oswaldが読み込まれず、
+  // スタック次点のNoto Sans JPで描かれてしまう（実物は103.5px、Noto代用は122.5pxで別の字形・幅になる。
+  // docs/generator-weekly-w37-diff-plan.md §2 A3）。Google Fontsのcss2は`text=`を付けると
+  // **そのfamilyをtext内の文字だけに限定した別ファイル**を返す仕組みなので、通常の読み込み（NEEDED）とは
+  // 別に、記号だけを対象にした追加の@font-faceをOswaldの同じfamily名へ登録する
+  // （ブラウザは同一familyでunicode-rangeが異なる複数のFontFaceを持てる）。
+  // 失敗してもloadAll()全体は落とさない（該当の記号だけフォールバック書体になるだけで、他の描画は止めない）。
+  const SYMBOLS = '∞';   // 実測で確認済みの文字のみ。新たに必要な記号が見つかったら追記する。
+  let symbolFacesLoaded = null;
+  function loadSymbolFaces() {
+    return symbolFacesLoaded ||= (async () => {
+      try {
+        const weights = NEEDED.find(f => f.family === 'Oswald').weights;
+        const params = `family=Oswald:wght@${weights.join(';')}&text=${encodeURIComponent(SYMBOLS)}`;
+        const css = await fetch(`https://fonts.googleapis.com/css2?${params}&display=block`).then(r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.text();
+        });
+        const faces = [...css.matchAll(/@font-face\s*{([^}]*)}/g)];
+        await Promise.all(faces.map(async ([, body]) => {
+          const weight = body.match(/font-weight:\s*(\d+)/)?.[1];
+          const url = body.match(/src:\s*url\(([^)]+)\)/)?.[1];
+          if (!weight || !url) return;
+          const face = new FontFace('Oswald', `url(${url})`, { weight });
+          await face.load();
+          document.fonts.add(face);
+        }));
+      } catch (error) {
+        console.error('Oswaldの記号グリフ（∞等）の読み込みに失敗しました（該当の記号だけフォールバック書体になります）', error);
+      }
+    })();
+  }
+
   // SPEC.md §9.5: renderWeightDelta（全体一律）や t.renderWeight（要素個別、例: 本文の意匠調整）で
   // 見た目用の細いウェイトが指定されていれば、それも合わせて読み込む
   // （prepare() が測るのは常に t.weight の側なので、両方要る）。
@@ -85,7 +119,7 @@ const Fonts = (() => {
     });
   }
   async function loadAll() {
-    await Promise.all([loadStylesheet(), loadSelfHosted()]);
+    await Promise.all([loadStylesheet(), loadSelfHosted(), loadSymbolFaces()]);
     // document.fonts.load() はテキストを省略すると内部の既定サンプル（ラテン文字のみ）の
     // サブセットしか読み込まない。和文フォントは CJK のサブセットを明示的に指定しないと、
     // 実際に描画する文字のグリフが読み込まれないまま document.fonts.ready が解決してしまう。
