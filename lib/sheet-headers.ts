@@ -63,7 +63,7 @@ export const SHEET_COL = {
   TITLE:       "アルバム名",     // C列  ※要確認
   ARTIST:      "アーティスト",   // D列  ※要確認
   GENRE:       "洋邦",           // F列
-  TIME:        "Time",           // G列（曲数・総尺。例: "9songs, 29min 9sec"）
+  TIME:        "Time",           // G列（曲数・総尺。例: "9songs, 29min 9sec" / 60分以上は "24songs, 1hr 24min"）
   WEEK_NUMBER: "#",              // H列（Weeklyの週番号。土曜〜金曜を1週とする）
   COVER_URL_LARGE: "画像リンク変換",  // Apple Music のカバー画像URL（2000×2000）。列位置は可変
 

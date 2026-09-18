@@ -69,7 +69,7 @@ npx tsx scripts/fill-time-tracks.ts --apply --force        # 全行上書き
 npx tsx scripts/fill-time-tracks.ts --apply --force --from-row=915  # 指定行以降のみ
 ```
 
-書き込み形式: `13songs, 50min 4sec`
+書き込み形式: `13songs, 50min 4sec`。60分以上は `24songs, 1hr 24min`（秒は切り捨てて省略）。表記は `lib/time-format.ts` に集約（アルバム追加APIも同じ関数を使う）
 
 ## 管理画面の認可
 

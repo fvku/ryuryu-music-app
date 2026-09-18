@@ -16,7 +16,7 @@ export interface ReleaseMasterAlbum {
   title: string;
   artist: string;
   genre: "邦楽" | "洋楽" | "";
-  duration: string;   // Time column (G) — 曲数・総尺。例: "9songs, 29min 9sec"
+  duration: string;   // Time column (G) — 曲数・総尺。例: "9songs, 29min 9sec" / 60分以上は "24songs, 1hr 24min"
   weekNumber: string; // # column (H) — Weeklyの週番号（土曜〜金曜）
   genreMemo: string;  // genre/memo column (K)
   country: string;    // 国 column (L)

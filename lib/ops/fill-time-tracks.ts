@@ -6,11 +6,13 @@
  *   1. Time が空の行を抽出（force なら既存値も上書き）
  *   2. Spotify列に URL がある行のみ対象（URLがない行は検索せずスキップ＝シングル/同名EP誤爆を防止）
  *   3. トラック一覧から総再生時間と曲数を算出し "12songs, 46min 20sec" 形式で書き込む
+ *      （60分以上は "24songs, 1hr 24min"。表記は lib/time-format.ts）
  */
 
 import { google } from "googleapis";
 import { getGoogleAuth } from "@/lib/google-auth";
 import { indexToColumnLetter } from "@/lib/sheet-headers";
+import { formatTimeTracks } from "@/lib/time-format";
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -63,13 +65,6 @@ async function getAlbumInfo(albumId: string): Promise<{ totalTracks: number; tot
   }
 
   return { totalTracks, totalDurationMs: totalMs };
-}
-
-function formatEntry(totalMs: number, totalTracks: number): string {
-  const totalSec = Math.round(totalMs / 1000);
-  const totalMin = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  return `${totalTracks}songs, ${totalMin}min ${sec}sec`;
 }
 
 // ── コア処理 ──
@@ -166,7 +161,7 @@ export async function fillTimeTracks(options: FillTimeTracksOptions): Promise<Fi
       }
 
       const info = await getAlbumInfo(albumId);
-      const entry = formatEntry(info.totalDurationMs, info.totalTracks);
+      const entry = formatTimeTracks(info.totalTracks, info.totalDurationMs);
       pushDetail(t, entry);
       writes.push({ range: `'Release Master'!${cTime}${t.rowNum}`, values: [[entry]] });
       result.ok++;

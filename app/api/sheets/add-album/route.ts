@@ -4,6 +4,7 @@ import { getWriteAuth } from "@/lib/release-master";
 import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 import { generateAlbumUid } from "@/lib/uid";
+import { formatTimeTracks } from "@/lib/time-format";
 
 export const dynamic = "force-dynamic";
 
@@ -27,13 +28,6 @@ function formatReleaseDate(releaseDate: string): string {
   const month = parts[1] ? parts[1].padStart(2, "0") : "01";
   const day   = parts[2] ? parts[2].padStart(2, "0") : "01";
   return `${year}/${month}/${day}`;
-}
-
-function formatDuration(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  const min = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  return `${min}min ${sec}sec`;
 }
 
 export async function POST(request: NextRequest) {
@@ -93,7 +87,7 @@ export async function POST(request: NextRequest) {
     const writeRow = lastFilledIndex >= 0 ? lastFilledIndex + 3 : dataRows.length + 2;
     const no = "";
 
-    const trackInfo = `${trackCount}songs, ${formatDuration(totalDurationMs)}`;
+    const trackInfo = formatTimeTracks(trackCount, totalDurationMs);
     const dateStr = formatReleaseDate(releaseDate);
 
     // 値のあるセルのみ個別に書き込む（既存の数式・値を上書きしない）
