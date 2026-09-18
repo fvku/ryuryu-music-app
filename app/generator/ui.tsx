@@ -60,11 +60,13 @@ export function Panel({
   className = "",
   id,
   padding = "default",
-}: { children: ReactNode; className?: string; id?: string; padding?: "default" | "tight" }) {
+}: { children: ReactNode; className?: string; id?: string; padding?: "default" | "tight" | "none" }) {
+  // none は、見出しや下端の帯をパネルの端まで広げたいときに使う（中身の余白は呼び出し側が持つ）。
+  const inset = padding === "none" ? "" : padding === "tight" ? "p-3" : "p-4 sm:p-5";
   return (
     <section
       id={id}
-      className={`rounded-2xl border ${padding === "tight" ? "p-3" : "p-4 sm:p-5"} ${className}`}
+      className={`rounded-2xl border ${inset} ${className}`}
       style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}
     >
       {children}

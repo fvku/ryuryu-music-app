@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GeneratorHistoryEntry } from "@/lib/generator/client-types";
 import type { GeneratorDocument } from "@/lib/generator/model";
+import { getMemberShortName } from "@/lib/members";
 import { Checkbox, Chip, Field, Modal, PrimaryButton, SecondaryButton, SelectInput } from "../ui";
 import { useGeneratorRuntime } from "../runtime";
-import { movePageItem, swapWeeklyFeatureItem, targetLabels, type LockKind, type OrderedPageKind } from "./workspace-types";
+import { movePageItem, movePageItemTo, structureDrop, swapWeeklyFeatureItem, targetLabels, type LockKind, type OrderedPageKind } from "./workspace-types";
 
 export type TargetState = {
   kind: LockKind;
@@ -86,8 +87,9 @@ export function TargetStatus({ state, label, trailing }: { state: TargetState; l
   }
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Chip tone="success">編集中 · 自動延長</Chip>
-      <Chip tone={state.dirty ? "warn" : "info"}>{state.dirty ? "未保存" : "共有DBと一致"}</Chip>
+      <Chip tone="info">編集中</Chip>
+      {/* 保存状態の言葉は画像の操作列と揃える（保存済み／未保存）。 */}
+      <Chip tone={state.dirty ? "warn" : "success"}>{state.dirty ? "未保存" : "保存済み"}</Chip>
       <span className="flex-1" />
       <PrimaryButton disabled={state.disabled || !state.dirty} onClick={state.onSave} className="min-h-9 px-3 text-xs">保存</PrimaryButton>
       {!state.direct && <SecondaryButton disabled={state.disabled} onClick={state.onRelease} className="min-h-9 px-3 text-xs">編集終了</SecondaryButton>}
@@ -96,108 +98,119 @@ export function TargetStatus({ state, label, trailing }: { state: TargetState; l
   );
 }
 
-/** 過去版からその対象だけを新しいversionとして書き戻す。compact は操作列と同じ行に置く形。 */
-export function RestoreControl({ state, compact = false }: { state: TargetState; compact?: boolean }) {
+const restoreAtFormat = new Intl.DateTimeFormat("ja-JP", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Tokyo" });
+
+/**
+ * 以前の保存から、その対象だけを書き戻す（新しい保存として残るので、履歴は消えない）。
+ * 候補は「この対象を保存した時点」と「取り込んだ時点」だけにする。ほかの対象の保存まで並べると、何が戻るのか分からない。
+ * 並び順は取り込み以降の版しか戻せない（作品数が違うため）ので、呼び出し側が絞った候補をそのまま使う。
+ */
+export function RestoreControl({ state, compact = false, bare = false }: { state: TargetState; compact?: boolean; bare?: boolean }) {
   const [version, setVersion] = useState("");
-  if (state.versions.length === 0) return null;
+  const candidates = state.kind === "structure"
+    ? state.versions
+    : state.versions.filter(entry => (entry.targetKind === state.kind && entry.targetId === state.targetId) || !entry.targetKind);
+  if (candidates.length === 0) return null;
+  const subject = state.kind === "item" ? "この作品" : state.kind === "page" ? "この画像の背景色" : targetLabels[state.kind];
+  const Wrapper = bare ? "div" : "details";
   return (
-    <details className={`rounded-lg border ${compact ? "px-2 py-1" : "px-3 py-2"}`} style={{ borderColor: "var(--border-subtle)" }}>
-      <summary className="cursor-pointer text-[11px]" style={{ color: "var(--text-secondary)" }}>
-        {compact ? "過去版から復元" : `過去版から${targetLabels[state.kind]}を復元`}
-      </summary>
+    <Wrapper className={bare ? "" : `rounded-lg border ${compact ? "px-2 py-1" : "px-3 py-2"}`} style={bare ? undefined : { borderColor: "var(--border-subtle)" }}>
+      {bare
+        ? <p className="text-xs font-semibold">{subject}</p>
+        : (
+          <summary className="cursor-pointer text-[11px]" style={{ color: "var(--text-secondary)" }}>
+            以前の保存に戻す
+          </summary>
+        )}
       <p className="mt-2 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>
-        選んだ版のこの対象だけを、新しいversionとして書き戻します。●はその版でこの対象が変更されたことを示します。履歴は消えません。
-        {state.kind === "structure" && " 並び順は、最後に作品を取り込んだ時点以降の版へ戻せます。作品の増減より前の版は、当時と作品数が異なるため選べません。過去の作品構成へ戻す場合は「Release Master 再読込」で内容を確認してください。"}
+        {subject}だけを、選んだ時点の内容に戻します。戻したことも保存として残るので、あとからまた戻せます。
+        {state.kind === "structure" && " 作品を取り込み直す前の並び順には戻せません（作品の数が違うため）。"}
       </p>
       <div className="mt-2 flex gap-2">
         <SelectInput value={version} onChange={event => setVersion(event.target.value)} className="min-w-0 flex-1">
-          <option value="">過去版を選択</option>
-          {state.versions.map(entry => (
+          <option value="">戻す時点を選ぶ</option>
+          {candidates.map(entry => (
             <option key={entry.version} value={entry.version}>
-              {entry.targetKind === state.kind && entry.targetId === state.targetId ? "● " : ""}
-              version {entry.version} · {entry.actor}
+              {restoreAtFormat.format(new Date(entry.createdAt))} · {getMemberShortName(entry.actor) ?? entry.actor}
+              {!entry.targetKind ? "（取り込んだとき）" : ""}
             </option>
           ))}
         </SelectInput>
-        <SecondaryButton disabled={state.disabled || !version} onClick={() => state.onRestore(Number(version))} className="min-h-11 px-3 text-xs">復元</SecondaryButton>
+        <SecondaryButton disabled={state.disabled || !version} onClick={() => state.onRestore(Number(version))} className="min-h-11 px-3 text-xs">戻す</SecondaryButton>
       </div>
-    </details>
+    </Wrapper>
   );
 }
 
+/**
+ * 背景色。編集パネルの一番上に1行で置く（2026-09-18、タブをやめて1枚にしたため）。
+ * 仮の色（自動で入れた初期値）のときだけ、保存するか選び直すよう一言添える。
+ */
 export function PageInspector({
   state,
-  pageNumber,
   color,
   defined,
   candidates,
   onColor,
 }: {
   state: TargetState;
-  pageNumber: number;
   color: string;
   defined: boolean;
-  /** ジャケットから拾った候補。最初の1つは編集開始時の初期値にも使う。 */
+  /** ジャケットから拾った候補。最初の1つは編集開始時の仮の色にも使う。 */
   candidates: string[];
   onColor(value: string): void;
 }) {
   const readOnly = !state.locked || state.disabled;
   return (
-    <div className="space-y-4">
-      <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>
-        画像 {pageNumber} の1枚だけに効きます。掲載の上下でも共通です。
-      </p>
-      <div className="flex items-center gap-3">
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
         <input
           type="color"
           value={color}
-          disabled={!state.locked || state.disabled}
+          disabled={readOnly}
           onChange={event => onColor(event.target.value)}
-          aria-label="背景色"
-          className="h-12 w-20 shrink-0 cursor-pointer rounded-lg border bg-transparent disabled:opacity-40"
+          aria-label="背景色を自由に選ぶ"
+          title="カラーピッカーで自由に選ぶ"
+          className="h-9 w-12 shrink-0 cursor-pointer rounded-lg border bg-transparent disabled:opacity-40"
           style={{ borderColor: "var(--border-subtle)" }}
         />
-        <div className="min-w-0">
-          <p className="font-mono text-sm">{color}</p>
-          {!defined && (
-            <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>未設定のため、プレビューだけの仮の色です。</p>
-          )}
-        </div>
+        <span className="font-mono text-xs">{color}</span>
+        <span className="flex-1" />
+        {candidates.map(value => (
+          <button
+            key={value}
+            type="button"
+            disabled={readOnly}
+            onClick={() => onColor(value)}
+            aria-label={`背景色を ${value} にする`}
+            title={`${value}（ジャケットから拾った候補）`}
+            className="h-8 w-8 rounded-lg border-2 disabled:opacity-40"
+            style={{ backgroundColor: value, borderColor: value === color ? "#c4b5fd" : "transparent" }}
+          />
+        ))}
       </div>
-      {candidates.length > 0 && (
-        <div>
-          <p className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>ジャケットから拾った候補</p>
-          <div className="mt-1 flex flex-wrap gap-2">
-            {candidates.map(value => (
-              <button
-                key={value}
-                type="button"
-                disabled={readOnly}
-                onClick={() => onColor(value)}
-                aria-label={`背景色を ${value} にする`}
-                title={value}
-                className="h-9 w-9 rounded-lg border disabled:opacity-40"
-                style={{ backgroundColor: value, borderColor: value === color ? "var(--accent)" : "var(--border-subtle)" }}
-              />
-            ))}
-          </div>
-          <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>
-            白文字が読める範囲へ寄せた候補です。ここから選んでも、カラーピッカーで自由に決めても構いません。
-          </p>
-        </div>
-      )}
+      {!defined ? (
+        <p className="text-[11px] text-amber-300">仮の色です。この色で「保存」するか、候補かカラーピッカーで選んでください。</p>
+      ) : candidates.length > 0 ? (
+        <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>右の色はジャケットから拾った候補です。左の四角で自由にも選べます。</p>
+      ) : null}
     </div>
   );
 }
 
+type StructureDrag = { id: string; pointerId: number; startY: number; startScroll: number; offset: number };
+
 export function StructureDialog({
   state,
+  notice = null,
   pages,
   items,
   onPages,
   onClose,
 }: {
   state: TargetState;
+  /** 編集を始められない理由。ダイアログが画面上部の帯を覆うので、ここに出す。 */
+  notice?: string | null;
   pages: GeneratorDocument["pages"];
   items: Map<string, GeneratorDocument["items"][number]>;
   onPages(value: GeneratorDocument["pages"]): void;
@@ -221,57 +234,193 @@ export function StructureDialog({
   });
   const otherIds = rows.filter(row => row.kind === "others").map(row => row.id);
   const kindLabel: Record<OrderedPageKind, string> = { adopted: "採用", listed: "掲載", feature: "メイン", others: "Others" };
+  const canEdit = state.locked && !state.disabled;
+
+  // ドラッグで並べ替える（2026-09-18）。指でも動くよう Pointer Events で自作する（HTML標準のドラッグはiPhoneの指で動かない）。
+  // 掴めるのは左端のつまみだけ。ほかの場所では、今までどおりスクロールできる。
+  const [drag, setDrag] = useState<StructureDrag | null>(null);
+  const [hover, setHover] = useState<{ overId: string; after: boolean } | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLLIElement>());
+  const listRef = useRef<HTMLOListElement>(null);
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  const pointerY = useRef(0);
+  const dragRef = useRef<StructureDrag | null>(null);
+  // 落とした瞬間は最後の移動がまだ描画に反映されていないことがあるので、判定は参照から読む。
+  const hoverRef = useRef<{ overId: string; after: boolean } | null>(null);
+
+  /** 指の高さから、どの行の上半分／下半分にいるかを決める。行の外なら一番近い端の行。 */
+  function hoverAt(y: number): { overId: string; after: boolean } | null {
+    const measured = rows
+      .map(row => ({ id: row.id, rect: rowRefs.current.get(row.id)?.getBoundingClientRect() }))
+      .filter((row): row is { id: string; rect: DOMRect } => Boolean(row.rect));
+    if (!measured.length) return null;
+    const inside = measured.find(row => y >= row.rect.top && y <= row.rect.bottom);
+    if (inside) return { overId: inside.id, after: y > inside.rect.top + inside.rect.height / 2 };
+    return y < measured[0].rect.top
+      ? { overId: measured[0].id, after: false }
+      : { overId: measured[measured.length - 1].id, after: true };
+  }
+
+  function updateDrag(y: number) {
+    const current = dragRef.current;
+    if (!current) return;
+    pointerY.current = y;
+    const scroll = scrollerRef.current?.scrollTop ?? 0;
+    const next = { ...current, offset: y - current.startY + (scroll - current.startScroll) };
+    dragRef.current = next;
+    hoverRef.current = hoverAt(y);
+    setDrag(next);
+    setHover(hoverRef.current);
+  }
+
+  function endDrag(apply: boolean) {
+    const current = dragRef.current, target = hoverRef.current;
+    if (apply && current && target) {
+      const action = structureDrop({ rows, draggedId: current.id, overId: target.overId, after: target.after, weekly: isWeekly });
+      if (action?.type === "move") onPages(movePageItemTo(pages, action.kind, action.itemId, action.toIndex));
+      if (action?.type === "swap") onPages(swapWeeklyFeatureItem(pages, action.featureId, action.otherId));
+    }
+    dragRef.current = null;
+    hoverRef.current = null;
+    setDrag(null);
+    setHover(null);
+  }
+
+  // ダイアログの上端・下端に近づいたら、指を止めていても自動でスクロールする。
+  const dragging = drag !== null;
+  useEffect(() => {
+    if (!dragging) return;
+    const timer = window.setInterval(() => {
+      const scroller = scrollerRef.current;
+      if (!scroller) return;
+      const rect = scroller.getBoundingClientRect(), y = pointerY.current;
+      const step = y < rect.top + 48 ? -10 : y > rect.bottom - 48 ? 10 : 0;
+      if (!step) return;
+      scroller.scrollTop += step;
+      updateDrag(y);
+    }, 16);
+    return () => window.clearInterval(timer);
+    // updateDrag は参照だけを読むので、ドラッグの開始・終了でだけ張り直せばよい。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging]);
+
+  const pending = drag && hover
+    ? structureDrop({ rows, draggedId: drag.id, overId: hover.overId, after: hover.after, weekly: isWeekly })
+    : null;
+
   return (
     <Modal
       title="並び順を変更"
       description={isWeekly
-        ? "メイン5枚の順番、Other Releasesの順番、および両者の入れ替えを行えます。表紙のジャケット順もメインに連動します。作品構成が変わる前のversionは復元候補に出ません。"
-        : "採用・掲載それぞれの区分の中だけで前後に動かせます。並びが変わると、画像への割り当ても入れ替わります。作品構成が変わる前のversionは復元候補に出ません。"}
+        ? "メイン5枚の順番、Other Releasesの順番、および両者の入れ替えができます。表紙のジャケットの順もメインに合わせて変わります。"
+        : "採用・掲載それぞれの中で前後に動かせます。並びが変わると、画像への割り当ても入れ替わります。"}
       onClose={onClose}
     >
       <div className="space-y-3">
         <TargetActions state={state} label="並び順" />
-        <ol className="space-y-2">
-          {rows.map(({ id, kind }, index) => (
-            <li key={id} className="flex items-center gap-2 rounded-lg border p-2 text-sm" style={{ borderColor: "var(--border-subtle)" }}>
-              <Chip tone="info">{kindLabel[kind]}</Chip>
-              <span className="min-w-0 flex-1 truncate">{items.get(id)?.content.fields.title || "（作品名未入力）"}</span>
-              {kind === "feature" && (
-                <SelectInput
-                  aria-label={`${items.get(id)?.content.fields.title || "メイン作品"}を入れ替え`}
-                  value={id}
-                  disabled={!state.locked || state.disabled || otherIds.length === 0}
-                  onChange={event => swapFeature(id, event.target.value)}
-                  className="!mt-0 max-w-52 text-xs"
+        {notice && <p className="text-xs leading-5 text-amber-300">{notice}</p>}
+        {canEdit && (
+          <p className="text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>
+            左の ⋮⋮ を掴んで、動かしたい位置へドラッグします。
+            {isWeekly && "メインとOthersの間で落とすと、その2つが入れ替わります。"}
+          </p>
+        )}
+        <ol ref={listRef} className={`space-y-2 ${drag ? "select-none" : ""}`}>
+          {rows.map(({ id, kind }, index) => {
+            const dragged = drag?.id === id;
+            const over = hover?.overId === id && !dragged;
+            const insertLine = over && pending?.type === "move";
+            const swapTarget = over && pending?.type === "swap";
+            return (
+              <li
+                key={id}
+                ref={element => {
+                  if (element) rowRefs.current.set(id, element);
+                  else rowRefs.current.delete(id);
+                }}
+                className="relative flex items-center gap-2 rounded-lg border p-2 text-sm"
+                style={{
+                  borderColor: swapTarget ? "#f59e0b" : "var(--border-subtle)",
+                  backgroundColor: dragged ? "var(--bg-card)" : swapTarget ? "rgba(245,158,11,.1)" : undefined,
+                  // 差し込む位置は、行の上端か下端に紫の線で見せる。
+                  boxShadow: dragged
+                    ? "0 8px 24px rgba(0,0,0,.45)"
+                    : insertLine ? (hover.after ? "inset 0 -3px 0 var(--accent)" : "inset 0 3px 0 var(--accent)") : undefined,
+                  transform: dragged ? `translateY(${drag.offset}px)` : undefined,
+                  zIndex: dragged ? 10 : undefined,
+                  opacity: dragged ? 0.9 : undefined,
+                }}
+              >
+                <button
+                  type="button"
+                  aria-label={`${items.get(id)?.content.fields.title || "作品"}をドラッグして並べ替え`}
+                  title="掴んでドラッグ"
+                  disabled={!canEdit}
+                  onPointerDown={event => {
+                    if (!canEdit || event.button !== 0) return;
+                    event.preventDefault();
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    scrollerRef.current = listRef.current?.closest(".overflow-y-auto") as HTMLElement | null;
+                    pointerY.current = event.clientY;
+                    const start = { id, pointerId: event.pointerId, startY: event.clientY, startScroll: scrollerRef.current?.scrollTop ?? 0, offset: 0 };
+                    dragRef.current = start;
+                    hoverRef.current = null;
+                    setDrag(start);
+                    setHover(null);
+                  }}
+                  onPointerMove={event => {
+                    if (dragRef.current?.pointerId === event.pointerId) updateDrag(event.clientY);
+                  }}
+                  onPointerUp={event => {
+                    if (dragRef.current?.pointerId === event.pointerId) endDrag(true);
+                  }}
+                  onPointerCancel={() => endDrag(false)}
+                  className="flex h-10 w-7 shrink-0 cursor-grab items-center justify-center rounded text-base leading-none active:cursor-grabbing disabled:cursor-default disabled:opacity-30"
+                  style={{ touchAction: "none", color: "var(--text-secondary)" }}
                 >
-                  <option value={id}>この作品のまま</option>
-                  {otherIds.map(otherId => (
-                    <option key={otherId} value={otherId}>⇄ {items.get(otherId)?.content.fields.title || "（作品名未入力）"}</option>
-                  ))}
-                </SelectInput>
-              )}
-              <button
-                type="button"
-                aria-label="上へ"
-                disabled={!state.locked || state.disabled || !rows.slice(0, index).some(value => value.kind === kind)}
-                onClick={() => move(kind, id, -1)}
-                className="h-10 w-10 shrink-0 rounded border disabled:opacity-30"
-                style={{ borderColor: "var(--border-subtle)" }}
-              >
-                ↑
-              </button>
-              <button
-                type="button"
-                aria-label="下へ"
-                disabled={!state.locked || state.disabled || !rows.slice(index + 1).some(value => value.kind === kind)}
-                onClick={() => move(kind, id, 1)}
-                className="h-10 w-10 shrink-0 rounded border disabled:opacity-30"
-                style={{ borderColor: "var(--border-subtle)" }}
-              >
-                ↓
-              </button>
-            </li>
-          ))}
+                  ⋮⋮
+                </button>
+                <Chip tone="info">{kindLabel[kind]}</Chip>
+                <span className="min-w-0 flex-1 truncate">{items.get(id)?.content.fields.title || "（作品名未入力）"}</span>
+                {swapTarget && <span className="shrink-0 text-[11px] font-semibold text-amber-300">ここと入れ替え</span>}
+                {kind === "feature" && !swapTarget && (
+                  <SelectInput
+                    aria-label={`${items.get(id)?.content.fields.title || "メイン作品"}を入れ替え`}
+                    value={id}
+                    disabled={!canEdit || otherIds.length === 0}
+                    onChange={event => swapFeature(id, event.target.value)}
+                    className="!mt-0 max-w-52 text-xs"
+                  >
+                    <option value={id}>この作品のまま</option>
+                    {otherIds.map(otherId => (
+                      <option key={otherId} value={otherId}>⇄ {items.get(otherId)?.content.fields.title || "（作品名未入力）"}</option>
+                    ))}
+                  </SelectInput>
+                )}
+                {/* キーボードでも並べ替えられるように、↑↓は残す。 */}
+                <button
+                  type="button"
+                  aria-label="上へ"
+                  disabled={!canEdit || !rows.slice(0, index).some(value => value.kind === kind)}
+                  onClick={() => move(kind, id, -1)}
+                  className="h-10 w-10 shrink-0 rounded border disabled:opacity-30"
+                  style={{ borderColor: "var(--border-subtle)" }}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  aria-label="下へ"
+                  disabled={!canEdit || !rows.slice(index + 1).some(value => value.kind === kind)}
+                  onClick={() => move(kind, id, 1)}
+                  className="h-10 w-10 shrink-0 rounded border disabled:opacity-30"
+                  style={{ borderColor: "var(--border-subtle)" }}
+                >
+                  ↓
+                </button>
+              </li>
+            );
+          })}
         </ol>
       </div>
     </Modal>

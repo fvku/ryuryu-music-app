@@ -1,12 +1,12 @@
 import type { PageBadges } from "../PageNavigator";
 import type { FieldKey } from "../hit-test";
-import type { GeneratorPage, ItemContent } from "@/lib/generator/model";
+import type { GeneratorDocument, GeneratorPage, ItemContent } from "@/lib/generator/model";
 
 export type LockKind = "item" | "page" | "theme" | "structure";
 export type ActiveLock = { kind: LockKind; targetId: string; clientId: string; token: string; generation: number; expiresAt: string };
 export type LockResponse = { generation: number; expiresAt: string; owner: string };
 
-export const targetLabels: Record<LockKind, string> = { item: "作品", page: "背景", theme: "共通設定", structure: "並び順" };
+export const targetLabels: Record<LockKind, string> = { item: "作品", page: "背景色", theme: "共通設定", structure: "並び順" };
 
 export function keyOf(kind: LockKind, targetId: string): string {
   return `${kind}:${targetId}`;
@@ -44,6 +44,64 @@ export function movePageItem(pages: GeneratorPage[], kind: OrderedPageKind, item
     return [page.id, ids];
   }));
   return pages.map(page => replacements.has(page.id) ? { ...page, itemIds: replacements.get(page.id)! } : page);
+}
+
+/**
+ * 同じ区分の中で、作品を指定の位置へ差し込む（ドラッグで落とした位置へ動かすため）。
+ * `toIndex`は動かした後の並びでの位置。ページごとの件数は変えない。
+ */
+export function movePageItemTo(pages: GeneratorPage[], kind: OrderedPageKind, itemId: string, toIndex: number): GeneratorPage[] {
+  const groupPages = pages.filter(page => page.kind === kind), ordered = groupPages.flatMap(page => page.itemIds);
+  const from = ordered.indexOf(itemId);
+  if (from < 0 || toIndex < 0 || toIndex >= ordered.length || from === toIndex) return pages;
+  ordered.splice(from, 1);
+  ordered.splice(toIndex, 0, itemId);
+  let offset = 0;
+  const replacements = new Map(groupPages.map(page => {
+    const ids = ordered.slice(offset, offset + page.itemIds.length);
+    offset += page.itemIds.length;
+    return [page.id, ids];
+  }));
+  return pages.map(page => replacements.has(page.id) ? { ...page, itemIds: replacements.get(page.id)! } : page);
+}
+
+export type StructureDrop =
+  | { type: "move"; kind: OrderedPageKind; itemId: string; toIndex: number }
+  | { type: "swap"; featureId: string; otherId: string };
+
+/**
+ * ドラッグした作品を、ある行の上半分（`after: false`）か下半分（`after: true`）へ落としたときに何が起きるか。
+ * - 同じ区分：その位置へ差し込む
+ * - Weeklyのメインと Others の間：入れ替える（各ページの件数を変えないため、差し込みではなく入れ替え）
+ * - それ以外（採用と掲載の間など）：何もしない
+ */
+export function structureDrop({
+  rows,
+  draggedId,
+  overId,
+  after,
+  weekly,
+}: {
+  rows: { id: string; kind: OrderedPageKind }[];
+  draggedId: string;
+  overId: string;
+  after: boolean;
+  weekly: boolean;
+}): StructureDrop | null {
+  const dragged = rows.find(row => row.id === draggedId), over = rows.find(row => row.id === overId);
+  if (!dragged || !over || dragged.id === over.id) return null;
+  if (dragged.kind === over.kind) {
+    const group = rows.filter(row => row.kind === dragged.kind).map(row => row.id);
+    const rest = group.filter(id => id !== dragged.id);
+    const toIndex = rest.indexOf(over.id) + (after ? 1 : 0);
+    return toIndex === group.indexOf(dragged.id) ? null : { type: "move", kind: dragged.kind, itemId: dragged.id, toIndex };
+  }
+  if (weekly && ((dragged.kind === "feature" && over.kind === "others") || (dragged.kind === "others" && over.kind === "feature"))) {
+    return dragged.kind === "feature"
+      ? { type: "swap", featureId: dragged.id, otherId: over.id }
+      : { type: "swap", featureId: over.id, otherId: dragged.id };
+  }
+  return null;
 }
 
 /** Weeklyのメイン1枠とOthersの1件をswapし、DB契約の「各ページの件数不変」を守る。 */
@@ -141,4 +199,51 @@ export function imageSaveTargets({
   const color = pageColors[page.id];
   if (color !== undefined && color !== savedBgColor) targets.push({ kind: "page", targetId: page.id, label: "背景色" });
   return targets;
+}
+
+/**
+ * 画像の編集を止めているロック。画像を選ぶと自動で編集を始めるので、始められないときは理由をその場で言う。
+ * DBは画像（page）と並び順（structure）を同時にロックさせないため、並び順のロックも止める理由になる。
+ * `owner === actor` は同じ人の別の画面（別タブ・別端末）。引き継げる。
+ */
+export type EditBlocker = { kind: LockKind; targetId: string; owner: string; self: boolean };
+
+export function pageEditBlocker({
+  page,
+  documentId,
+  locks,
+  isHeld,
+  actor,
+}: {
+  page: { id: string; itemIds: string[] };
+  documentId: string;
+  /** 共有DBで有効なロック（この画面が持っているものも含む）。 */
+  locks: { kind: string; targetId: string; owner: string }[];
+  /** この画面が持っているロックか。 */
+  isHeld(kind: LockKind, targetId: string): boolean;
+  actor: string;
+}): EditBlocker | null {
+  const blocking = locks.filter(lock => !isHeld(lock.kind as LockKind, lock.targetId) && (
+    (lock.kind === "page" && lock.targetId === page.id)
+    || (lock.kind === "item" && page.itemIds.includes(lock.targetId))
+    || (lock.kind === "structure" && lock.targetId === documentId)));
+  // 他の人のロックを先に言う。自分の別画面なら引き継げるが、他の人のロックは待つしかないため。
+  const lock = blocking.find(value => value.owner !== actor) || blocking[0];
+  return lock ? { kind: lock.kind as LockKind, targetId: lock.targetId, owner: lock.owner, self: lock.owner === actor } : null;
+}
+
+/**
+ * このブラウザの一時保存（復旧用コピー）に、保存済みの内容と違うものが残っているか。
+ * 一時保存は保存しても消えないので、「残っている」だけで出すと毎回出てしまう。違うときだけ知らせる。
+ */
+export function recoveryHasChanges(
+  recovered: Pick<GeneratorDocument, "items" | "pages" | "theme">,
+  saved: Pick<GeneratorDocument, "items" | "pages" | "theme">,
+): boolean {
+  const shape = (value: Pick<GeneratorDocument, "items" | "pages" | "theme">) => ({
+    items: Object.fromEntries(value.items.map(item => [item.id, item.content])),
+    pages: value.pages.map(page => ({ id: page.id, itemIds: page.itemIds, bgColor: page.bgColor ?? null })),
+    theme: value.theme,
+  });
+  return !same(shape(recovered), shape(saved));
 }

@@ -15,17 +15,16 @@ type Badge = { key: string; label: string; short: string; title: string; bg: str
 function badgesOf(state: PageBadges | undefined): Badge[] {
   if (!state) return [];
   const list: Badge[] = [];
+  // 1文字の略（「未」「背」など）は読めないので、語で出す（2026-09-18）。
+  // 自分が編集中の印は出さない。いま選んでいる画像は枠で分かり、「編集中」は他の人のためだけに使う。
   if (state.dirty) {
-    list.push({ key: "dirty", label: "未保存", short: "未", title: "共有DBに未保存の変更があります", bg: "rgba(245,158,11,.18)", fg: "#fcd34d" });
-  }
-  if (state.held) {
-    list.push({ key: "held", label: "編集中", short: "編", title: "この端末が編集権を持っています", bg: "rgba(16,185,129,.18)", fg: "#6ee7b7" });
+    list.push({ key: "dirty", label: "未保存", short: "未保存", title: "保存していない変更があります", bg: "rgba(245,158,11,.18)", fg: "#fcd34d" });
   }
   if (state.lockedBy) {
-    list.push({ key: "lock", label: "他が編集中", short: "他", title: `${state.lockedBy} が編集中です`, bg: "rgba(244,63,94,.16)", fg: "#fda4af" });
+    list.push({ key: "lock", label: `${state.lockedBy}が編集中`, short: `${state.lockedBy}が編集中`, title: `${state.lockedBy} が編集中です`, bg: "rgba(244,63,94,.16)", fg: "#fda4af" });
   }
   if (state.needsColor) {
-    list.push({ key: "color", label: "背景なし", short: "背", title: "背景色が未設定です（プレビューだけ仮の色）", bg: "rgba(245,158,11,.18)", fg: "#fcd34d" });
+    list.push({ key: "color", label: "背景色なし", short: "背景色なし", title: "背景色がまだ保存されていません", bg: "rgba(245,158,11,.18)", fg: "#fcd34d" });
   }
   return list;
 }

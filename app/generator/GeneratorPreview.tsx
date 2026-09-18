@@ -6,7 +6,7 @@ import type { GeneratorDocument } from "@/lib/generator/model";
 import { bodyIndexAt, hitTest, selectionRects, type FieldKey, type Rect } from "./hit-test";
 import { pngFileName } from "./bulk-export";
 import { drawPageInto, preparePage, useGeneratorRuntime, waveWarnings, type GeneratorRuntime, type LegacyPage } from "./runtime";
-import { Chip, PrimaryButton, SecondaryButton } from "./ui";
+import { PrimaryButton, SecondaryButton } from "./ui";
 
 export type PreviewSelection = { slotIndex: number; key: FieldKey; start: number; end: number };
 
@@ -153,7 +153,7 @@ export default function GeneratorPreview({
           anchor.click();
           window.setTimeout(() => URL.revokeObjectURL(url), 1000);
         }
-        setStatus(`${name} を${shared ? "共有" : "保存"}しました。`);
+        setStatus(`${name} を${shared ? "アプリへ送りました" : "書き出しました"}。`);
       } finally { runtime.exporter.releaseCanvas(canvas); }
     } catch (exportError) {
       setStatus(`PNGを書き出せませんでした: ${(exportError as Error).message}`);
@@ -221,9 +221,11 @@ export default function GeneratorPreview({
 
       {/* 出力できない理由は、出力ボタンと同じ視野に置く。 */}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
-        <PrimaryButton disabled={exporting || !runtime || blocked} onClick={() => void exportPng(false)}>PNGを保存</PrimaryButton>
-        <SecondaryButton disabled={exporting || !runtime || blocked} onClick={() => void exportPng(true)}>共有</SecondaryButton>
-        <Chip tone="info">{value.theme.outputSize} × {value.theme.outputSize}</Chip>
+        {/* 「保存」はみんなのデータへの確定だけに使う。画像は「書き出す」（2026-09-18、利用者の指定）。 */}
+        <PrimaryButton disabled={exporting || !runtime || blocked} onClick={() => void exportPng(false)}>PNGを書き出す</PrimaryButton>
+        {/* 中身はOSの共有シート（LINE・Instagramなど）。非対応のブラウザでは書き出しになる。 */}
+        <SecondaryButton disabled={exporting || !runtime || blocked} onClick={() => void exportPng(true)}>アプリで送る</SecondaryButton>
+        <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{value.theme.outputSize}px</span>
         {blocked && (
           <details
             className="min-w-0 basis-full rounded-xl border px-3 py-1.5 text-[11px] xl:basis-auto"
@@ -237,11 +239,11 @@ export default function GeneratorPreview({
         )}
         {!canExport && !blocked && (
           <p
-            className="min-w-0 basis-full rounded-xl border px-3 py-1.5 text-[11px] xl:basis-auto"
-            style={{ borderColor: "rgba(245,158,11,.35)", backgroundColor: "rgba(245,158,11,.08)", color: "#fcd34d" }}
+            className="min-w-0 text-[11px]"
+            style={{ color: "#fcd34d" }}
+            title={blockedReasons.length > 0 ? `保存していない変更: ${blockedReasons.join(" / ")}` : undefined}
           >
-            いま画面に出ている内容で書き出します。共有DBに未保存の変更が含まれます
-            {blockedReasons.length > 0 && `（${blockedReasons.join(" / ")}）`}。
+            保存していない変更も含めて書き出します
           </p>
         )}
       </div>

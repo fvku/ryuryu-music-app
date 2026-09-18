@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { canvasPreviewPage, type CanvasPreviewPage } from "@/lib/generator/canvas-preview";
 import type { GeneratorSnapshot } from "@/lib/generator/client-types";
 import type { GeneratorDocument, GeneratorItemSource, ItemContent } from "@/lib/generator/model";
 import type { ReimportDiff } from "@/lib/generator/reimport";
+import { getMemberShortName } from "@/lib/members";
 import type { ReleaseMasterAlbum } from "@/lib/types";
 import BulkExportButton from "../BulkExportButton";
 import GeneratorPreview, { type PreviewDiagnostics, type PreviewSelection } from "../GeneratorPreview";
@@ -13,11 +15,11 @@ import PageNavigator from "../PageNavigator";
 import { generatorJson, snapshotWithLocks, type GeneratorApiError } from "../generator-client";
 import { CoverColorProbe } from "../cover-color-client";
 import { GeneratorRuntimeProvider } from "../runtime";
-import { Chip, Panel, PrimaryButton, SecondaryButton, SegmentedControl, SelectInput, StatusBanner, useMediaQuery, type SegmentOption } from "../ui";
+import { Chip, Modal, Panel, PrimaryButton, SecondaryButton, SegmentedControl, SelectInput, StatusBanner, useMediaQuery } from "../ui";
 import { PageInspector, RestoreControl, StructureDialog, type TargetState } from "./Inspectors";
 import ItemInspector from "./ItemInspector";
 import SourceUpdateDialog, { type SourceUpdate } from "./SourceUpdateDialog";
-import { clearRecovery, hasRecovery, readRecovery, writeRecovery } from "./recovery";
+import { clearRecovery, readRecovery, writeRecovery } from "./recovery";
 import { collectSources, pendingSourceUpdates, sourceChanged } from "./source-payload";
 import { useGeneratorSession } from "./session";
 import { applySourceRefresh, collectSourceRefresh, indexAlbums, matchAlbum, type RefreshFieldKey, type SourceRefreshItem } from "./source-refresh";
@@ -26,6 +28,8 @@ import {
   derivePageBadges,
   imageSaveTargets,
   keyOf,
+  pageEditBlocker,
+  recoveryHasChanges,
   same,
   targetLabels,
   type ActiveLock,
@@ -33,8 +37,6 @@ import {
   type LockKind,
 } from "./workspace-types";
 
-/** 編集パネルは「情報修正／背景設定」の2つ。共通設定は画像に属さないので別画面にした。 */
-type PanelKey = "info" | "background";
 
 const seriesLabels: Record<GeneratorDocument["series"], string> = {
   monthly: "Monthly Review",
@@ -43,7 +45,18 @@ const seriesLabels: Record<GeneratorDocument["series"], string> = {
 };
 
 const FALLBACK_PAGE_COLOR = "#475569";
+/** 最初の3ステップの案内を閉じたことを覚えるキー。読めなくても案内が出るだけで壊れない。 */
+const GUIDE_KEY = "ryuryu_generator_guide";
 const savedAtFormat = new Intl.DateTimeFormat("ja-JP", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Tokyo" });
+
+function pageKindLabel(kind: GeneratorDocument["pages"][number]["kind"]): string {
+  return { cover: "表紙", feature: "メイン", others: "Other Releases", adopted: "採用", listed: "掲載" }[kind];
+}
+
+/** ロックの持ち主はメールで届く。メンバーなら短い名前で見せる。 */
+function memberName(email: string): string {
+  return getMemberShortName(email) ?? email;
+}
 
 function periodLabel(document: GeneratorDocument): string {
   if (document.series !== "weekly") return document.period.start.slice(0, 7);
@@ -58,7 +71,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const session = useGeneratorSession({ initialSnapshot, actor });
   const { snapshot, setSnapshot, documentId, busy, setBusy, status, setStatus, activeLocks, locksRef, history, pendingSaves } = session;
 
-  const [pageIndex, setPageIndex] = useState(0), [panel, setPanel] = useState<PanelKey>("info");
+  const [pageIndex, setPageIndex] = useState(0);
   const [slotIndex, setSlotIndex] = useState(0), [reorderOpen, setReorderOpen] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, ItemContent>>({});
   /** 保存時に作品と一緒に送る、進んだ取り込み基準。カバー画像の差し替えもここに入る。 */
@@ -69,13 +82,57 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const [sourceUpdate, setSourceUpdate] = useState<{ diff: ReimportDiff; refresh: SourceRefreshItem[]; sources: Record<string, GeneratorItemSource>; refreshError: string | null } | null>(null);
   const [diagnostics, setDiagnostics] = useState<PreviewDiagnostics | null>(null);
   const [selectionState, setSelectionState] = useState<FieldSelection | null>(null);
-  const [recoveryAvailable, setRecoveryAvailable] = useState(false);
-  const [recoveryStatus, setRecoveryStatus] = useState("このブラウザ内の復旧保存を準備しています…");
-  /** 編集中の画像。画像ごとに「編集」で始め、「編集を終了」で終わる。 */
+  /** 開いたとき、このブラウザの一時保存に保存済みと違う内容が残っていたか。そのときだけ知らせる。 */
+  const [recoveryOffer, setRecoveryOffer] = useState(false);
+  /** 一時保存に書けなかった（容量不足・無効化など）。書けないときだけ知らせる。 */
+  const [recoveryFailed, setRecoveryFailed] = useState(false);
+  /** 最初の3ステップの案内。閉じたらこのブラウザで覚える。 */
+  const [guideOpen, setGuideOpen] = useState(false);
+  /** 未保存があるまま「最新のバージョンを読み込む」を押したときの確認。 */
+  const [reloadPrompt, setReloadPrompt] = useState(false);
+  /** 編集中の画像。画像を選ぶと自動で始まり、別の画像へ移る・並び順を開く・画面を離れると終わる。 */
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
+  /**
+   * 画像を選んだときの編集開始の経過。取得中・他の編集に止められている・失敗を、編集パネルの中で説明する。
+   * 失敗したら同じ画像で繰り返し取りにいかない（ここがnullに戻ったときだけ取り直す）。
+   */
+  const [editAttempt, setEditAttempt] = useState<{ pageId: string; phase: "acquiring" | "blocked" | "failed"; message?: string } | null>(null);
+  /**
+   * 背景色が未設定の画像へ、編集開始時に入れた仮の初期値。これだけの変更は「未保存」に数えない。
+   * 見て回っただけで保存の確認が出続けるのを避けるため。画像を離れるときに捨てる。
+   */
+  const [autoColors, setAutoColors] = useState<Record<string, string>>({});
+  const autoColorsRef = useRef<Record<string, string>>({});
+  /** 未保存のまま画像を離れようとしたときの確認。`then`は保存か破棄の後に続ける操作。 */
+  const [leavePrompt, setLeavePrompt] = useState<{ then: () => void } | null>(null);
+  const [discardPrompt, setDiscardPrompt] = useState(false);
+  const [structurePrompt, setStructurePrompt] = useState(false);
+  /** 並び順のダイアログの中で出す、編集を始められない理由。ダイアログが画面上部の帯を覆うため。 */
+  const [structureNotice, setStructureNotice] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  /** 変更を破棄したら、入力欄の取り消し履歴も捨てる（破棄前の内容へ戻れてしまわないように）。 */
+  const [inspectorEpoch, setInspectorEpoch] = useState(0);
   /** ジャケットから拾った背景色の候補。画像ごとに1度だけ計算する。 */
   const [colorCandidates, setColorCandidates] = useState<Record<string, string[]>>({});
+  /** 編集開始の非同期処理の途中で候補が届いても拾えるよう、最新の候補を参照で持つ。 */
+  const colorCandidatesRef = useRef<Record<string, string[]>>({});
   const durationHydratedDocument = useRef<string | null>(null);
+  /** 非同期の取得が終わった時点で、まだ同じ画像を見ているかを確かめる。 */
+  const currentPageIdRef = useRef<string | null>(null);
+  /** 返している途中のロック。次のロック取得はこれを待つ（DBが画像と並び順の同時ロックを拒むため）。 */
+  const pendingRelease = useRef<Promise<void>>(Promise.resolve());
+  const router = useRouter();
+  const loadMenuRef = useRef<HTMLDetailsElement>(null);
+
+  // 「読み込み」メニューは、外を押したら閉じる（detailsは自分では閉じないため）。
+  useEffect(() => {
+    function closeOnOutside(event: PointerEvent) {
+      const menu = loadMenuRef.current;
+      if (menu?.open && !menu.contains(event.target as Node)) menu.open = false;
+    }
+    document.addEventListener("pointerdown", closeOnOutside);
+    return () => document.removeEventListener("pointerdown", closeOnOutside);
+  }, []);
 
   const wide = useMediaQuery("(min-width: 1280px)");
   // iPhoneでは字間の調整を出さない（範囲選択がページのスクロールと両立しないため）。
@@ -106,7 +163,6 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const selection: FieldSelection = selectionState && activeItem && selectionState.itemId === activeItem.id
     ? selectionState
     : { itemId: activeItem?.id || "", slotIndex: 0, key: page?.kind === "adopted" ? "text" : "title", start: 0, end: 0, source: "field" };
-  const dirty = !same(previewDocument, snapshot.document);
 
   const itemDirty = useCallback(
     (id: string) => (Boolean(drafts[id]) && !same(drafts[id], items.get(id)?.content)) || Boolean(pendingSources[id]),
@@ -144,40 +200,73 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           }
           return changed ? next : current;
         });
-        if (durations.size) setStatus({ tone: "success", text: `Release Masterから空欄のTimeを${durations.size}件読み込みました。各画像の「保存」でversionに確定できます。` });
+        if (durations.size) setStatus({ tone: "success", text: `Release Masterから空欄の曲数・総尺を${durations.size}件読み込みました。画像ごとに「保存」すると確定します。` });
       })
       .catch(() => {
-        if (!cancelled) setStatus({ tone: "warn", text: "Release MasterのTimeを再取得できませんでした。ほかの編集機能は利用できます。" });
+        // 曲数・総尺が空の作品があるときだけ言う。空欄が無ければ、読めなくても困らない。
+        if (cancelled || !snapshot.document.items.some(item => !item.content.fields.duration.trim())) return;
+        setStatus({ tone: "warn", text: "空欄の曲数・総尺をRelease Masterから読み込めませんでした。必要なら手で入力してください。" });
       });
     return () => { cancelled = true; };
   }, [documentId, setStatus, snapshot.document.items]);
 
+  // 開いた時点の一時保存が、保存済みの内容と違うときだけ知らせる。
+  // 一時保存は保存しても消えないので、「残っている」だけで出すと毎回出てしまう。
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setRecoveryAvailable(hasRecovery(actor, documentId));
-      setRecoveryStatus("このブラウザにも復旧用コピーを保存します（共有保存とは別）。");
+      try {
+        setRecoveryOffer(recoveryHasChanges(readRecovery(actor, documentId).document, session.snapshotRef.current.document));
+      } catch {
+        setRecoveryOffer(false);
+      }
+      try {
+        setGuideOpen(window.localStorage.getItem(GUIDE_KEY) !== "closed");
+      } catch {
+        setGuideOpen(true);
+      }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [actor, documentId]);
+  }, [actor, documentId, session.snapshotRef]);
+
+  // 一時保存には、編集開始時に自動で入れた仮の背景色を入れない（次に開いたとき「変更が残っている」と誤って知らせないため）。
+  const recoveryDocument = useMemo<GeneratorDocument>(() => ({
+    ...previewDocument,
+    pages: previewDocument.pages.map(value => autoColors[value.id] !== undefined && value.bgColor === autoColors[value.id]
+      ? { ...value, bgColor: snapshot.document.pages.find(saved => saved.id === value.id)?.bgColor ?? null }
+      : value),
+  }), [autoColors, previewDocument, snapshot.document.pages]);
+  const recoveryDirty = !same(recoveryDocument, snapshot.document);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (!dirty) return;
-      if (writeRecovery({ actor, documentId, baseVersion: snapshot.version, document: previewDocument })) {
-        setRecoveryAvailable(true);
-        setRecoveryStatus(`復旧用コピー保存済み · ${new Date().toLocaleTimeString("ja-JP")}（共有保存なし）`);
-      } else {
-        setRecoveryStatus("復旧用コピーを保存できませんでした。共有DBには未保存です。");
-      }
+      if (!recoveryDirty) return;
+      setRecoveryFailed(!writeRecovery({ actor, documentId, baseVersion: snapshot.version, document: recoveryDocument }));
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [actor, dirty, documentId, previewDocument, snapshot.version]);
+  }, [actor, documentId, recoveryDirty, recoveryDocument, snapshot.version]);
+
+  // 操作の結果（成功・案内）は数秒で消す。警告とエラーは、次の操作まで残す。
+  useEffect(() => {
+    if (!status.text || (status.tone !== "success" && status.tone !== "info")) return;
+    const timer = window.setTimeout(() => setStatus({ tone: "info", text: "" }), 6000);
+    return () => window.clearTimeout(timer);
+  }, [setStatus, status]);
 
   // 背景色の候補はジャケットの画素から拾う。表紙は作品を持たないので、最初のメインのジャケットを使う。
   const colorSource = previewPage?.kind === "cover" ? previewPages.find(value => value.kind === "feature") || null : previewPage;
-  const rememberColors = useCallback((pageId: string, colors: string[]) => {
-    setColorCandidates(current => current[pageId] ? current : { ...current, [pageId]: colors });
+  const updateAutoColors = useCallback((update: (current: Record<string, string>) => Record<string, string>) => {
+    autoColorsRef.current = update(autoColorsRef.current);
+    setAutoColors(autoColorsRef.current);
   }, []);
+  const rememberColors = useCallback((pageId: string, colors: string[]) => {
+    if (!colorCandidatesRef.current[pageId]) colorCandidatesRef.current = { ...colorCandidatesRef.current, [pageId]: colors };
+    setColorCandidates(current => current[pageId] ? current : { ...current, [pageId]: colors });
+    // 候補が出る前に編集を始めた画像は、仮の色のままになっている。自動の初期値のうちは候補の先頭へ差し替える。
+    const auto = autoColorsRef.current[pageId], first = colors[0];
+    if (auto === undefined || !first || auto === first) return;
+    setPageColors(current => current[pageId] === auto ? { ...current, [pageId]: first } : current);
+    updateAutoColors(current => ({ ...current, [pageId]: first }));
+  }, [updateAutoColors]);
 
   const handleDiagnostics = useCallback((value: PreviewDiagnostics) => setDiagnostics(value), []);
 
@@ -194,7 +283,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       setStructurePages(null);
       setSourceUpdate(null);
       pendingSaves.clear();
-      setStatus({ tone: "success", text: "最新版を読み込みました。編集中だった内容は破棄されています。" });
+      setStatus({ tone: "success", text: "最新のバージョンを読み込みました。" });
     }
     setBusy(false);
   }
@@ -207,81 +296,203 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       (lock.kind === "page" && lock.targetId === pageId) || (lock.kind === "item" && target.itemIds.includes(lock.targetId)));
   }
 
-  function pageHasUnsaved(pageId: string): boolean {
+  /** 背景色が、編集開始時に自動で入れた仮の初期値のままか。 */
+  function isAutoColor(pageId: string): boolean {
+    return autoColors[pageId] !== undefined && pageColors[pageId] === autoColors[pageId];
+  }
+
+  /** その画像で共有DBへ送る対象。自動の初期値だけの背景色も含む（「保存」を押せば確定できるように）。 */
+  function saveTargetsFor(pageId: string) {
     const target = (structurePages || snapshot.document.pages).find(value => value.id === pageId);
-    if (!target) return false;
+    if (!target) return [];
     return imageSaveTargets({
       page: target,
       savedBgColor: snapshot.document.pages.find(value => value.id === pageId)?.bgColor ?? null,
       pageColors,
       titleOf: id => items.get(id)?.content.fields.title || "",
       isItemDirty: itemDirty,
-    }).length > 0;
+    });
   }
 
-  /** 画像の編集を開始する。背景と、いま選んでいる作品のロックを取る。 */
-  async function beginImageEdit() {
-    if (!page) return;
-    setStatus({ tone: "info", text: "編集ロックを取得しています…" });
-    const pageLock = await session.acquire("page", page.id);
-    if (!pageLock) return;
-    // 背景色が未設定の画像は、ジャケットから拾った候補の先頭を初期値にする。
-    // 決めるのは人なので、そのまま保存もできるし、候補やカラーピッカーで直してもよい。
-    const savedColor = snapshot.document.pages.find(value => value.id === page.id)?.bgColor ?? null;
-    setPageColors(current => current[page.id] !== undefined
-      ? current
-      : { ...current, [page.id]: savedColor ?? colorCandidates[page.id]?.[0] ?? FALLBACK_PAGE_COLOR });
-    if (activeItem) {
-      const itemLock = await session.acquire("item", activeItem.id);
-      if (itemLock) {
-        setDrafts(current => current[activeItem.id] ? current : { ...current, [activeItem.id]: cloneContent(activeItem.content) });
-      }
+  /** 利用者が実際に変えたもの。自動の初期値だけの背景色は数えない。保存の確認と「未保存」の表示に使う。 */
+  function changesFor(pageId: string) {
+    return saveTargetsFor(pageId).filter(target => !(target.kind === "page" && isAutoColor(pageId)));
+  }
+
+  function dropAutoColor(pageId: string) {
+    const auto = autoColorsRef.current[pageId];
+    if (auto === undefined) return;
+    setPageColors(current => {
+      if (current[pageId] !== auto) return current;
+      const next = { ...current };
+      delete next[pageId];
+      return next;
+    });
+    updateAutoColors(current => {
+      const next = { ...current };
+      delete next[pageId];
+      return next;
+    });
+  }
+
+  /**
+   * 画像の編集を始める。画像を選ぶと自動で呼ばれる。背景のロックを取り、作品のロックは下の効果が取る。
+   * 始められないときは画面上部ではなく、編集パネルの中で理由と次の操作を示す。
+   */
+  async function beginImageEdit(pageId: string, action: "acquire" | "transfer" = "acquire") {
+    setEditAttempt({ pageId, phase: "acquiring" });
+    await pendingRelease.current;
+    // 並び順を閉じた後にこの画面の並び順ロックが残っていると、DBが画像のロックを拒む。先に返す。
+    const strayStructure = locksRef.current[keyOf("structure", documentId)];
+    if (strayStructure) await session.releaseMany([strayStructure]);
+    const result = await session.tryAcquire("page", pageId, action);
+    // 取得中に別の画像へ移ったら、取れたロックはすぐ返す。
+    if (currentPageIdRef.current !== pageId) {
+      if (result.ok) pendingRelease.current = session.releaseMany([result.lock]);
+      return;
     }
-    setEditingPageId(page.id);
-    setStatus({ tone: "success", text: "この画像を編集できます。ロックは操作中、自動で延長されます。" });
+    if (!result.ok) {
+      if (result.error.code === "LOCK_CONFLICT") {
+        await session.refreshLocks();
+        setEditAttempt({ pageId, phase: "blocked" });
+      } else {
+        setEditAttempt({ pageId, phase: "failed", message: result.error.message });
+      }
+      return;
+    }
+    if (action === "transfer") {
+      // 別の画面が持っていた作品のロックも引き取る。取らないと作品の欄だけ直せないまま残る。
+      const target = (structurePages || snapshot.document.pages).find(value => value.id === pageId);
+      const mine = session.snapshotRef.current.locks.filter(lock => lock.kind === "item" && lock.owner === actor
+        && target?.itemIds.includes(lock.targetId) && !locksRef.current[keyOf("item", lock.targetId)]);
+      for (const lock of mine) await session.tryAcquire("item", lock.targetId, "transfer");
+    }
+    // 背景色が未設定の画像は、ジャケットから拾った候補の先頭を仮の初期値にする。
+    // 決めるのは人なので、そのまま保存もできるし、候補やカラーピッカーで直してもよい。
+    const savedColor = snapshot.document.pages.find(value => value.id === pageId)?.bgColor ?? null;
+    if (savedColor === null && pageColors[pageId] === undefined) {
+      const initial = colorCandidatesRef.current[pageId]?.[0] ?? FALLBACK_PAGE_COLOR;
+      updateAutoColors(current => ({ ...current, [pageId]: initial }));
+      setPageColors(current => current[pageId] !== undefined ? current : { ...current, [pageId]: initial });
+    }
+    attemptedItems.current.clear();
+    setEditingPageId(pageId);
+    setEditAttempt(null);
   }
 
-  async function endImageEdit(pageId: string, quiet = false) {
-    const held = locksForPage(pageId);
-    if (held.length) await session.releaseMany(held);
-    setEditingPageId(current => current === pageId ? null : current);
-    if (!quiet) setStatus({ tone: "info", text: "この画像の編集を終了しました。他の人が編集できます。" });
+  /**
+   * いまの画像を離れる。ロックは持ち歩かない（見て回っただけで他の人を止めないため）。
+   * 未保存の変更があるときは、呼ぶ前に保存か破棄を選んでもらう（`requestLeave`）。
+   */
+  function leaveImage(then: () => void) {
+    const pageId = page?.id ?? null;
+    const held = pageId ? locksForPage(pageId) : [];
+    if (pageId) dropAutoColor(pageId);
+    setEditingPageId(null);
+    setEditAttempt(null);
+    then();
+    if (held.length) pendingRelease.current = session.releaseMany(held);
   }
+
+  function requestLeave(then: () => void) {
+    if (page && changesFor(page.id).length > 0) {
+      setLeavePrompt({ then });
+      return;
+    }
+    leaveImage(then);
+  }
+
+  /** その画像の未保存の変更を捨てる。作品の下書き・取り込み基準・背景色が対象。 */
+  function discardImage(pageId: string) {
+    const target = (structurePages || snapshot.document.pages).find(value => value.id === pageId);
+    if (!target) return;
+    const keys = new Set([...target.itemIds, pageId]);
+    const omit = <T,>(current: Record<string, T>) => Object.fromEntries(Object.entries(current).filter(([id]) => !keys.has(id)));
+    setDrafts(omit);
+    setPendingSources(omit);
+    setPageColors(omit);
+    updateAutoColors(omit);
+    setInspectorEpoch(value => value + 1);
+  }
+
+  // 画像を選んだら、そのまま編集を始める。止められたときは理由を出して待ち、繰り返し取りにいかない。
+  const currentPageId = page?.id ?? null;
+  const pausedForDialog = reorderOpen || Boolean(sourceUpdate) || Boolean(leavePrompt);
+  const beginRef = useRef(beginImageEdit);
+  useEffect(() => {
+    beginRef.current = beginImageEdit;
+    currentPageIdRef.current = currentPageId;
+  });
+  useEffect(() => {
+    if (!currentPageId || pausedForDialog || editingPageId === currentPageId || editAttempt?.pageId === currentPageId) return;
+    const timer = window.setTimeout(() => {
+      currentPageIdRef.current = currentPageId;
+      void beginRef.current(currentPageId);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [currentPageId, editAttempt?.pageId, editingPageId, pausedForDialog]);
+
+  // 他の人の編集で止まっている間は、20秒ごとに取り直す。終われば、そのまま編集できるようになる。
+  const blockedPhase = editAttempt?.phase === "blocked";
+  useEffect(() => {
+    if (!blockedPhase) return;
+    const timer = window.setInterval(() => setEditAttempt(null), 20000);
+    return () => window.clearInterval(timer);
+  }, [blockedPhase]);
 
   // 編集中に別の作品へ切り替えたら、その作品のロックも取る（1画像の中で続けて直せるようにする）。
+  // 取りにいった作品を覚えておく。失敗しても同じ作品を繰り返し取りにいかない（描画のたびに走るため）。
+  // 編集を始め直すと`beginImageEdit`が空に戻す。
+  const attemptedItems = useRef(new Set<string>());
+  const itemLockHeld = Boolean(activeItem && activeLocks[keyOf("item", activeItem.id)]);
+  const editingPageLocked = Boolean(page && editingPageId === page.id && activeLocks[keyOf("page", page.id)]);
   useEffect(() => {
-    if (!page || editingPageId !== page.id || !activeItem) return;
-    if (locksRef.current[keyOf("item", activeItem.id)]) return;
-    let cancelled = false;
+    // 背景のロックを失っている間は取りにいかない。「編集権が切れました」から始め直してもらう。
+    if (!page || !editingPageLocked || !activeItem || itemLockHeld) return;
+    if (attemptedItems.current.has(activeItem.id)) return;
+    attemptedItems.current.add(activeItem.id);
+    const pageId = page.id, item = activeItem;
     void (async () => {
-      const lock = await session.acquire("item", activeItem.id);
-      if (cancelled || !lock) return;
-      setDrafts(current => current[activeItem.id] ? current : { ...current, [activeItem.id]: cloneContent(activeItem.content) });
+      const result = await session.tryAcquire("item", item.id);
+      if (!result.ok) {
+        if (currentPageIdRef.current === pageId) {
+          setStatus({ tone: "warn", text: `作品「${item.content.fields.title || "作品名未入力"}」はほかの画面で編集中のため、いまは直せません。` });
+        }
+        return;
+      }
+      // 取得中に画像を離れていたら、持ち歩かずに返す。
+      if (currentPageIdRef.current !== pageId) {
+        pendingRelease.current = session.releaseMany([result.lock]);
+        return;
+      }
+      setDrafts(current => current[item.id] ? current : { ...current, [item.id]: cloneContent(item.content) });
     })();
-    return () => { cancelled = true; };
-  }, [activeItem, editingPageId, locksRef, page, session]);
+  }, [activeItem, editingPageLocked, itemLockHeld, page, session, setStatus]);
 
   /**
    * いま開いている画像を保存する。作品（掲載なら上下、Othersなら触った分）と背景色を続けて確定する。
    * まとめて確定するAPIが無いため、途中で失敗したら成功分はそのまま残し、失敗した対象を知らせて再試行させる。
    */
-  async function saveImage() {
-    if (!page) return;
-    const targets = imageSaveTargets({
-      page,
-      savedBgColor: snapshot.document.pages.find(value => value.id === page.id)?.bgColor ?? null,
-      pageColors,
-      titleOf: id => items.get(id)?.content.fields.title || "",
-      isItemDirty: itemDirty,
-    });
-    if (!targets.length) return;
+  async function saveImage(): Promise<boolean> {
+    if (!page) return false;
+    const targets = saveTargetsFor(page.id);
+    if (!targets.length) return true;
     setBusy(true);
-    setStatus({ tone: "info", text: `共有DBへ保存しています…（${targets.length}件）` });
+    setSaving(true);
+    setStatus({ tone: "info", text: `保存しています…（${targets.length}件）` });
     const saved: string[] = [], failed: string[] = [];
     // 対象別の競合はその対象だけの失敗なので、残りは続ける。
     // 認証・認可の失敗は残りも通らないので中止し、通信断・5xxは確定済みか不明なのでそこで列を止める。
     let halted: { label: string; reason: string } | null = null;
     for (const target of targets) {
+      // Time補完やRelease Masterの読み直しで下書きになった作品は、まだロックを持っていないことがある。保存の直前に取る。
+      if (target.kind === "item" && !session.holds("item", target.targetId)) {
+        const got = await session.tryAcquire("item", target.targetId);
+        if (!got.ok) {
+          failed.push(target.label);
+          continue;
+        }
+      }
       const content = target.kind === "item"
         ? drafts[target.targetId] || items.get(target.targetId)?.content
         : { bgColor: pageColors[page.id] };
@@ -305,6 +516,12 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
         } else {
           const next = result.snapshot.document.pages.find(value => value.id === target.targetId);
           if (next) setPageColors(current => ({ ...current, [target.targetId]: next.bgColor || FALLBACK_PAGE_COLOR }));
+          // 保存した色はもう仮の初期値ではない。
+          updateAutoColors(current => {
+            const rest = { ...current };
+            delete rest[target.targetId];
+            return rest;
+          });
         }
         continue;
       }
@@ -313,15 +530,16 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       // 503は接続不良と区別が付かないので、何を一緒に送ったかを言う。
       const carriedSource = target.kind === "item" && Boolean(pendingSources[target.targetId]);
       const reason = result.error.code === "VERSION_CONFLICT" || result.error.code === "LOCK_LOST"
-        ? "他の変更が先に保存されました。「最新版に更新」を押してください。"
+        ? "ほかの人の保存が先に入りました。「読み込み」から「最新のバージョンを読み込む」を押してください。"
         : carriedSource
-          ? `${result.error.message} この作品は取り込み基準（カバー画像を含む）も一緒に送っています。共有DBがまだ対応していない場合もここで失敗します。`
+          ? `${result.error.message} この作品はRelease Masterから取り込んだ内容（カバー画像を含む）も一緒に送っています。`
           : result.error.message;
       if (status === 401 || status === 403) { halted = { label: target.label, reason }; break; }
       if (status === undefined || status >= 500) { halted = { label: target.label, reason }; break; }
       failed.push(target.label);
     }
     setBusy(false);
+    setSaving(false);
     if (halted) {
       setStatus({
         tone: "error",
@@ -329,7 +547,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           ? `${saved.join("・")}は保存しました。${halted.label}で止まりました: ${halted.reason}`
           : `${halted.label}を保存できませんでした: ${halted.reason}`,
       });
-      return;
+      return false;
     }
     if (failed.length) {
       setStatus({
@@ -338,23 +556,23 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           ? `${saved.join("・")}は保存しました。${failed.join("・")}は保存できていません。`
           : `${failed.join("・")}を保存できませんでした。`,
       });
-      return;
+      return false;
     }
-    setBusy(false);
-    setStatus({ tone: "success", text: `この画像を保存しました（${saved.join("・")}）。` });
+    setStatus({ tone: "success", text: `画像 ${pageNumber} を保存しました（${saved.join("・")}）。` });
+    return true;
   }
 
   /** 対象1つだけの保存・復元。並び順モーダルと、過去版からの復元で使う。 */
-  async function saveSingle(kind: LockKind, targetId: string, content?: unknown, restoreVersion?: number) {
+  async function saveSingle(kind: LockKind, targetId: string, content?: unknown, restoreVersion?: number): Promise<boolean> {
     setBusy(true);
-    setStatus({ tone: "info", text: restoreVersion ? `version ${restoreVersion} の内容を復元しています…` : "共有DBへ保存しています…" });
+    setStatus({ tone: "info", text: restoreVersion ? "以前の保存に戻しています…" : "保存しています…" });
     const result = await session.saveTarget({ kind, targetId, content, restoreVersion });
     setBusy(false);
     if (!result.ok) {
       setStatus(result.error.code === "VERSION_CONFLICT" || result.error.code === "LOCK_LOST"
-        ? { tone: "error", text: "他の変更が先に保存されました。「最新版に更新」してから、もう一度編集してください。" }
+        ? { tone: "error", text: "ほかの人の保存が先に入りました。「読み込み」から「最新のバージョンを読み込む」を押してから、もう一度直してください。" }
         : { tone: "error", text: result.error.message });
-      return;
+      return false;
     }
     const next = result.snapshot;
     if (kind === "item") {
@@ -369,9 +587,10 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     setStatus({
       tone: "success",
       text: restoreVersion
-        ? `version ${restoreVersion} の${targetLabels[kind]}を、新しいversion ${next.version} として復元しました。`
-        : `${targetLabels[kind]}をversion ${next.version} として保存しました。`,
+        ? `${targetLabels[kind]}を以前の保存に戻しました（戻したことも履歴に残ります）。`
+        : `${targetLabels[kind]}を保存しました。`,
     });
+    return true;
   }
 
   /**
@@ -417,7 +636,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   async function closeSourceUpdate() {
     setSourceUpdate(null);
     // POSTの応答が不明だった場合は再試行用にstructureロックを保持する。利用者が閉じたら返す。
-    await session.release("structure", documentId);
+    pendingRelease.current = session.release("structure", documentId);
+    await pendingRelease.current;
   }
 
   /**
@@ -481,7 +701,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       document = next.document;
     } else {
       // 通常は未取得。結果不明の構成保存を取りやめて選択を変えた場合だけ、保持中のロックを返す。
-      await session.release("structure", documentId);
+      pendingRelease.current = session.release("structure", documentId);
+      await pendingRelease.current;
     }
     const sources = sourceUpdate?.sources || {};
     setSourceUpdate(null);
@@ -507,7 +728,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     const requestId = previousRequest?.signature === signature ? previousRequest.requestId : crypto.randomUUID();
     pendingSaves.set(requestKey, { requestId, signature });
     setBusy(true);
-    setStatus({ tone: "info", text: "作品構成を新しいversionとして保存しています…" });
+    setStatus({ tone: "info", text: "作品の増減を保存しています…" });
     try {
       const next = await generatorJson<GeneratorSnapshot>(await fetch(`/api/generator/documents/${documentId}/reimport`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId, ...change }),
@@ -535,7 +756,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       // 実文書（W37、2026-09-12）で確認済み。ここを「保持されています」と言い切らない。
       setStatus({
         tone: discarded ? "warn" : "success",
-        text: `作品構成をversion ${next.version}として更新しました。既存作品の修正内容と未保存の下書きはそのままです。`
+        text: "作品の増減を保存しました。直していた内容と保存していない変更はそのままです。"
           + "作品が入れ替わった画像は作り直されるので、その画像の背景色は設定し直してください。"
           + (discarded ? `外れた作品${discarded}件の未保存の下書きは破棄しました。` : ""),
       });
@@ -547,7 +768,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
         await session.releaseMany([lock]);
       }
       setStatus(apiError.code === "VERSION_CONFLICT" || apiError.code === "LOCK_LOST"
-        ? { tone: "error", text: "確認中に別の変更が保存されました。「最新版に更新」してから、差分を確認し直してください。" }
+        ? { tone: "error", text: "確認している間にほかの人の保存が入りました。「最新のバージョンを読み込む」を押してから、もう一度確認してください。" }
         : { tone: "error", text: apiError.message });
       return null;
     } finally {
@@ -582,7 +803,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     const count = [...grouped.values()].reduce((sum, changes) => sum + changes.length, 0);
     setStatus({
       tone: "warn",
-      text: `文字情報を${count}件、下書きへ入れました。画像 ${pageNumbers.join("・")} を開き、「この画像を編集」から「保存」でversionに確定してください。`,
+      text: `Release Masterの文字を${count}件入れました（まだ保存していません）。画像 ${pageNumbers.join("・")} を開いて「保存」してください。`,
     });
   }
 
@@ -598,7 +819,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
         const recoveredPage = recoveredPages.get(current.id);
         return recoveredPage?.kind === current.kind;
       });
-      if (!sameItems || !samePages) throw new Error("共有DB側の作品または画像構成が変わっているため、安全に復旧できません。");
+      if (!sameItems || !samePages) throw new Error("その後に作品や画像の構成が変わったため、安全に開けません。");
       setDrafts(Object.fromEntries([...currentItems].flatMap(id => recoveredItems.has(id) ? [[id, cloneContent(recoveredItems.get(id)!)] as const] : [])));
       // 取り込み基準（カバー画像を含む）も退避してあるので、保存済みと違う分だけ戻す。
       setPendingSources(Object.fromEntries(recovered.items.flatMap(item => {
@@ -615,21 +836,22 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
         itemIds: [...recoveredPages.get(current.id)!.itemIds],
       })));
       const themeChanged = !same(recovered.theme, snapshot.document.theme);
+      setRecoveryOffer(false);
       setStatus({
         tone: "warn",
         text: themeChanged
-          ? "このブラウザ内の復旧用コピーを読み込みました。共通設定にも未保存の変更が残っています。共通設定の画面で読み込んでください。"
-          : "このブラウザ内の復旧用コピーを読み込みました。画像ごとに「編集」してから、共有DBへ保存してください。",
+          ? "前回の保存していない変更を開きました。共通設定にも変更が残っています。共通設定の画面で開いてください。"
+          : "前回の保存していない変更を開きました。画像ごとに確認して「保存」してください。",
       });
     } catch (error) {
-      setStatus({ tone: "error", text: `復旧できませんでした: ${(error as Error).message}` });
+      setStatus({ tone: "error", text: `前回の変更を開けませんでした: ${(error as Error).message}` });
     }
   }
 
   function discardRecovery() {
     clearRecovery(actor, documentId);
-    setRecoveryAvailable(false);
-    setRecoveryStatus("復旧用コピーを破棄しました。");
+    setRecoveryOffer(false);
+    setStatus({ tone: "info", text: "前回の保存していない変更を捨てました。" });
   }
 
   const restoreVersions = history.filter(entry => entry.version < snapshot.version);
@@ -638,7 +860,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   // 未保存の背景色は表示中のページ以外にもあり得る。書き出せない理由には全ページ分を挙げる。
   const dirtyPages = snapshot.document.pages
     .map((value, index) => ({ value, index }))
-    .filter(({ value }) => pageColors[value.id] !== undefined && pageColors[value.id] !== value.bgColor);
+    .filter(({ value }) => pageColors[value.id] !== undefined && pageColors[value.id] !== value.bgColor && !isAutoColor(value.id));
   const pageDirty = Boolean(savedPage && dirtyPages.some(({ value }) => value.id === savedPage.id));
   const structureDirty = Boolean(structurePages) && !same(
     structurePages!.map(value => ({ id: value.id, itemIds: value.itemIds })),
@@ -649,8 +871,19 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     ...dirtyPages.map(({ index }) => `画像 ${snapshot.document.series === "weekly" ? index : index + 2} の背景色`),
     ...(structureDirty ? ["並び順"] : []),
   ];
-  const imageDirty = Boolean(page && pageHasUnsaved(page.id));
-  const imageEditing = Boolean(page && editingPageId === page.id);
+  const imageChanges = page ? changesFor(page.id) : [];
+  const imageDirty = imageChanges.length > 0;
+  /** 保存できるもの。自動で入れた背景色だけのときも、保存すれば確定できる。 */
+  const imageSavable = Boolean(page && saveTargetsFor(page.id).length > 0);
+  const imageAutoColorOnly = Boolean(page && !imageDirty && isAutoColor(page.id));
+  const pageLockHeld = Boolean(page && activeLocks[keyOf("page", page.id)]);
+  const imageEditing = Boolean(page && editingPageId === page.id && pageLockHeld);
+  /** 編集していたのにロックが消えた（通信断・別画面への引き継ぎ）。下書きは残っている。 */
+  const imageEditLost = Boolean(page && editingPageId === page.id && !pageLockHeld);
+  const attempt = page && editAttempt?.pageId === page.id ? editAttempt : null;
+  const blocker = page
+    ? pageEditBlocker({ page, documentId, locks: snapshot.locks, isHeld: (kind, id) => Boolean(activeLocks[keyOf(kind, id)]), actor })
+    : null;
   const pageNumber = previewPage?.no ?? (snapshot.document.series === "weekly" ? currentIndex : currentIndex + 2);
 
   /** この画像が最後に保存されたのはいつか。文書の通し番号ではなく、画像ごとに見せる。 */
@@ -658,11 +891,6 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     ? history.find(entry => (entry.targetKind === "item" && page.itemIds.includes(entry.targetId || ""))
       || (entry.targetKind === "page" && entry.targetId === page.id)) || null
     : null;
-
-  const foreignOnPage = page
-    ? snapshot.locks.find(lock => !activeLocks[keyOf(lock.kind as LockKind, lock.targetId)]
-      && ((lock.kind === "page" && lock.targetId === page.id) || (lock.kind === "item" && page.itemIds.includes(lock.targetId))))
-    : undefined;
 
   function targetState(kind: LockKind, targetId: string, isDirty: boolean, onBegin: () => void, onSave: () => void): TargetState {
     const locked = Boolean(activeLocks[keyOf(kind, targetId)]);
@@ -685,27 +913,122 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   }
 
   const heldElsewhere = snapshot.locks.filter(lock => !activeLocks[keyOf(lock.kind as LockKind, lock.targetId)]);
-  const panelTabs: SegmentOption<PanelKey>[] = [
-    { value: "info", label: "情報修正", dot: activeItem && itemDirty(activeItem.id) ? "warn" : undefined },
-    { value: "background", label: "背景設定", dot: pageDirty ? "warn" : undefined },
-  ];
   const bodyDiagnostic = diagnostics && previewPage && diagnostics.pageId === previewPage.id ? diagnostics.body : [];
 
   function selectPage(index: number) {
     const nextPage = visiblePages[index];
-    // 直していない画像のロックは持ち歩かない。未保存があるときだけ、戻れるように残す。
-    if (editingPageId && nextPage && editingPageId !== nextPage.id && !pageHasUnsaved(editingPageId)) {
-      void endImageEdit(editingPageId, true);
+    if (!nextPage || nextPage.id === page?.id) return;
+    // 未保存の変更があれば、保存するか破棄するかを先に選んでもらう。
+    requestLeave(() => {
+      setPageIndex(index);
+      setSlotIndex(0);
+    });
+  }
+
+  /** 画面内のリンク（企画一覧・共通設定・変更履歴）も、未保存なら同じ確認を挟む。 */
+  function guardLink(href: string) {
+    return (event: MouseEvent<HTMLAnchorElement>) => {
+      if (!imageDirty || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+      event.preventDefault();
+      setLeavePrompt({ then: () => router.push(href) });
+    };
+  }
+
+  async function saveAndLeave() {
+    const prompt = leavePrompt;
+    if (!prompt) return;
+    const ok = await saveImage();
+    setLeavePrompt(null);
+    // 保存に失敗したら、この画像に留まる。理由は画面上部に出ている。
+    if (ok) leaveImage(prompt.then);
+  }
+
+  function discardAndLeave() {
+    const prompt = leavePrompt;
+    if (!prompt || !page) return;
+    discardImage(page.id);
+    setLeavePrompt(null);
+    leaveImage(prompt.then);
+    setStatus({ tone: "info", text: `画像 ${pageNumber} の変更を破棄しました。` });
+  }
+
+  function discardCurrent() {
+    if (!page) return;
+    discardImage(page.id);
+    setDiscardPrompt(false);
+    // 編集は続ける。背景色が未設定なら、仮の初期値を入れ直す。
+    const savedColor = snapshot.document.pages.find(value => value.id === page.id)?.bgColor ?? null;
+    if (savedColor === null) {
+      const initial = colorCandidatesRef.current[page.id]?.[0] ?? FALLBACK_PAGE_COLOR;
+      updateAutoColors(current => ({ ...current, [page.id]: initial }));
+      setPageColors(current => ({ ...current, [page.id]: initial }));
     }
-    setPageIndex(index);
-    setSlotIndex(0);
+    setStatus({ tone: "info", text: `画像 ${pageNumber} の変更を破棄しました。` });
+  }
+
+  /** 並び順を開く。DBは画像と並び順を同時にロックさせないので、先に画像の編集を終える。 */
+  function openReorder() {
+    requestLeave(() => {
+      setStructureNotice(null);
+      setReorderOpen(true);
+    });
+  }
+
+  async function beginStructureEdit() {
+    await pendingRelease.current;
+    const result = await session.tryAcquire("structure", documentId);
+    if (!result.ok) {
+      if (result.error.code === "LOCK_CONFLICT") {
+        await session.refreshLocks();
+        const others = session.snapshotRef.current.locks
+          .filter(lock => !locksRef.current[keyOf(lock.kind as LockKind, lock.targetId)])
+          .map(lock => memberName(lock.owner));
+        setStructureNotice(others.length
+          ? `${[...new Set(others)].join("・")} が画像を編集中のため、並び順はいま変更できません。編集が終わってから「接続を再試行」を押してください。`
+          : "ほかの編集と重なりました。少し待ってから「接続を再試行」を押してください。");
+      } else {
+        setStructureNotice(result.error.message);
+      }
+      return;
+    }
+    setStructureNotice(null);
+    // 復旧用コピーから戻した並び順があれば、それを残す。
+    setStructurePages(current => current ?? snapshot.document.pages.map(value => ({ ...value, itemIds: [...value.itemIds] })));
+  }
+
+  function requestCloseReorder() {
+    if (structureDirty && session.holds("structure", documentId)) {
+      setStructurePrompt(true);
+      return;
+    }
+    closeReorder(false);
+  }
+
+  function closeReorder(discard: boolean) {
+    if (discard) setStructurePages(null);
+    setStructurePrompt(false);
+    setStructureNotice(null);
+    pendingRelease.current = session.release("structure", documentId);
+    setReorderOpen(false);
+  }
+
+  async function saveStructureAndClose() {
+    const ok = await saveSingle("structure", documentId, {
+      pages: (structurePages || snapshot.document.pages).map(value => ({ id: value.id, itemIds: value.itemIds })),
+    });
+    if (ok) closeReorder(false);
+    else setStructurePrompt(false);
   }
 
   /** プレビューのクリック・ドラッグから、編集パネルの調整対象と選択範囲を決める。 */
   function selectFromPreview(value: PreviewSelection & { touch?: boolean }) {
+    // 編集できない間は選べない。無反応だと壊れて見えるので、理由を言う。
+    if (!imageEditing) {
+      setStatus({ tone: "warn", text: "この画像はいま編集できないため、文字を選べません。右のパネルで理由を確認してください。" });
+      return;
+    }
     const item = pageItems[value.slotIndex];
     if (!item) return;
-    setPanel("info");
     setSlotIndex(value.slotIndex);
     setSelectionState({
       itemId: item.id,
@@ -719,13 +1042,109 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
   // 文書全体の集計（未保存◯件）だけでは、どの画像かがサムネイルから分からない。
   const pageBadges = derivePageBadges({
-    pages: previewPages.map(value => ({ id: value.id, itemIds: value.slots.map(slot => slot.id), bgColor: value.bgColor })),
+    pages: previewPages.map(value => ({
+      id: value.id,
+      // 表紙のジャケットは各メイン画像の作品。作品の未保存や編集中はそちらで言い、表紙は自分の背景色だけにする。
+      itemIds: value.kind === "cover" ? [] : value.slots.map(slot => slot.id),
+      bgColor: snapshot.document.pages.find(saved => saved.id === value.id)?.bgColor ?? null,
+    })),
     isItemDirty: itemDirty,
     dirtyPageIds: new Set(dirtyPages.map(entry => entry.value.id)),
-    pageColors,
-    foreignLocks: heldElsewhere,
+    // 自動で入れた仮の色は「背景未設定」のまま見せる。
+    pageColors: Object.fromEntries(Object.entries(pageColors).filter(([id]) => !isAutoColor(id))),
+    foreignLocks: heldElsewhere.map(lock => ({ ...lock, owner: memberName(lock.owner) })),
     heldLocks: Object.values(activeLocks),
   });
+
+  function closeLoadMenu() {
+    if (loadMenuRef.current) loadMenuRef.current.open = false;
+  }
+
+  function closeGuide() {
+    setGuideOpen(false);
+    try {
+      window.localStorage.setItem(GUIDE_KEY, "closed");
+    } catch {
+      // 覚えられなくても、次に開いたときにまた案内が出るだけ。
+    }
+  }
+
+  /** 「最新のバージョンを読み込む」。保存していない変更は捨てるので、あるときは先に確かめる。 */
+  function requestReload() {
+    if (unsavedLabels.length > 0) {
+      setReloadPrompt(true);
+      return;
+    }
+    void reload();
+  }
+
+  /** 自分の別の画面に残った並び順ロックを引き取って返す。残っている間は、どの画像も編集できないため。 */
+  async function endStrayStructure() {
+    const lock = await session.acquire("structure", documentId, "transfer");
+    if (lock) {
+      pendingRelease.current = session.release("structure", documentId);
+      await pendingRelease.current;
+    }
+    setEditAttempt(null);
+  }
+
+  /** 見るだけの状態。なぜ触れないのかと、次にできることだけを出す。編集部品は出さない。 */
+  function renderNotEditing() {
+    const retry = (
+      <SecondaryButton disabled={busy} onClick={() => setEditAttempt(null)} className="min-h-9 px-3 text-xs">もう一度試す</SecondaryButton>
+    );
+    let title: string, body: string, action: ReactNode = null;
+    if (imageEditLost) {
+      title = "編集できなくなりました";
+      body = "通信が途切れたか、ほかの画面で編集を始めました。入力中の内容はこの画面に残っています。";
+      action = (
+        // 手放したのは自分のロックなので、DBに残っていれば引き継いで取り直す。ほかの人が持っていれば、その人の編集中として出る。
+        // 押したときだけ呼ぶ（描画中には読まない）。
+        // eslint-disable-next-line react-hooks/refs
+        <PrimaryButton disabled={busy || !page} onClick={() => page && void beginImageEdit(page.id, "transfer")} className="min-h-9 px-3 text-xs">
+          もう一度編集をはじめる
+        </PrimaryButton>
+      );
+    } else if (attempt?.phase === "blocked" && blocker) {
+      if (blocker.self && blocker.kind === "structure") {
+        title = "自分の別の画面で並び順を変更中です";
+        body = "並び順を変えている間は、どの画像も編集できません。別の画面を閉じるか、ここで並び順の編集を終わらせてください。";
+        action = <PrimaryButton disabled={busy} onClick={() => void endStrayStructure()} className="min-h-9 px-3 text-xs">並び順の編集を終わらせる</PrimaryButton>;
+      } else if (blocker.self) {
+        title = "自分の別の画面でこの画像を編集中です";
+        body = "別のタブや端末で開いたままになっています。この画面で続けると、別の画面の未保存の変更は保存できなくなります。";
+        action = <PrimaryButton disabled={busy || !page} onClick={() => page && void beginImageEdit(page.id, "transfer")} className="min-h-9 px-3 text-xs">この画面で編集する</PrimaryButton>;
+      } else if (blocker.kind === "structure") {
+        title = `${memberName(blocker.owner)} が並び順を変更中です`;
+        body = "並び順の変更が終わるまで、画像は編集できません。20秒ごとに確かめていて、終われば自動で編集できるようになります。";
+        action = retry;
+      } else {
+        title = `${memberName(blocker.owner)} がこの画像を編集中です`;
+        body = "プレビューで見ることはできます。20秒ごとに確かめていて、相手が別の画像へ移るか画面を閉じれば、自動で編集できるようになります。";
+        action = retry;
+      }
+    } else if (attempt?.phase === "blocked") {
+      title = "ほかの編集と重なりました";
+      body = "少し待つと自動で取り直します。";
+      action = retry;
+    } else if (attempt?.phase === "failed") {
+      title = "編集を始められませんでした";
+      body = attempt.message || "通信を確認して、もう一度試してください。";
+      action = retry;
+    } else {
+      title = `画像 ${pageNumber} を開いています…`;
+      body = "編集の準備をしています。";
+    }
+    return (
+      <div className="space-y-2 rounded-xl border p-4" style={{ borderColor: "var(--border-subtle)" }}>
+        <p className="text-sm font-semibold">{title}</p>
+        <p className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{body}</p>
+        {action && <div className="pt-1">{action}</div>}
+      </div>
+    );
+  }
+
+  const unsavedPageNumbers = previewPages.filter(value => pageBadges[value.id]?.dirty).map(value => value.no);
 
   const navigator = (orientation: "vertical" | "horizontal") => (
     <PageNavigator
@@ -733,7 +1152,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       pages={previewPages}
       pageIndex={currentIndex}
       onSelect={selectPage}
-      onReorder={() => setReorderOpen(true)}
+      onReorder={openReorder}
       reorderDirty={structureDirty}
       orientation={orientation}
       states={pageBadges}
@@ -743,40 +1162,120 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   return (
     <GeneratorRuntimeProvider documentId={documentId} theme={snapshot.document.theme} period={snapshot.document.period}>
       <div className="generator-workspace relative left-1/2 w-[calc(100vw-2rem)] max-w-[100rem] -translate-x-1/2 space-y-4">
-        {/* 企画名・未保存件数・移動を1行に畳む。空けた縦はプレビューへ回す。 */}
+        {/* 企画名・保存状態・移動を1行に畳む。空けた縦はプレビューへ回す。 */}
         <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <Link href="/generator" className="shrink-0 text-xs text-violet-300 hover:underline">← 企画一覧</Link>
+            <Link href="/generator" onClick={guardLink("/generator")} className="shrink-0 text-xs text-violet-300 hover:underline">← 企画一覧</Link>
             <h1 className="min-w-0 truncate text-base font-bold sm:text-lg">
               {seriesLabels[snapshot.document.series]} {periodLabel(snapshot.document)}
             </h1>
+            {/* 文書全体の保存状態。件数ではなく「どの画像か」で言い、押せばその画像へ移る。 */}
             {unsavedLabels.length > 0
-              ? <span title={`未保存: ${unsavedLabels.join(" / ")}`}><Chip tone="warn">未保存 {unsavedLabels.length}件</Chip></span>
+              ? (
+                <span
+                  className="inline-flex flex-wrap items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-300"
+                  title={`保存していない変更: ${unsavedLabels.join(" / ")}`}
+                >
+                  未保存：
+                  {unsavedPageNumbers.map(no => (
+                    <button
+                      key={no}
+                      type="button"
+                      onClick={() => {
+                        const index = previewPages.findIndex(value => value.no === no);
+                        if (index >= 0) selectPage(index);
+                      }}
+                      className="underline decoration-dotted underline-offset-2 hover:text-amber-200"
+                    >
+                      画像 {no}
+                    </button>
+                  ))}
+                  {structureDirty && <button type="button" onClick={openReorder} className="underline decoration-dotted underline-offset-2 hover:text-amber-200">並び順</button>}
+                  {unsavedPageNumbers.length === 0 && !structureDirty && <span>{unsavedLabels.length}件</span>}
+                </span>
+              )
               : <Chip tone="success">すべて保存済み</Chip>}
           </div>
           {/* shrink-0 にすると、狭い画面でボタンが画面外へはみ出して押せなくなる。 */}
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            {/* 別画面へ移るだけのものは控えめな文字リンクにする。主操作は書き出しだけ。 */}
             <Link
               href={`/generator/${documentId}/settings`}
-              className="inline-flex min-h-9 items-center rounded-xl border px-3 text-xs hover:bg-white/5"
-              style={{ borderColor: "var(--border-subtle)" }}
+              onClick={guardLink(`/generator/${documentId}/settings`)}
+              className="text-xs hover:underline"
+              style={{ color: "var(--text-secondary)" }}
             >
               共通設定
             </Link>
             <Link
               href={`/generator/${documentId}/history`}
-              className="inline-flex min-h-9 items-center rounded-xl border px-3 text-xs hover:bg-white/5"
-              style={{ borderColor: "var(--border-subtle)" }}
+              onClick={guardLink(`/generator/${documentId}/history`)}
+              className="text-xs hover:underline"
+              style={{ color: "var(--text-secondary)" }}
             >
               変更履歴
             </Link>
-            <SecondaryButton disabled={busy} onClick={() => void reload()} className="min-h-9 px-3 text-xs">最新版に更新</SecondaryButton>
-            {/* Release Master側の変更は利用者から見れば1つの出来事なので、増減と文字情報を1つの導線にまとめる。 */}
-            <SecondaryButton disabled={busy} onClick={() => void openSourceUpdate()} className="min-h-9 px-3 text-xs">Release Master 再読込</SecondaryButton>
-            {/* 全ページのPNGは文書単位の操作なので、ページごとの出力ボタンとは分けてここに置く。 */}
-            <BulkExportButton document={previewDocument} pages={previewPages} canExport={!dirty} onStatus={setStatus} />
+            {!guideOpen && (
+              <button type="button" onClick={() => setGuideOpen(true)} className="text-xs hover:underline" style={{ color: "var(--text-secondary)" }}>
+                使い方
+              </button>
+            )}
+            {/*
+              読み直しは2つ。読む先が違うので1つの操作にはまとめない（引き継ぎの不変条件）。
+              どちらも頻度が低いので、1つのメニューへ畳み、それぞれに何が起きるかを添える。
+            */}
+            <details ref={loadMenuRef} className="relative">
+              <summary
+                className="inline-flex min-h-9 cursor-pointer list-none items-center rounded-xl border px-3 text-xs hover:bg-white/5 [&::-webkit-details-marker]:hidden"
+                style={{ borderColor: "var(--border-subtle)" }}
+              >
+                読み込み ▾
+              </summary>
+              <div
+                className="absolute right-0 z-40 mt-1 w-72 space-y-1 rounded-xl border p-2 shadow-xl"
+                style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--bg-card)" }}
+              >
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => { closeLoadMenu(); requestReload(); }}
+                  className="block w-full rounded-lg px-3 py-2 text-left hover:bg-white/5 disabled:opacity-40"
+                >
+                  <span className="block text-xs font-semibold">最新のバージョンを読み込む</span>
+                  <span className="mt-0.5 block text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>
+                    ほかの人が保存した内容を読み込みます。保存していない変更は捨てられます。
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => { closeLoadMenu(); void openSourceUpdate(); }}
+                  className="block w-full rounded-lg px-3 py-2 text-left hover:bg-white/5 disabled:opacity-40"
+                >
+                  <span className="block text-xs font-semibold">Release Masterから取り込み直す</span>
+                  <span className="mt-0.5 block text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>
+                    スプレッドシート側の作品の増減や文字の変更を確認して、選んだものだけ取り込みます。
+                  </span>
+                </button>
+              </div>
+            </details>
+            {/* 全ページのPNGは文書単位の操作なので、ページごとの書き出しとは分けてここに置く。 */}
+            <BulkExportButton document={previewDocument} pages={previewPages} canExport={unsavedLabels.length === 0} onStatus={setStatus} />
           </div>
         </header>
+
+        {guideOpen && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: "var(--border-accent)", backgroundColor: "rgba(139,92,246,.07)" }}>
+            <span className="font-semibold" style={{ color: "#c4b5fd" }}>使い方</span>
+            <span>① 画像を選んで確認・修正</span>
+            <span style={{ color: "var(--text-secondary)" }}>→</span>
+            <span>② 画像ごとに「保存」</span>
+            <span style={{ color: "var(--text-secondary)" }}>→</span>
+            <span>③ 「全ページを書き出す」</span>
+            <span className="flex-1" />
+            <button type="button" onClick={closeGuide} className="rounded border px-2 py-0.5" style={{ borderColor: "var(--border-subtle)" }}>閉じる</button>
+          </div>
+        )}
 
         {previewPage && (
           <CoverColorProbe
@@ -801,58 +1300,35 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           />
         )}
 
-        {/* 直前の結果・ほかの編集者・復旧保存を1本の帯へ。情報は減らさず、段だけ減らす。 */}
-        <StatusBanner
-          tone={status.tone}
-          dense
-          actions={
-            <>
-              {heldElsewhere.map(lock => (
-                <span key={`${lock.kind}:${lock.targetId}`} className="flex items-center gap-1">
-                  <Chip tone="warn">{targetLabels[lock.kind as LockKind]}</Chip>
-                  <span style={{ color: "var(--text-secondary)" }}>{lock.owner} が編集中</span>
-                  {lock.owner === actor && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void session.acquire(lock.kind as LockKind, lock.targetId, "transfer")}
-                      className="rounded border px-2 py-0.5 disabled:opacity-40"
-                      style={{ borderColor: "var(--border-subtle)" }}
-                    >
-                      この端末へ引き継ぐ
-                    </button>
-                  )}
-                </span>
-              ))}
-              {Object.keys(pendingSources).length > 0 && (
-                <span className="flex items-center gap-1">
-                  <Chip tone="info">取り込み基準 {Object.keys(pendingSources).length}件</Chip>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      setPendingSources({});
-                      setStatus({ tone: "info", text: "取り込み基準の更新を取り消しました。文字情報の下書きは残っています。" });
-                    }}
-                    className="rounded border px-2 py-0.5 disabled:opacity-40"
-                    style={{ borderColor: "var(--border-subtle)" }}
-                  >
-                    取り込み基準の更新を取り消す
-                  </button>
-                </span>
-              )}
-              <span style={{ color: "var(--text-secondary)" }}>{recoveryStatus}</span>
-              {recoveryAvailable && (
-                <span className="flex gap-2">
-                  <button type="button" onClick={restoreRecovery} className="rounded border px-2 py-0.5" style={{ borderColor: "var(--border-subtle)" }}>復旧用コピーを開く</button>
-                  <button type="button" onClick={discardRecovery} className="rounded border px-2 py-0.5" style={{ borderColor: "var(--border-subtle)" }}>破棄</button>
-                </span>
-              )}
-            </>
-          }
-        >
-          {status.text}
-        </StatusBanner>
+        {/*
+          上部の帯は「操作の結果」だけを出す場所（2026-09-18）。成功は数秒で消え、警告とエラーは残る。
+          ほかの人の編集中はサムネイルと編集パネルで、取り込んだ内容は作品の欄で言う。
+          このブラウザの一時保存は、保存済みと違う内容が残っているときだけ出す。
+        */}
+        {recoveryOffer && (
+          <StatusBanner
+            tone="warn"
+            dense
+            actions={
+              <span className="flex gap-2">
+                <button type="button" onClick={restoreRecovery} className="rounded border px-2 py-0.5" style={{ borderColor: "var(--border-subtle)" }}>開く</button>
+                <button type="button" onClick={discardRecovery} className="rounded border px-2 py-0.5" style={{ borderColor: "var(--border-subtle)" }}>捨てる</button>
+              </span>
+            }
+          >
+            前回、保存していない変更がこのブラウザに残っています。
+          </StatusBanner>
+        )}
+        {status.text && (
+          <StatusBanner tone={status.tone} dense>
+            {status.text}
+          </StatusBanner>
+        )}
+        {recoveryFailed && (
+          <StatusBanner tone="warn" dense>
+            このブラウザに一時保存できていません（容量不足など）。画面を閉じる前に「保存」してください。
+          </StatusBanner>
+        )}
 
         {!wide && <div className="xl:hidden">{navigator("horizontal")}</div>}
 
@@ -863,6 +1339,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
           {/* 行送りを触っている間もプレビューが見えているように、画面上部へ留める。 */}
           <Panel padding="tight" className="sticky top-16 z-20 xl:static xl:h-full xl:min-h-0 xl:overflow-y-auto">
+            {/* プレビューの h-full は広い画面の3カラムでだけ効かせる。狭い画面で効くと、下の編集中の帯がパネルからはみ出す。 */}
+            <div className="xl:h-full xl:min-h-0">
             {previewPage ? (
               <GeneratorPreview
                 document={previewDocument}
@@ -873,151 +1351,237 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                 selection={selection.key === "text" && selection.itemId === activeItem?.id
                   ? { slotIndex: selection.slotIndex, key: selection.key, start: selection.start, end: selection.end }
                   : null}
-                canExport={!dirty}
+                canExport={unsavedLabels.length === 0}
                 blockedReasons={unsavedLabels}
               />
             ) : (
               <p className="text-sm text-amber-300">表示できる画像がありません。</p>
             )}
+            </div>
           </Panel>
 
-          <Panel className="xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:overflow-hidden">
-            <div className="shrink-0 space-y-2">
-              {/* 画像ごとの状態と操作。この1行で「いま何ができるか」と「保存」を完結させる。 */}
-              <div className="flex flex-wrap items-center gap-2 rounded-xl border px-2 py-1.5" style={{ borderColor: "var(--border-subtle)" }}>
-                <span className="text-xs font-semibold">画像 {pageNumber}</span>
-                {imageEditing
-                  ? <Chip tone="success">編集中 · 自動延長</Chip>
-                  : foreignOnPage
-                    ? <Chip tone="warn">{foreignOnPage.owner === actor ? "自分の別端末が編集中" : `${foreignOnPage.owner} が編集中`}</Chip>
-                    : null}
-                {imageDirty ? <Chip tone="warn">未保存</Chip> : <Chip tone="info">共有DBと一致</Chip>}
-                <span className="flex-1" />
-                {imageEditing ? (
-                  <>
-                    <PrimaryButton disabled={busy || !imageDirty} onClick={() => void saveImage()} className="min-h-9 px-3 text-xs">保存</PrimaryButton>
-                    <SecondaryButton disabled={busy} onClick={() => void endImageEdit(page!.id)} className="min-h-9 px-3 text-xs">編集を終了</SecondaryButton>
-                  </>
-                ) : (
-                  <>
-                    <PrimaryButton
-                      disabled={busy || !page || Boolean(foreignOnPage && foreignOnPage.owner !== actor)}
-                      onClick={() => void beginImageEdit()}
-                      className="min-h-9 px-3 text-xs"
-                    >
-                      この画像を編集
-                    </PrimaryButton>
-                    {foreignOnPage && foreignOnPage.owner === actor && (
-                      <SecondaryButton
-                        disabled={busy}
-                        onClick={() => void session.acquire(foreignOnPage.kind as LockKind, foreignOnPage.targetId, "transfer")}
-                        className="min-h-9 px-3 text-xs"
-                      >
-                        この端末へ引き継ぐ
-                      </SecondaryButton>
-                    )}
-                  </>
-                )}
-              </div>
-              <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                {imageSaved
-                  ? `最終保存 version ${imageSaved.version} · ${imageSaved.actor} · ${savedAtFormat.format(new Date(imageSaved.createdAt))}`
-                  : "この画像は取り込み後まだ保存されていません。"}
-              </p>
-              <SegmentedControl label="編集パネル" options={panelTabs} value={panel} onChange={next => setPanel(next)} />
-              {panel === "info" && page?.kind === "others" && pageItems.length > 1 ? (
-                <label className="block text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-                  Other Releasesの作品
-                  <SelectInput
-                    value={String(Math.min(slotIndex, pageItems.length - 1))}
-                    onChange={event => setSlotIndex(Number(event.target.value))}
-                    className="mt-1"
-                  >
-                    {pageItems.map((item, index) => (
-                      <option key={item.id} value={index}>{index + 1}. {item.content.fields.title || "（作品名未入力）"} / {item.content.fields.artist}</option>
-                    ))}
-                  </SelectInput>
-                </label>
-              ) : panel === "info" && pageItems.length > 1 ? (
-                <SegmentedControl
-                  label="掲載の位置"
-                  size="small"
-                  value={String(Math.min(slotIndex, pageItems.length - 1))}
-                  onChange={next => setSlotIndex(Number(next))}
-                  options={pageItems.map((item, index) => ({
-                    value: String(index),
-                    label: index === 0 ? "上段" : "下段",
-                    dot: itemDirty(item.id) ? "warn" : undefined,
-                  }))}
-                />
-              ) : null}
-              {imageEditing && activeItem && panel === "info" && (
-                <RestoreControl state={itemTargetStateFor(activeItem.id)} compact />
-              )}
-              {imageEditing && savedPage && panel === "background" && (
-                <RestoreControl state={pageTargetStateFor(savedPage.id)} compact />
+          {/*
+            編集パネルは1枚（2026-09-18、利用者の決定でタブをやめた）：見出し → 背景色 → 文字 → 下端の保存の帯。
+            切り替えが無いので「押せば切り替わる」ことに気づけない問題が起きない。
+            保存の帯は下端に固定し、欄をスクロールしても見えたままにする（3カラムではパネルの下端、狭い画面では画面の下端）。
+          */}
+          {/* overflow-hidden を付けない。付けると下端の帯がパネルの中に貼りつき、画面の外へ出てしまう。スクロールは中身の列が持つ。 */}
+          <Panel padding="none" className="flex flex-col xl:h-full xl:min-h-0">
+            <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-4 py-3" style={{ borderColor: "var(--border-subtle)" }}>
+              <h2 className="text-sm font-semibold">画像 {pageNumber}</h2>
+              {previewPage && <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{pageKindLabel(previewPage.kind)}</span>}
+              <span className="flex-1" />
+              {imageEditing
+                ? <span className="text-[11px] text-emerald-300">● 編集中</span>
+                : imageEditLost || attempt?.phase === "blocked" || attempt?.phase === "failed"
+                  ? <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>🔒 編集できません</span>
+                  : <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>準備中…</span>}
+            </div>
+
+            <div className="space-y-5 px-4 py-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
+              {!imageEditing ? renderNotEditing() : (
+                <>
+                  {savedPage && (
+                    <section className="space-y-2">
+                      <h3 className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+                        背景色<span className="ml-1 font-normal">（この画像だけ）</span>
+                        {pageDirty && <span className="ml-1.5 font-normal text-amber-300">・変更あり</span>}
+                      </h3>
+                      <PageInspector
+                        state={pageTargetStateFor(savedPage.id)}
+                        color={pageColors[savedPage.id] ?? savedPage.bgColor ?? FALLBACK_PAGE_COLOR}
+                        // 自動で入れた仮の色は「決まった色」として扱わない。保存するか選び直すよう促す。
+                        defined={Boolean(savedPage.bgColor) || (pageColors[savedPage.id] !== undefined && !isAutoColor(savedPage.id))}
+                        candidates={colorCandidates[savedPage.id] || []}
+                        onColor={value => setPageColors(current => ({ ...current, [savedPage.id]: value }))}
+                      />
+                    </section>
+                  )}
+
+                  {activeItem && page && (page.kind === "adopted" || page.kind === "listed" || page.kind === "feature" || page.kind === "others") && (
+                    <section className="space-y-2 border-t pt-4" style={{ borderColor: "var(--border-subtle)" }}>
+                      <h3 className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>文字</h3>
+                      {page.kind === "others" && pageItems.length > 1 ? (
+                        <label className="block text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                          Other Releasesの作品
+                          <SelectInput
+                            value={String(Math.min(slotIndex, pageItems.length - 1))}
+                            onChange={event => setSlotIndex(Number(event.target.value))}
+                            className="mt-1"
+                          >
+                            {pageItems.map((item, index) => (
+                              <option key={item.id} value={index}>{index + 1}. {item.content.fields.title || "（作品名未入力）"} / {item.content.fields.artist}</option>
+                            ))}
+                          </SelectInput>
+                        </label>
+                      ) : pageItems.length > 1 ? (
+                        <SegmentedControl
+                          label="掲載の位置"
+                          size="small"
+                          value={String(Math.min(slotIndex, pageItems.length - 1))}
+                          onChange={next => setSlotIndex(Number(next))}
+                          options={pageItems.map((item, index) => ({
+                            value: String(index),
+                            label: index === 0 ? "上段の作品" : "下段の作品",
+                            dot: itemDirty(item.id) ? "warn" : undefined,
+                          }))}
+                        />
+                      ) : null}
+                      <ItemInspector
+                        key={`${activeItem.id}:${snapshot.itemVersions[activeItem.id]}:${inspectorEpoch}`}
+                        item={activeItem}
+                        draft={drafts[activeItem.id]}
+                        pageKind={page.kind}
+                        diagnostic={bodyDiagnostic.find(value => value.slotId === activeItem.id) || null}
+                        jacketMissing={Boolean(diagnostics && previewPage && diagnostics.pageId === previewPage.id
+                          && diagnostics.missingJackets.includes(activeItem.id))}
+                        state={itemTargetStateFor(activeItem.id)}
+                        onDraft={content => setDrafts(current => ({ ...current, [activeItem.id]: content }))}
+                        onImage={file => session.uploadImage("item", activeItem.id, file)}
+                        onImageUrl={url => session.uploadImageUrl(activeItem.id, url)}
+                        selection={selection}
+                        onSelection={next => setSelectionState({ ...next, itemId: activeItem.id, slotIndex: Math.min(slotIndex, Math.max(0, pageItems.length - 1)) })}
+                        allowTracking={!phone}
+                        pendingSource={Boolean(pendingSources[activeItem.id])}
+                        onCancelSource={() => {
+                          const id = activeItem.id;
+                          setPendingSources(current => {
+                            const next = { ...current };
+                            delete next[id];
+                            return next;
+                          });
+                          setStatus({ tone: "info", text: "Release Masterから取り込んだ情報を取り消しました。直した文字はそのままです。" });
+                        }}
+                      />
+                    </section>
+                  )}
+                </>
               )}
             </div>
 
-            <div className="mt-3 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-hidden">
-              {panel === "background" ? (
-                <div className="xl:overflow-y-auto xl:pr-1">
-                  {savedPage ? (
-                    <PageInspector
-                      state={pageTargetStateFor(savedPage.id)}
-                      pageNumber={pageNumber}
-                      color={pageColors[savedPage.id] ?? savedPage.bgColor ?? FALLBACK_PAGE_COLOR}
-                      defined={Boolean(pageColors[savedPage.id] ?? savedPage.bgColor)}
-                      candidates={colorCandidates[savedPage.id] || []}
-                      onColor={value => setPageColors(current => ({ ...current, [savedPage.id]: value }))}
-                    />
+            {imageEditing && (
+              <div
+                // 3カラムでも、上の案内や知らせの帯でページ自体が縦に伸びることがある。どの幅でも画面の下端に貼りつける。
+                className="sticky bottom-0 z-10 shrink-0 rounded-b-2xl border-t"
+                style={{ borderColor: imageDirty ? "rgba(245,158,11,.5)" : "var(--border-subtle)", backgroundColor: "var(--bg-card)" }}
+              >
+                <div
+                  className="flex flex-wrap items-center gap-2 rounded-b-2xl px-4 py-2.5 text-xs"
+                  style={{ backgroundColor: imageDirty || imageAutoColorOnly ? "rgba(245,158,11,.12)" : "transparent" }}
+                >
+                  {saving ? (
+                    <span style={{ color: "var(--text-secondary)" }}>保存しています…</span>
+                  ) : imageDirty ? (
+                    <span className="font-semibold text-amber-300">未保存の変更 {imageChanges.length}件</span>
+                  ) : imageAutoColorOnly ? (
+                    <span className="text-amber-300">背景色が仮の色です</span>
                   ) : (
-                    <p className="text-sm" style={{ color: "var(--text-secondary)" }}>背景を編集できる画像がありません。</p>
+                    <span style={{ color: "var(--text-secondary)" }}>
+                      {imageSaved
+                        ? `すべて保存済み · ${savedAtFormat.format(new Date(imageSaved.createdAt))} ${memberName(imageSaved.actor)}`
+                        : "まだ一度も保存されていません"}
+                    </span>
+                  )}
+                  <span className="flex-1" />
+                  {/* 変更が無いときは押せないボタンを並べない。以前の保存へ戻す入口だけを控えめに出す。 */}
+                  {!imageDirty && !saving && (
+                    <details className="relative">
+                      <summary className="cursor-pointer list-none text-[11px] underline decoration-dotted underline-offset-2 [&::-webkit-details-marker]:hidden" style={{ color: "var(--text-secondary)" }}>
+                        以前の保存に戻す
+                      </summary>
+                      <div
+                        className="absolute bottom-full right-0 z-40 mb-2 w-80 max-w-[calc(100vw-3rem)] space-y-3 rounded-xl border p-3 shadow-xl"
+                        style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--bg-card)" }}
+                      >
+                        {activeItem && <RestoreControl state={itemTargetStateFor(activeItem.id)} bare />}
+                        {savedPage && <RestoreControl state={pageTargetStateFor(savedPage.id)} bare />}
+                      </div>
+                    </details>
+                  )}
+                  {imageDirty && (
+                    <SecondaryButton disabled={busy} onClick={() => setDiscardPrompt(true)} className="!min-h-9 px-3 text-xs">破棄</SecondaryButton>
+                  )}
+                  {(imageDirty || imageAutoColorOnly) && (
+                    <PrimaryButton disabled={busy || !imageSavable} onClick={() => void saveImage()} className="!min-h-9 px-4 text-xs">保存</PrimaryButton>
                   )}
                 </div>
-              ) : activeItem && page && (page.kind === "adopted" || page.kind === "listed" || page.kind === "feature" || page.kind === "others") ? (
-                <ItemInspector
-                  key={`${activeItem.id}:${snapshot.itemVersions[activeItem.id]}`}
-                  item={activeItem}
-                  draft={drafts[activeItem.id]}
-                  pageKind={page.kind}
-                  diagnostic={bodyDiagnostic.find(value => value.slotId === activeItem.id) || null}
-                  jacketMissing={Boolean(diagnostics && previewPage && diagnostics.pageId === previewPage.id
-                    && diagnostics.missingJackets.includes(activeItem.id))}
-                  state={itemTargetStateFor(activeItem.id)}
-                  onDraft={content => setDrafts(current => ({ ...current, [activeItem.id]: content }))}
-                  onImage={file => session.uploadImage("item", activeItem.id, file)}
-                  onImageUrl={url => session.uploadImageUrl(activeItem.id, url)}
-                  selection={selection}
-                  onSelection={next => setSelectionState({ ...next, itemId: activeItem.id, slotIndex: Math.min(slotIndex, Math.max(0, pageItems.length - 1)) })}
-                  allowTracking={!phone}
-                />
-              ) : (
-                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>この画像に作品がありません。</p>
-              )}
-            </div>
+              </div>
+            )}
           </Panel>
         </div>
 
         {reorderOpen && (
           <StructureDialog
-            state={targetState(
-              "structure",
-              documentId,
-              structureDirty,
-              () => void (async () => {
-                const lock = await session.acquire("structure", documentId);
-                if (lock) setStructurePages(snapshot.document.pages.map(value => ({ ...value, itemIds: [...value.itemIds] })));
-              })(),
-              () => void saveSingle("structure", documentId, {
-                pages: (structurePages || snapshot.document.pages).map(value => ({ id: value.id, itemIds: value.itemIds })),
-              }),
-            )}
+            state={{
+              ...targetState(
+                "structure",
+                documentId,
+                structureDirty,
+                // 呼ばれるのはダイアログの効果（開いたとき）と再試行ボタンだけで、描画中には読まない。
+                // eslint-disable-next-line react-hooks/refs
+                () => void beginStructureEdit(),
+                () => void saveSingle("structure", documentId, {
+                  pages: (structurePages || snapshot.document.pages).map(value => ({ id: value.id, itemIds: value.itemIds })),
+                }),
+              ),
+              // 開いたら、そのまま並び替えられる。画像の編集と同じく、開始ボタンを挟まない。
+              direct: true,
+            }}
+            notice={structureNotice}
             pages={visiblePages}
             items={items}
             onPages={setStructurePages}
-            onClose={() => setReorderOpen(false)}
+            onClose={requestCloseReorder}
           />
+        )}
+
+        {leavePrompt && page && (
+          <Modal title="編集内容を保存しますか？" description={`画像 ${pageNumber} に、保存していない変更があります。`} onClose={() => setLeavePrompt(null)}>
+            <ul className="space-y-1 text-sm">
+              {imageChanges.map(change => <li key={`${change.kind}:${change.targetId}`}>・{change.label}</li>)}
+            </ul>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <SecondaryButton disabled={busy} onClick={discardAndLeave} className="min-h-11 px-4 text-sm">変更を破棄</SecondaryButton>
+              <PrimaryButton disabled={busy} onClick={() => void saveAndLeave()} className="min-h-11 px-4 text-sm">保存</PrimaryButton>
+            </div>
+          </Modal>
+        )}
+
+        {discardPrompt && page && (
+          <Modal title="変更を破棄しますか？" description={`画像 ${pageNumber} の保存していない変更を捨てて、保存済みの内容へ戻します。`} onClose={() => setDiscardPrompt(false)}>
+            <ul className="space-y-1 text-sm">
+              {imageChanges.map(change => <li key={`${change.kind}:${change.targetId}`}>・{change.label}</li>)}
+            </ul>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <SecondaryButton onClick={() => setDiscardPrompt(false)} className="min-h-11 px-4 text-sm">戻る</SecondaryButton>
+              <PrimaryButton onClick={discardCurrent} className="min-h-11 px-4 text-sm">変更を破棄</PrimaryButton>
+            </div>
+          </Modal>
+        )}
+
+        {reloadPrompt && (
+          <Modal
+            title="保存していない変更があります"
+            description="最新のバージョンを読み込むと、この画面で保存していない変更は捨てられます。"
+            onClose={() => setReloadPrompt(false)}
+          >
+            <ul className="space-y-1 text-sm">
+              {unsavedLabels.map(label => <li key={label}>・{label}</li>)}
+            </ul>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <SecondaryButton onClick={() => setReloadPrompt(false)} className="min-h-11 px-4 text-sm">やめる</SecondaryButton>
+              <PrimaryButton onClick={() => { setReloadPrompt(false); void reload(); }} className="min-h-11 px-4 text-sm">変更を捨てて読み込む</PrimaryButton>
+            </div>
+          </Modal>
+        )}
+
+        {structurePrompt && (
+          <Modal title="並び順を保存しますか？" description="並び順に、保存していない変更があります。" onClose={() => setStructurePrompt(false)}>
+            <div className="flex flex-wrap justify-end gap-2">
+              <SecondaryButton disabled={busy} onClick={() => closeReorder(true)} className="min-h-11 px-4 text-sm">変更を破棄</SecondaryButton>
+              <PrimaryButton disabled={busy} onClick={() => void saveStructureAndClose()} className="min-h-11 px-4 text-sm">保存</PrimaryButton>
+            </div>
+          </Modal>
         )}
       </div>
     </GeneratorRuntimeProvider>
@@ -1025,10 +1589,10 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
   /** 作品・背景の状態は画像の操作列がまとめて出すので、ここでは復元と入力欄の可否にだけ使う。 */
   function itemTargetStateFor(itemId: string): TargetState {
-    return targetState("item", itemId, itemDirty(itemId), () => void beginImageEdit(), () => void saveImage());
+    return targetState("item", itemId, itemDirty(itemId), () => setEditAttempt(null), () => void saveImage());
   }
 
   function pageTargetStateFor(pageId: string): TargetState {
-    return targetState("page", pageId, pageDirty, () => void beginImageEdit(), () => void saveImage());
+    return targetState("page", pageId, pageDirty, () => setEditAttempt(null), () => void saveImage());
   }
 }

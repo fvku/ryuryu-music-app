@@ -40,7 +40,7 @@ export function useGeneratorSession({ initialSnapshot, actor, initialStatus }: {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<Status>({
     tone: "info",
-    text: initialStatus || "画像を選び、「この画像を編集」から直します。保存はその画像ごとに新しいversionを作ります。",
+    text: initialStatus || "画像を選ぶと、そのまま編集できます。",
   });
   const [clientId] = useState(() => crypto.randomUUID());
   const snapshotRef = useRef(snapshot), locksRef = useRef(activeLocks);
@@ -91,7 +91,11 @@ export function useGeneratorSession({ initialSnapshot, actor, initialStatus }: {
             if (!matchesLock(current[key], lock)) return current;
             return { ...current, [key]: { ...current[key], expiresAt: result.expiresAt } };
           }))
-          .catch(() => {
+          .catch((error: GeneratorApiError) => {
+            // 通信の失敗・5xxは一時的なものとして扱い、ロックを持ったまま次の延長で取り直す。
+            // DBのロックは最後の延長から3分有効なので、1回の失敗で手放すと編集が不必要に止まる（2026-09-18、実測で503が10秒かかった）。
+            // 失効していれば、次の延長でDBが LOCK_LOST を返すので、そこで手放す。
+            if (error.code !== "LOCK_LOST" && (error.status === undefined || error.status >= 500)) return;
             // 解放・引き継ぎ後に届いた古い応答では何も言わない。
             // 実際に持っていたロックを失ったときだけ知らせる。
             let lost = false;
@@ -103,7 +107,7 @@ export function useGeneratorSession({ initialSnapshot, actor, initialStatus }: {
               delete next[key];
               return next;
             });
-            if (lost) setStatus({ tone: "error", text: "編集ロックを失いました。「最新版に更新」してから、もう一度編集を開始してください。" });
+            if (lost) setStatus({ tone: "error", text: "編集できなくなりました。右のパネルの「もう一度編集をはじめる」を押してください。入力中の内容は残っています。" });
           });
       }
     }, 30000);
@@ -121,15 +125,36 @@ export function useGeneratorSession({ initialSnapshot, actor, initialStatus }: {
     }
   }, [documentId]);
 
+  // タブを閉じる・再読込するときも返す。返さないと、同じ人の次の画面が3分間「別端末が編集中」で止まる。
+  // Reactのアンマウントはページ遷移では走らないため、pagehideで送る。
+  useEffect(() => {
+    function releaseAll() {
+      for (const lock of Object.values(locksRef.current)) {
+        void fetch(`/api/generator/documents/${documentId}/locks`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          keepalive: true,
+          body: JSON.stringify({ action: "release", ...lockPayload(lock) }),
+        });
+      }
+    }
+    window.addEventListener("pagehide", releaseAll);
+    return () => window.removeEventListener("pagehide", releaseAll);
+  }, [documentId]);
+
   const holds = useCallback((kind: LockKind, targetId: string) => Boolean(locksRef.current[keyOf(kind, targetId)]), []);
 
-  const acquire = useCallback(async (
+  /**
+   * ロックを取る。失敗しても画面上部の状態文を書き換えない。
+   * 画像を選んだだけで走る取得では、失敗を編集パネルの中で説明するため。
+   */
+  const tryAcquire = useCallback(async (
     kind: LockKind,
     targetId: string,
     action: "acquire" | "transfer" = "acquire",
-  ): Promise<ActiveLock | null> => {
+  ): Promise<{ ok: true; lock: ActiveLock } | { ok: false; error: GeneratorApiError }> => {
     const existing = locksRef.current[keyOf(kind, targetId)];
-    if (existing) return existing;
+    if (existing) return { ok: true, lock: existing };
     setBusy(true);
     const seed = { kind, targetId, clientId, token: lockToken() };
     try {
@@ -147,14 +172,34 @@ export function useGeneratorSession({ initialSnapshot, actor, initialStatus }: {
           { kind, targetId, owner: result.owner, expiresAt: result.expiresAt },
         ],
       }));
-      return lock;
+      return { ok: true, lock };
     } catch (error) {
-      setStatus({ tone: "error", text: (error as Error).message });
-      return null;
+      return { ok: false, error: error as GeneratorApiError };
     } finally {
       setBusy(false);
     }
   }, [clientId, documentId, setLocks, setSnapshot]);
+
+  const acquire = useCallback(async (
+    kind: LockKind,
+    targetId: string,
+    action: "acquire" | "transfer" = "acquire",
+  ): Promise<ActiveLock | null> => {
+    const result = await tryAcquire(kind, targetId, action);
+    if (result.ok) return result.lock;
+    setStatus({ tone: "error", text: result.error.message });
+    return null;
+  }, [tryAcquire]);
+
+  /** 共有DBのロック一覧だけを読み直す。版や内容は進めない（下書きの比較元を動かさないため）。 */
+  const refreshLocks = useCallback(async () => {
+    try {
+      const latest = await generatorJson<GeneratorSnapshot>(await fetch(`/api/generator/documents/${documentId}`, { cache: "no-store" }));
+      setSnapshot(current => ({ ...current, locks: latest.locks || [] }));
+    } catch {
+      // 読めなくても編集パネルの説明はそのまま使える。
+    }
+  }, [documentId, setSnapshot]);
 
   /** 指定した対象のロックを解放する。期限切れのロックはすでに使えないので、失敗は無視してよい。 */
   const releaseMany = useCallback(async (targets: ActiveLock[]) => {
@@ -315,6 +360,8 @@ export function useGeneratorSession({ initialSnapshot, actor, initialStatus }: {
     locksRef,
     holds,
     acquire,
+    tryAcquire,
+    refreshLocks,
     release,
     releaseMany,
     saveTarget,

@@ -111,7 +111,7 @@ export default function BulkExportButton({
       </button>
     );
   }
-  // 1枚ずつの「PNGを保存」と同じ色で、出力の操作だと分かるようにする。
+  // 1枚ずつの「PNGを書き出す」と同じ色で、出力の操作だと分かるようにする。
   // 大きさと形は見出し行のほかのボタンに合わせる（min-h-9 / px-3 / text-xs）。
   // 押せないときも読める濃さを残す。opacity で消すと、暗い背景では存在ごと見えなくなる。
   return (
@@ -121,11 +121,11 @@ export default function BulkExportButton({
         disabled={Boolean(reason)}
         title={reason
           || `全${pages.length}枚を${archiveFileName(value)}にまとめます。`
-            + (canExport ? "" : " 共有DBに未保存の変更を含んだ内容で書き出します。")}
+            + (canExport ? "" : " 保存していない変更も含めて書き出します。")}
         onClick={() => void run()}
         className="inline-flex min-h-9 items-center rounded-xl bg-violet-600 px-3 text-xs font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-violet-600/45 disabled:text-white/80 disabled:hover:bg-violet-600/45"
       >
-        全ページを書き出す
+        全ページを書き出す（ZIP）
       </button>
       {!packer && <Chip tone="info">準備中</Chip>}
     </span>

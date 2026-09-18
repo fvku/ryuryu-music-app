@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { GeneratorDocument, ItemContent } from "@/lib/generator/model";
 import { applySelectedSpacing, rebaseKerns, selectedSpacing } from "@/lib/generator/text-edit";
 import type { BodyDiagnostic } from "../GeneratorPreview";
-import { Checkbox, Chip, Field, SecondaryButton, SelectInput, TextArea, TextInput } from "../ui";
+import { Checkbox, Chip, Field, SecondaryButton, TextArea, TextInput } from "../ui";
 import { type TargetState } from "./Inspectors";
 import { cloneContent, same, type FieldSelection } from "./workspace-types";
 
@@ -118,6 +118,8 @@ export default function ItemInspector({
   selection,
   onSelection,
   allowTracking,
+  pendingSource = false,
+  onCancelSource,
 }: {
   item: GeneratorDocument["items"][number];
   draft?: ItemContent;
@@ -133,9 +135,11 @@ export default function ItemInspector({
   onSelection(next: { key: FieldKey; start: number; end: number; source: FieldSelection["source"] }): void;
   /** iPhoneでは字間の調整を出さない。値そのものは保持したまま、操作だけを外す。 */
   allowTracking: boolean;
+  /** Release Masterから取り込んだ内容（カバー画像を含む）が保存待ちか。 */
+  pendingSource?: boolean;
+  onCancelSource?(): void;
 }) {
   const value = draft || item.content;
-  const [editing, setEditing] = useState<FieldKey[]>([]);
   const fieldRefs = useRef<Partial<Record<FieldKey, HTMLInputElement | HTMLTextAreaElement | null>>>({});
   const appliedRef = useRef("");
   const [editHistory, setEditHistory] = useState<{ undo: ItemContent[]; redo: ItemContent[] }>({ undo: [], redo: [] });
@@ -207,7 +211,7 @@ export default function ItemInspector({
       ? fieldOrder.filter(key => key === "title" || key === "artist")
       : fieldOrder;
   const adjustableFields = pageKind === "listed" ? visibleFields.filter(key => key !== "text") : visibleFields;
-  const target = visibleFields.includes(selection.key) ? selection.key : "title";
+  const target = adjustableFields.includes(selection.key) ? selection.key : adjustableFields[0];
   const range = target === selection.key
     ? { start: selection.start, end: selection.end }
     : { start: 0, end: 0 };
@@ -247,67 +251,49 @@ export default function ItemInspector({
     onSelection({ key, start: 0, end: 0, source: "field" });
   }
 
-  function isOpen(key: FieldKey): boolean {
-    return editing.includes(key) || (selection.key === key && selection.source !== "field");
-  }
-
   function selectRange(key: FieldKey, start: number, end: number) {
-    // プレビューから開いた欄の中で選び直しても、その欄は開いたままにする。
-    const keepOpen = selection.key === key && selection.source !== "field" && !editing.includes(key);
-    onSelection({ key, start, end, source: keepOpen ? "previewOpen" : "field" });
-  }
-
-  function toggleEditing(key: FieldKey) {
-    if (isOpen(key)) {
-      setEditing(current => current.filter(value => value !== key));
-      if (selection.key === key && selection.source !== "field") onSelection({ key, start: 0, end: 0, source: "field" });
-      return;
-    }
-    setEditing(current => [...current, key]);
-    select(key);
+    // プレビューから開いた欄の中で選び直しても、フォーカスを奪い直さない。
+    const fromPreview = selection.key === key && selection.source !== "field";
+    onSelection({ key, start, end, source: fromPreview ? "previewOpen" : "field" });
   }
 
   const bodyAuto = value.bodyLeadMode !== "custom";
   const leading = target === "text" ? null : value.typography[target]?.leading ?? defaultLeading(target);
-  return (
-    <div className="flex min-h-0 flex-col gap-3 xl:h-full">
-      {/* 主操作。プレビューの近くから動かさず、対象の切り替えもここで完結させる。 */}
-      <div className="shrink-0 rounded-xl border p-3" style={{ borderColor: "var(--border-accent)", backgroundColor: "rgba(139,92,246,.07)" }}>
+  const jacketChanged = value.jacketAssetId !== item.content.jacketAssetId;
+
+  /**
+   * 字間・行送り。選んだ欄の直下に開く（2026-09-18、利用者の決定）。
+   * 仕上げで繰り返す操作なので、直している文字のすぐ近くに置く。
+   */
+  function renderTuning() {
+    return (
+      <div className="rounded-lg border p-2.5" style={{ borderColor: "var(--border-subtle)", backgroundColor: "rgba(0,0,0,.18)" }}>
         <div className="flex items-center gap-2">
-          <span className="shrink-0 text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>調整対象</span>
-          <SelectInput
-            aria-label="調整対象"
-            value={target}
-            onChange={event => select(event.target.value as FieldKey)}
-            className="!mt-0 min-h-9 min-w-0 flex-1 text-sm"
-          >
-            {adjustableFields.map(key => <option key={key} value={key}>{fieldLabels[key]}</option>)}
-          </SelectInput>
+          <span className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>文字の詰め・行間</span>
+          <span className="flex-1" />
           <button
             type="button"
-            aria-label="取り消す"
             disabled={readOnly || editHistory.undo.length === 0}
             onClick={undo}
-            className="h-9 w-9 shrink-0 rounded border text-xs disabled:opacity-30"
+            className="inline-flex min-h-8 items-center rounded border px-2 text-[11px] disabled:opacity-30"
             style={{ borderColor: "var(--border-subtle)" }}
           >
-            ↺
+            ↺ 元に戻す
           </button>
           <button
             type="button"
-            aria-label="やり直す"
             disabled={readOnly || editHistory.redo.length === 0}
             onClick={redo}
-            className="h-9 w-9 shrink-0 rounded border text-xs disabled:opacity-30"
+            className="inline-flex min-h-8 items-center rounded border px-2 text-[11px] disabled:opacity-30"
             style={{ borderColor: "var(--border-subtle)" }}
           >
-            ↻
+            ↻ やり直す
           </button>
         </div>
 
         {allowTracking && (
-          <p className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-            範囲：{range.end > range.start ? `${range.start + 1}〜${range.end}文字目` : "項目全体"}
+          <p className="mt-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+            範囲：{range.end > range.start ? `${range.start + 1}〜${range.end}文字目` : "この欄の全体（入力欄で文字を選ぶと、その範囲だけ変えられます）"}
           </p>
         )}
 
@@ -316,7 +302,7 @@ export default function ItemInspector({
             checked={bodyAuto}
             disabled={readOnly}
             onChange={event => applyDraft({ ...value, bodyLeadMode: event.target.checked ? "auto" : "custom" })}
-            label={<span className="text-xs">行送りは自動（天地25pxいっぱいまで広げる）</span>}
+            label={<span className="text-xs">行間は自動（上下25pxいっぱいまで広げる）</span>}
           />
         )}
 
@@ -335,13 +321,13 @@ export default function ItemInspector({
           )}
           {target === "text" ? (
             bodyAuto ? (
-              <Field label="行送り（自動）">
+              <Field label="行間（自動）">
                 <p className="mt-1 flex min-h-11 items-center rounded-lg border px-3 text-base" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>
-                  {diagnostic ? (diagnostic.lines <= 1 ? "天地中央" : `${Math.round(diagnostic.lead * 10) / 10}px`) : "—"}
+                  {diagnostic ? (diagnostic.lines <= 1 ? "上下の中央" : `${Math.round(diagnostic.lead * 10) / 10}px`) : "—"}
                 </p>
               </Field>
             ) : (
-              <Field label="上限（px）">
+              <Field label="行間の上限（px）">
                 <EditableNumberInput
                   disabled={readOnly}
                   value={String(value.bodyMaxLead)}
@@ -353,7 +339,7 @@ export default function ItemInspector({
               </Field>
             )
           ) : (
-            <Field label="行送り（%）">
+            <Field label="行間（%）">
               <EditableNumberInput
                 disabled={readOnly}
                 value={String(Math.round((leading ?? 1.2) * 100))}
@@ -372,41 +358,47 @@ export default function ItemInspector({
           </p>
         )}
 
-        {target === "text" && (
+        {target === "text" && diagnostic && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {pageKind === "listed" ? (
-              <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>掲載画像に評価文は描画されません。</span>
-            ) : diagnostic ? (
-              <>
-                <Chip tone="info">{diagnostic.lines}行</Chip>
-                <Chip tone={diagnostic.fits ? "info" : "error"}>下限 {diagnostic.minLead}px</Chip>
-                {!diagnostic.fits && (
-                  <span className="text-[11px] text-rose-300">下限を割るためPNGを書き出せません。行を減らすか、字間・改行・表示項目を調整してください。</span>
-                )}
-              </>
-            ) : null}
+            <Chip tone="info">{diagnostic.lines}行</Chip>
+            <Chip tone={diagnostic.fits ? "info" : "error"}>最小の行間 {diagnostic.minLead}px</Chip>
+            {!diagnostic.fits && (
+              <span className="text-[11px] text-rose-300">行間が狭くなりすぎるため書き出せません。行を減らすか、字間・改行・表示する項目を調整してください。</span>
+            )}
           </div>
         )}
       </div>
+    );
+  }
 
-      <ul className="min-h-0 space-y-2 xl:flex-1 xl:overflow-y-auto xl:pr-1">
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+        直したい欄を押すか、プレビューの文字を押してください。
+      </p>
+      {/* スクロールは編集パネル全体で持つ（背景色と文字を1枚にしたため）。 */}
+      <ul className="space-y-2">
         {visibleFields.map(key => {
           const showKey = showOf[key];
           const listedBody = pageKind === "listed" && key === "text";
           const selected = !listedBody && target === key;
-          const open = !listedBody && isOpen(key);
           const current = value.fields[key];
+          // 保存済みから変えた欄は「変更あり」の文字と細い黄の枠で示す。色だけに頼らない。
+          const changed = current !== item.content.fields[key]
+            || (showKey !== null && value.show[showKey] !== item.content.show[showKey]);
           return (
             <li
               key={key}
-              className="rounded-lg border p-2"
+              className="rounded-lg border"
               style={{
-                borderColor: selected ? "var(--accent)" : "var(--border-subtle)",
+                borderColor: changed ? "rgba(245,158,11,.6)" : "var(--border-subtle)",
+                // 選んでいる欄は左の紫の線と薄い紫の背景。パネル全体の「編集中」の枠とは別の見え方にする。
+                boxShadow: selected ? "inset 3px 0 0 var(--accent)" : undefined,
                 backgroundColor: selected ? "rgba(139,92,246,.08)" : "transparent",
               }}
             >
-              <div className="flex items-start gap-2">
-                {/* 見出しと現在値でひとつの選択面。クリックでこの項目が調整対象になる。 */}
+              <div className="flex items-start gap-2 p-2 pl-3">
+                {/* 行のどこを押しても、その欄が開く（小さな✎を探させない）。 */}
                 <button
                   type="button"
                   disabled={listedBody}
@@ -415,8 +407,9 @@ export default function ItemInspector({
                 >
                   <span className="block text-[11px] font-medium" style={{ color: selected ? "#c4b5fd" : "var(--text-secondary)" }}>
                     {fieldLabels[key]}
+                    {changed && <span className="ml-1.5 text-amber-300">・変更あり</span>}
                   </span>
-                  {!open && (
+                  {!selected && (
                     <span className={`mt-0.5 block text-sm ${key === "text" ? "line-clamp-2" : "truncate"}`}>
                       {current || <span style={{ color: "var(--text-secondary)" }}>（未入力）</span>}
                     </span>
@@ -431,82 +424,82 @@ export default function ItemInspector({
                       onChange={event => applyDraft({ ...value, show: { ...value.show, [showKey]: event.target.checked } })}
                       className="h-[13px] w-[13px] accent-violet-500"
                     />
-                    出す
+                    画像に表示
                   </label>
-                )}
-                {!readOnly && !listedBody && (
-                  <button
-                    type="button"
-                    onClick={() => toggleEditing(key)}
-                    aria-label={open ? `${fieldLabels[key]}の入力欄を閉じる` : `${fieldLabels[key]}の文字を修正`}
-                    title={open ? "入力欄を閉じる" : "文字を修正"}
-                    className="h-8 w-8 shrink-0 rounded border text-xs leading-none"
-                    style={{ borderColor: "var(--border-subtle)" }}
-                  >
-                    {open ? "×" : "✎"}
-                  </button>
                 )}
               </div>
 
-              {open && (
-                key === "text" ? (
-                  <TextArea
-                    value={current}
-                    rows={6}
-                    disabled={readOnly}
-                    onChange={event => setField(key, event.target.value)}
-                    onSelect={event => selectRange(key, event.currentTarget.selectionStart || 0, event.currentTarget.selectionEnd || 0)}
-                    ref={element => { fieldRefs.current[key] = element; }}
-                  />
-                ) : (
-                  <TextInput
-                    value={current}
-                    disabled={readOnly}
-                    onChange={event => setField(key, event.target.value)}
-                    onSelect={event => selectRange(key, event.currentTarget.selectionStart || 0, event.currentTarget.selectionEnd || 0)}
-                    ref={element => { fieldRefs.current[key] = element; }}
-                  />
-                )
+              {selected && (
+                <div className="space-y-2 px-3 pb-3">
+                  {key === "text" ? (
+                    <TextArea
+                      value={current}
+                      rows={6}
+                      disabled={readOnly}
+                      onChange={event => setField(key, event.target.value)}
+                      onSelect={event => selectRange(key, event.currentTarget.selectionStart || 0, event.currentTarget.selectionEnd || 0)}
+                      ref={element => { fieldRefs.current[key] = element; }}
+                    />
+                  ) : (
+                    <TextInput
+                      value={current}
+                      disabled={readOnly}
+                      onChange={event => setField(key, event.target.value)}
+                      onSelect={event => selectRange(key, event.currentTarget.selectionStart || 0, event.currentTarget.selectionEnd || 0)}
+                      ref={element => { fieldRefs.current[key] = element; }}
+                    />
+                  )}
+                  {!current.trim() && (
+                    <p className="text-[10px] leading-4" style={{ color: "var(--text-secondary)" }}>
+                      空欄です。ここで入力するか、Release Masterを直してから「読み込み」→「Release Masterから取り込み直す」を使ってください。
+                    </p>
+                  )}
+                  {key === "trackNo" && (
+                    <p className="text-[10px]" style={{ color: "var(--text-secondary)" }}>番号と曲名は同じ「画像に表示」で切り替わります。</p>
+                  )}
+                  {renderTuning()}
+                </div>
               )}
 
-              {key === "trackNo" && (
-                <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>番号と曲名は同じチェックで切り替わります。</p>
-              )}
-              {key === "text" && pageKind === "listed" && (
-                <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>掲載画像には描画されません。値は保存されます。</p>
+              {listedBody && (
+                <p className="px-3 pb-2 text-[10px]" style={{ color: "var(--text-secondary)" }}>掲載画像には描画されません。値は保存されます。</p>
               )}
             </li>
           );
         })}
 
-        {pageKind !== "others" && <li className="rounded-lg border p-2" style={{ borderColor: "var(--border-subtle)" }}>
+        {pageKind !== "others" && <li className="rounded-lg border p-2 pl-3" style={{ borderColor: jacketChanged ? "rgba(245,158,11,.6)" : "var(--border-subtle)" }}>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>ジャケット</span>
+            <span className="text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
+              ジャケット
+              {jacketChanged && <span className="ml-1.5 text-amber-300">・変更あり</span>}
+            </span>
             {value.jacketAssetId
-              ? <Chip tone="success">差し替え済み</Chip>
-              : jacketMissing ? <Chip tone="warn">未取得</Chip> : <Chip tone="info">Release Master</Chip>}
+              ? <Chip tone="success">差し替えた画像</Chip>
+              : jacketMissing ? <Chip tone="warn">画像がありません</Chip> : <Chip tone="info">取り込んだ画像</Chip>}
           </div>
           {jacketMissing && !value.jacketAssetId && (
             <p className="mt-1 text-[10px] leading-4" style={{ color: "#fcd34d" }}>
-              Release Masterの「画像リンク変換」にも「spotifyカバー」にもURLが無いか、画像を読み込めませんでした。
-              {readOnly
-                ? "「この画像を編集」を押すと、ファイルを選ぶか画像のURLを貼って差し替えられます。"
-                : "下からファイルを選ぶか、画像のURLを貼ってください。"}
+              Release Masterに画像のURLが無いか、画像を読み込めませんでした。下からファイルを選ぶか、画像のURLを貼ってください。
             </p>
           )}
           {!readOnly && (
             <div className="mt-2 space-y-2">
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                disabled={readOnly}
-                onChange={event => {
-                  const file = event.target.files?.[0];
-                  if (file) void onImage(file).then(id => { if (id) applyDraft({ ...value, jacketAssetId: id }); });
-                  event.target.value = "";
-                }}
-                className="block w-full text-[11px]"
-              />
+              {/* ブラウザ標準の「Choose File」は英語のまま出るので、日本語のボタンで包む。 */}
+              <label className="inline-flex min-h-9 cursor-pointer items-center rounded-xl border px-3 text-[11px] hover:bg-white/5" style={{ borderColor: "var(--border-subtle)" }}>
+                画像ファイルを選ぶ
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  disabled={readOnly}
+                  onChange={event => {
+                    const file = event.target.files?.[0];
+                    if (file) void onImage(file).then(id => { if (id) applyDraft({ ...value, jacketAssetId: id }); });
+                    event.target.value = "";
+                  }}
+                  className="sr-only"
+                />
+              </label>
               <p className="text-[10px]" style={{ color: "var(--text-secondary)" }}>PNG・JPEG・WebP、10MB以下。</p>
               <div className="flex gap-2">
                 <TextInput
@@ -531,12 +524,26 @@ export default function ItemInspector({
               )}
               {value.jacketAssetId && (
                 <SecondaryButton onClick={() => applyDraft({ ...value, jacketAssetId: null })} className="min-h-9 px-3 text-[11px]">
-                  Release Masterの画像へ戻す
+                  取り込んだ画像へ戻す
                 </SecondaryButton>
               )}
             </div>
           )}
         </li>}
+
+        {pendingSource && (
+          <li className="rounded-lg border p-2 pl-3 text-[11px]" style={{ borderColor: "rgba(245,158,11,.6)" }}>
+            <p className="leading-5">
+              Release Masterから取り込んだ情報（カバー画像など）が、保存待ちです。「保存」すると確定します。
+            </p>
+            {onCancelSource && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <SecondaryButton onClick={onCancelSource} className="min-h-9 px-3 text-[11px]">取り込みを取り消す</SecondaryButton>
+                <span style={{ color: "var(--text-secondary)" }}>直した文字はそのまま残ります。</span>
+              </div>
+            )}
+          </li>
+        )}
       </ul>
     </div>
   );
