@@ -17,7 +17,7 @@ export async function readGeneratorReleaseMaster(): Promise<ReleaseMasterAlbum[]
     no: String(row[getCol(col, "NO")] || ""), uid: value(row, SHEET_COL.UID).trim(), date: String(row[getCol(col, "DATE")] || ""),
     title: String(row[getCol(col, "TITLE")] || ""), artist: String(row[getCol(col, "ARTIST")] || ""), genre: String(row[getCol(col, "GENRE")] || "") as ReleaseMasterAlbum["genre"],
     duration: String(row[getCol(col, "TIME")] || ""), weekNumber: value(row, SHEET_COL.WEEK_NUMBER),
-    genreMemo: value(row, SHEET_COL.GENRE_MEMO), country: value(row, SHEET_COL.COUNTRY), weekAdoption: value(row, SHEET_COL.WEEK_ADOPTION),
+    genreMemo: value(row, SHEET_COL.GENRE_MEMO), playlistMemo: value(row, SHEET_COL.PLAYLIST), country: value(row, SHEET_COL.COUNTRY), weekAdoption: value(row, SHEET_COL.WEEK_ADOPTION),
     mjAdoption: value(row, SHEET_COL.MJ_ADOPTION), mjAssign: value(row, SHEET_COL.MJ_ASSIGN), mjTrackNo: value(row, SHEET_COL.MJ_TRACK_NO),
     mjTrack: value(row, SHEET_COL.MJ_TRACK), mjStartTime: value(row, SHEET_COL.START_TIME), mjText: value(row, SHEET_COL.MJ_TEXT), legacyScores: [],
     spotifyUrl: value(row, SHEET_COL.SPOTIFY_URL), coverUrl: value(row, SHEET_COL.COVER_URL), coverUrlLarge: value(row, SHEET_COL.COVER_URL_LARGE),

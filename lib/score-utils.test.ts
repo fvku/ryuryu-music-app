@@ -38,6 +38,7 @@ function makeAlbum(overrides: Partial<ReleaseMasterAlbum> = {}): ReleaseMasterAl
     duration: "",
     weekNumber: "",
     genreMemo: "",
+    playlistMemo: "",
     country: "",
     weekAdoption: "",
     mjAdoption: "",

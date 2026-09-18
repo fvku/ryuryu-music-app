@@ -81,9 +81,9 @@ export default function AlbumCard({ album, coverUrl, averageScore, scoreCount = 
         </div>
       </div>
 
-      {album.genreMemo && (
+      {album.playlistMemo && (
         <p className="text-xs truncate" style={{ color: "var(--text-secondary)" }}>
-          <span>genre/memo: </span>{album.genreMemo}
+          <span>playlist: </span>{album.playlistMemo}
         </p>
       )}
     </div>

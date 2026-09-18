@@ -201,7 +201,7 @@ function MismatchQueueModal({ mismatches, onClose }: { mismatches: RefetchMismat
               <p style={{ color: "var(--text-primary)" }}>{current.sheetArtist} / {current.sheetTitle}</p>
             </div>
             <div className="col-span-2">
-              <p style={{ color: "var(--text-secondary)" }}>genre/memo</p>
+              <p style={{ color: "var(--text-secondary)" }}>genre</p>
               <p style={{ color: current.sheetMemo ? "#fbbf24" : "var(--text-secondary)" }}>
                 {current.sheetMemo || "記載なし"}
               </p>

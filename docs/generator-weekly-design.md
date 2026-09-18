@@ -59,7 +59,7 @@ Monthly／Japanの画像ジェネレーターへ、毎週金曜の新譜紹介�
 - 抽出条件：`日付`が「対象金曜の6日前の土曜以上、翌土曜未満」の行。`M/J採用`列は見ず、`WEEK=採用`をfeature、`WEEK=掲載`をothersへ振り分ける。`不採用`・空欄は除外する。対象になった行の`#`は全件同一であることを検証して文書へ保存する。
 - 重複除去：`title+artist` の小文字化キー。Monthlyの`selectReleaseMasterAlbums`と同じ規則。
 - カバー画像：`画像リンク変換`（Apple Music 2000px）優先 → `spotifyカバー`（640px）フォールバック。Monthlyと同じ。
-- 取り込む項目：`Time`（曲数・総尺）、`genre/memo`、`国`、`洋邦`、`UID`、`No.`、`日付`。
+- 取り込む項目：`Time`（曲数・総尺）、`genre`（旧genre/memo）、`国`、`洋邦`、`UID`、`No.`、`日付`。
   `M Number`／`Track`／`M/J採用（220−300）`は取り込むが**Weeklyでは表示しない**（§4参照）。
 - 空の`Time`を最新Release Masterから下書き補完する既存の挙動は、Weeklyでもそのまま効かせる（共有DBは自動更新しない）。
 - 0件なら404、200件超は400。Monthlyと同じ。

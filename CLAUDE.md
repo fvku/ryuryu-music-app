@@ -23,8 +23,9 @@
   - `playlist_archive` シート: A=playlistId, B=label, C=kind, D=key, E=name, F=months, G=firstSeenAt, H=lastSeenAt（プレイリスト収録の観測履歴。`lib/ops/playlist-archive.ts` が自動更新するので手で触らない）
   - アルバム紐付けは **albumUid（Release MasterのUID）優先、title+artistフォールバック**（2026-07-18〜）。albumUidが空の行は移行前の孤児データか手動追加行 → `scripts/backfill-album-uids.ts` の再実行で埋められる（冪等）
 - **Release Master**: `RELEASE_MASTER_SPREADSHEET_ID`
-  - A=No., B=Date, C=Title, D=Artist, E=Body, F=洋邦, G=Time, H=#, I=リスナー, K=playlist, L=genre/memo, M=国, P=WEEK, R=M/J採用, S=ASSIGN, T=M Number, U=Track, V=Start Time, W=M/J採用（220-300）, Y=Kwisoo, Z=Meri, AA=Kohei, AB=Eddie, AC=Hanawa, AD=Kaede, AF=Spotify, AG=spotifyカバー（640×640）, AJ=UID
+  - A=No., B=Date, C=Title, D=Artist, E=Body, F=洋邦, G=Time, H=#, I=リスナー, K=memo（旧playlist）, L=genre（旧genre/memo）, M=国, P=WEEK, R=M/J採用, S=ASSIGN, T=M Number, U=Track, V=Start Time, W=M/J採用（220-300）, Y=Kwisoo, Z=Meri, AA=Kohei, AB=Eddie, AC=Hanawa, AD=Kaede, AF=Spotify, AG=spotifyカバー（640×640）, AJ=UID
   - 列位置は 2026-09-11 に playlist を K 列へ移動した時点のもの。コードはヘッダー名で解決するため、移動しても壊れない
+  - K/L列は 2026-09-18 に見出しを「playlist」→「memo」「genre/memo」→「genre」へ改名した（データの意味は変わらない。K=収録プレイリスト名＋手動メモ、L=手入力ジャンル）。`lib/sheet-headers.ts` の `buildHeaderMap` が新旧どちらの見出しでも解決するので、改名前後どちらの状態でもコードは動く
   - `画像リンク変換` = Apple Music のカバー画像URL（2000×2000）。列位置は可変なのでヘッダー名で解決する。`spotifyカバー` より充足率が高く、高解像度が要る用途（monthly-generator）はこちらを使う
 
 ## 主要ファイル
@@ -59,7 +60,7 @@
 | `refetch-spotify.ts` | Spotify URL空行の再取得（名前不一致はMISMATCHアラート） |
 | `assign-uids.ts` | Release Master のUID列採番（dry-run / --apply、冪等） |
 | `backfill-album-uids.ts` | scores/bookmarks/recommendations にRMのUIDを紐付け（dry-run / --apply、冪等） |
-| `sync-playlist-tags.ts` | 登録プレイリストの収録曲からRMの`playlist`列を更新（dry-run / --apply / --init-column） |
+| `sync-playlist-tags.ts` | 登録プレイリストの収録曲からRMの`memo`（旧playlist）列を更新（dry-run / --apply / --init-column） |
 
 ### fill-time-tracks.ts のオプション
 
@@ -85,7 +86,7 @@ npx tsx scripts/fill-time-tracks.ts --apply --force --from-row=915  # 指定行�
 
 ## プレイリスト収録タグ
 
-Release Master の `playlist` 列に「そのアルバムがどの有名プレイリストに入っているか」を自動で書き込む。
+Release Master の `memo`（旧playlist）列に「そのアルバムがどの有名プレイリストに入っているか」を自動で書き込む。
 
 - Spotify公式（エディトリアル）プレイリストは Web API から読めない。アプリが Development mode のため 404 になる（Client Credentials でもユーザー認可トークンでも同じ。2026-09-09に実測）
 - そのため収録曲一覧は**埋め込みページ**（`open.spotify.com/embed/playlist/<id>`）から取得する。曲→アルバムの解決は公式API（`/v1/tracks`）
@@ -115,7 +116,7 @@ Release Master の `playlist` 列に「そのアルバムがどの有名プレ�
 - 2026-09-12 の初回投入で13,776件。38本のプレイリストで1回あたり60秒弱
 - 収録曲の取得は並列、アルバム解決は全プレイリスト分をまとめて直列（公式APIを並列で叩くと429になる）
 - 対象は既定で**当月のみ**（Date列の "YYYY/MM" 前方一致）。管理画面の「対象月」で変更、CLIは `--month=2026/08` / `--all`。プレイリスト側の取得量は月を絞っても変わらない
-- 取得対象は管理画面（週次リリース処理タブ）から追加・削除する。`genre/memo` 列には触れない
+- 取得対象は管理画面（週次リリース処理タブ）から追加・削除する。`genre`（旧genre/memo）列には触れない
 
 ## フィルター状態の永続化（localStorage）
 
