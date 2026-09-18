@@ -7,12 +7,12 @@ interface GenreCountryFieldsProps {
   onCountryChange: (value: string) => void;
 }
 
-/** ジャンル/メモ（K列）・国（L列）の編集 */
+/** ジャンル（L列）・国（M列）の編集 */
 export default function GenreCountryFields({ genreMemo, onGenreMemoChange, country, onCountryChange }: GenreCountryFieldsProps) {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h3 className="text-xs font-bold mb-2" style={{ color: "var(--text-primary)" }}>ジャンル / メモ（K列）</h3>
+        <h3 className="text-xs font-bold mb-2" style={{ color: "var(--text-primary)" }}>ジャンル（L列）</h3>
         <input
           type="text"
           value={genreMemo}
@@ -27,7 +27,7 @@ export default function GenreCountryFields({ genreMemo, onGenreMemoChange, count
         />
       </div>
       <div>
-        <h3 className="text-xs font-bold mb-2" style={{ color: "var(--text-primary)" }}>国（L列）</h3>
+        <h3 className="text-xs font-bold mb-2" style={{ color: "var(--text-primary)" }}>国（M列）</h3>
         <input
           type="text"
           value={country}

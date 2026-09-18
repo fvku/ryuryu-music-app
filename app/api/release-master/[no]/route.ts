@@ -73,6 +73,7 @@ export async function GET(request: NextRequest) {
       duration:   row[getCol(col, "TIME")]         || "",
       weekNumber: row[getCol(col, "WEEK_NUMBER")]  || "",
       genreMemo:  row[col[SHEET_COL.GENRE_MEMO]]  || "",
+      playlistMemo: row[col[SHEET_COL.PLAYLIST]] || "",
       country:    row[col[SHEET_COL.COUNTRY]]     || "",
       weekAdoption: row[col[SHEET_COL.WEEK_ADOPTION]] || "",
       mjAdoption: row[col[SHEET_COL.MJ_ADOPTION]] || "",

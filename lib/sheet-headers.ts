@@ -15,6 +15,17 @@ function normalizeHeaderName(name: string): string {
     .replace(/[\u002D\u2013\u2014\u2015\uFF0D\u30FC]/g, "\u2212");
 }
 
+/**
+ * 列名リネームの新旧を橋渡しするエイリアス表。
+ * 2026-09-18、Release Master の K/L列を「playlist」→「memo」「genre/memo」→「genre」に
+ * 改名する予定だが、シート側の改名タイミングとコードのデプロイタイミングはズレる。
+ * どちらの見出しが実際に入っていても同じ列として解決できるよう、双方向に登録する。
+ */
+const HEADER_ALIASES: [string, string][] = [
+  ["playlist", "memo"],
+  ["genre/memo", "genre"],
+];
+
 /** ヘッダー行（row[0]）から「列名 → 0始まりインデックス」マップを生成 */
 export function buildHeaderMap(headerRow: string[]): Record<string, number> {
   const map: Record<string, number> = {};
@@ -23,6 +34,10 @@ export function buildHeaderMap(headerRow: string[]): Record<string, number> {
     if (!raw) return;
     map[raw] = i;                         // 元の文字列でも登録
     map[normalizeHeaderName(raw)] = i;    // 正規化済みでも登録
+    for (const [oldName, newName] of HEADER_ALIASES) {
+      if (raw === oldName) map[newName] = i;
+      if (raw === newName) map[oldName] = i;
+    }
   });
   return map;
 }
@@ -69,8 +84,8 @@ export const SHEET_COL = {
 
   // --- 書き込み対象 ---
   UID:         "UID",            // 安定ID列（改名に耐える行識別子。位置は任意）
-  GENRE_MEMO:  "genre/memo",     // L列
-  PLAYLIST:    "playlist",       // K列（収録プレイリスト名。sync-playlist-tags.ts が自動更新）
+  GENRE_MEMO:  "genre",          // L列（2026-09-18に「genre/memo」から改名。手入力のジャンル）
+  PLAYLIST:    "memo",           // K列（2026-09-18に「playlist」から改名。sync-playlist-tags.ts が自動更新する収録プレイリスト名 + 手動メモ）
   COUNTRY:     "国",             // M列
   WEEK_ADOPTION: "WEEK",         // P列（Weekly: 採用／掲載／不採用）
   MJ_ADOPTION: "M/J採用",        // R列

@@ -38,6 +38,21 @@ describe("buildHeaderMap", () => {
     expect(buildHeaderMap(undefined as unknown as string[])).toEqual({});
     expect(buildHeaderMap([])).toEqual({});
   });
+
+  it("resolves old/new header names for the 2026-09-18 playlist/genre column rename either way", () => {
+    const beforeRename = buildHeaderMap(["playlist", "genre/memo"]);
+    expect(beforeRename["memo"]).toBe(0);
+    expect(beforeRename["genre"]).toBe(1);
+
+    const afterRename = buildHeaderMap(["memo", "genre"]);
+    expect(afterRename["playlist"]).toBe(0);
+    expect(afterRename["genre/memo"]).toBe(1);
+
+    expect(getCol(beforeRename, "PLAYLIST")).toBe(0);
+    expect(getCol(beforeRename, "GENRE_MEMO")).toBe(1);
+    expect(getWriteCol(beforeRename, SHEET_COL.PLAYLIST)).toBe(0);
+    expect(getWriteCol(beforeRename, SHEET_COL.GENRE_MEMO)).toBe(1);
+  });
 });
 
 describe("SHEET_COL", () => {

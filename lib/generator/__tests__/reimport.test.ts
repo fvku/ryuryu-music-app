@@ -5,7 +5,7 @@ import { importWeeklyDocument } from "../source";
 
 const album = (overrides: Partial<ReleaseMasterAlbum> = {}): ReleaseMasterAlbum => ({
   no: "1", uid: "uid-a", date: "2027/01/01", title: "A", artist: "Artist A", genre: "洋楽",
-  duration: "10songs, 40min", weekNumber: "53", genreMemo: "Rock", country: "US", weekAdoption: "採用",
+  duration: "10songs, 40min", weekNumber: "53", genreMemo: "Rock", playlistMemo: "", country: "US", weekAdoption: "採用",
   mjAdoption: "", mjAssign: "", mjTrackNo: "", mjTrack: "", mjStartTime: "", mjText: "source text",
   legacyScores: [], spotifyUrl: "", coverUrl: "", coverUrlLarge: "", ...overrides,
 });

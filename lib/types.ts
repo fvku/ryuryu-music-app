@@ -18,8 +18,9 @@ export interface ReleaseMasterAlbum {
   genre: "邦楽" | "洋楽" | "";
   duration: string;   // Time column (G) — 曲数・総尺。例: "9songs, 29min 9sec" / 60分以上は "24songs, 1hr 24min"
   weekNumber: string; // # column (H) — Weeklyの週番号（土曜〜金曜）
-  genreMemo: string;  // genre/memo column (K)
-  country: string;    // 国 column (L)
+  genreMemo: string;  // genre column (L)。2026-09-18に「genre/memo」から改名。手入力のジャンル
+  playlistMemo: string; // memo column (K)。2026-09-18に「playlist」から改名。sync-playlist-tags.tsが自動更新する収録プレイリスト名 + 手動メモ
+  country: string;    // 国 column (M)
   weekAdoption: string; // WEEK column (O): 採用／掲載／不採用
   mjAdoption: string; // M/J採用 column (Q=16)
   mjAssign: string;   // ASSIGN column (R=17)

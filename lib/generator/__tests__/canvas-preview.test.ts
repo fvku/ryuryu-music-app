@@ -5,7 +5,7 @@ import type { ReleaseMasterAlbum } from "../../types";
 
 const album = (overrides: Partial<ReleaseMasterAlbum> = {}): ReleaseMasterAlbum => ({
   no: "1", uid: crypto.randomUUID(), date: "2027-01-01", title: "Album", artist: "Artist", genre: "洋楽",
-  duration: "10songs, 40min", weekNumber: "53", genreMemo: "Pop", country: "UK", weekAdoption: "採用", mjAdoption: "採用",
+  duration: "10songs, 40min", weekNumber: "53", genreMemo: "Pop", playlistMemo: "", country: "UK", weekAdoption: "採用", mjAdoption: "採用",
   mjAssign: "", mjTrackNo: "", mjTrack: "", mjStartTime: "", mjText: "", legacyScores: [], spotifyUrl: "", coverUrl: "", coverUrlLarge: "",
   ...overrides,
 });
