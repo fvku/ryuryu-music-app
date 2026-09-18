@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import { buildHeaderMap, findMissingColumns, indexToColumnLetter, SHEET_COL } from "./sheet-headers";
 import { getGoogleAuth } from "./google-auth";
+import { invalidateCache, CACHE_KEY } from "./api-cache";
 
 export function getWriteAuth() {
   return getGoogleAuth(true);
@@ -34,16 +35,22 @@ export async function writeSpotifyDataToSheet(
   const cSpotify = indexToColumnLetter(col[SHEET_COL.SPOTIFY_URL]);
   const cCover   = indexToColumnLetter(col[SHEET_COL.COVER_URL]);
 
+  // 空欄のセルだけ埋める。手で入れたURL（Bandcamp等）や修正済みの値は上書きしない
   const data = updates.flatMap(({ title, artist, spotifyUrl, coverUrl }) => {
     const rowIndex = dataRows.findIndex(
       (r) => r[col[SHEET_COL.TITLE]] === title && r[col[SHEET_COL.ARTIST]] === artist
     );
     if (rowIndex === -1) return [];
+    const row = dataRows[rowIndex];
     const rowNum = rowIndex + 2;
-    return [
-      { range: `'Release Master'!${cSpotify}${rowNum}`, values: [[spotifyUrl]] },
-      { range: `'Release Master'!${cCover}${rowNum}`,   values: [[coverUrl]] },
-    ];
+    const cells: { range: string; values: string[][] }[] = [];
+    if (spotifyUrl && !row[col[SHEET_COL.SPOTIFY_URL]]) {
+      cells.push({ range: `'Release Master'!${cSpotify}${rowNum}`, values: [[spotifyUrl]] });
+    }
+    if (coverUrl && !row[col[SHEET_COL.COVER_URL]]) {
+      cells.push({ range: `'Release Master'!${cCover}${rowNum}`, values: [[coverUrl]] });
+    }
+    return cells;
   });
 
   if (data.length === 0) return;
@@ -52,6 +59,7 @@ export async function writeSpotifyDataToSheet(
     spreadsheetId,
     requestBody: { valueInputOption: "RAW", data },
   });
+  invalidateCache(CACHE_KEY.RELEASE_MASTER);
 }
 
 export interface ReleaseMasterScoreRow {

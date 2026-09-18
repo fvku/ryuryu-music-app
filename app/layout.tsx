@@ -50,9 +50,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               borderColor: "var(--border-subtle)",
             }}
           >
-            <div className="max-w-6xl mx-auto px-4 py-2 flex items-center justify-between">
+            {/* 左右を同じ幅（1fr）にして、両脇の中身の幅に関係なくロゴを画面中央に置く */}
+            <div className="max-w-6xl mx-auto px-4 py-2 grid grid-cols-[1fr_auto_1fr] items-center">
               {/* 左: モバイル=使い方、PC=列エラー表示 */}
-              <div className="w-16 flex items-center">
+              <div className="flex items-center">
                 <span className="sm:hidden"><HowToUseModal /></span>
                 <span className="hidden sm:block"><ColumnErrorIndicator /></span>
               </div>

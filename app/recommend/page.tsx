@@ -106,7 +106,7 @@ export default function RecommendPage() {
           fetch("/api/spotify/covers", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ albums: missing.map((a) => ({ no: a.no, title: a.title, artist: a.artist })) }),
+            body: JSON.stringify({ albums: missing.map((a) => ({ no: a.no, title: a.title, artist: a.artist, spotifyUrl: a.spotifyUrl, coverUrl: a.coverUrl })) }),
           }).then((r) => r.ok ? r.json() : {}).then((newData: Record<string, { coverUrl: string; spotifyUrl: string }>) => {
             setSpotifyData((prev) => ({ ...prev, ...newData }));
           });

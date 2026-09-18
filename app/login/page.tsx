@@ -4,9 +4,16 @@ import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
+/** ログイン後の戻り先。同一サイト内のパスだけ受け付ける（外部サイトへ飛ばされないように） */
+function safeCallbackUrl(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return "/";
+  return value;
+}
+
 function LoginContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
+  const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
 
   return (
     <div className="max-w-sm mx-auto mt-20">
@@ -34,7 +41,7 @@ function LoginContent() {
         )}
 
         <button
-          onClick={() => signIn("google", { callbackUrl: "/" })}
+          onClick={() => signIn("google", { callbackUrl })}
           className="mt-6 w-full flex items-center justify-center gap-3 px-5 py-3 rounded-xl font-medium text-sm transition-colors hover:opacity-90"
           style={{ backgroundColor: "white", color: "#1f1f1f" }}
         >

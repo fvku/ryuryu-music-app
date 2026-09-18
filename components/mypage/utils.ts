@@ -51,6 +51,11 @@ export function getMjAlbums(albums: ReleaseMasterAlbum[]): ReleaseMasterAlbum[] 
   return albums.filter((a) => MJ_ADOPTED_VALUES.includes(a.mjAdoption ?? ""));
 }
 
+/** MONTHLY（採用/掲載）か JAPAN（J採用/J掲載）か */
+export function mjTypeOf(album: ReleaseMasterAlbum): "monthly" | "japan" {
+  return album.mjAdoption === "J採用" || album.mjAdoption === "J掲載" ? "japan" : "monthly";
+}
+
 export function mjAdoptionOrder(v: string | undefined) {
   return (v === "採用" || v === "J採用") ? 0 : 1; // 採用→掲載
 }

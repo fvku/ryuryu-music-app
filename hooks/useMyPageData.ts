@@ -8,7 +8,9 @@ import { buildScoreSummary, getMyReviewedAlbumNos, isSameAlbum, namesForUser, Sc
 import { useNotifications } from "@/contexts/NotificationsContext";
 import { ReviewFilter } from "@/components/mypage/utils";
 
-export type Tab = "saved" | "foryou" | "reviewed";
+export type Tab = "listen" | "mj" | "reviewed";
+export type ListenMode = "saved" | "recommend";
+export type MjType = "monthly" | "japan";
 export type { ReviewFilter };
 
 /**
@@ -18,14 +20,14 @@ export type { ReviewFilter };
 export function useMyPageData() {
   const { data: session, status } = useSession();
   const { hasNewForYou, markForYouSeen } = useNotifications();
-  const [tab, setTab] = useState<Tab>("saved");
-  const [savedFilter, setSavedFilter] = useState<ReviewFilter>("unreviewed");
-  const [savedMonthFilter, setSavedMonthFilter] = useState<string>("すべて");
-  const [forYouFilter, setForYouFilter] = useState<ReviewFilter>("unreviewed");
-  const [forYouMonthFilter, setForYouMonthFilter] = useState<string>("すべて");
-  const [forYouMode, setForYouMode] = useState<"recommend" | "mj">("recommend");
+  const [tab, setTab] = useState<Tab>("listen");
+  const [listenMode, setListenMode] = useState<ListenMode>("saved");
+  // LISTEN のフィルターは SAVED / RECOMMEND で共有する
+  const [listenFilter, setListenFilter] = useState<ReviewFilter>("unreviewed");
+  const [listenMonthFilter, setListenMonthFilter] = useState<string>("すべて");
+  const [mjType, setMjType] = useState<MjType>("monthly");
   const [mjMonthFilter, setMjMonthFilter] = useState<string>("すべて");
-  const [mjTypeFilter, setMjTypeFilter] = useState<"all" | "monthly" | "japan">("all");
+  const [mjAssignedOnly, setMjAssignedOnly] = useState(false);
   const [mjWritingAlbum, setMjWritingAlbum] = useState<ReleaseMasterAlbum | null>(null);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [forYou, setForYou] = useState<Recommendation[]>([]);
@@ -43,9 +45,9 @@ export function useMyPageData() {
   useEffect(() => {
     if (!filtersInitialized) return;
     try {
-      localStorage.setItem("ryuryu_mypage_filters", JSON.stringify({ tab, savedFilter, savedMonthFilter, forYouFilter, forYouMonthFilter, forYouMode, mjTypeFilter, mjMonthFilter }));
+      localStorage.setItem("ryuryu_mypage_filters", JSON.stringify({ tab, listenMode, listenFilter, listenMonthFilter, mjType, mjMonthFilter, mjAssignedOnly }));
     } catch {}
-  }, [tab, savedFilter, savedMonthFilter, forYouFilter, forYouMonthFilter, forYouMode, mjTypeFilter, mjMonthFilter, filtersInitialized]);
+  }, [tab, listenMode, listenFilter, listenMonthFilter, mjType, mjMonthFilter, mjAssignedOnly, filtersInitialized]);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -72,13 +74,21 @@ export function useMyPageData() {
 
         // localStorageから保存済みフィルターを復元
         const savedF = (() => { try { return JSON.parse(localStorage.getItem("ryuryu_mypage_filters") || "{}"); } catch { return {}; } })();
-        if (savedF.tab) setTab(savedF.tab);
-        if (savedF.savedFilter) setSavedFilter(savedF.savedFilter);
-        if (savedF.savedMonthFilter) setSavedMonthFilter(savedF.savedMonthFilter);
-        if (savedF.forYouFilter) setForYouFilter(savedF.forYouFilter);
-        if (savedF.forYouMonthFilter) setForYouMonthFilter(savedF.forYouMonthFilter);
-        if (savedF.forYouMode) setForYouMode(savedF.forYouMode);
-        if (savedF.mjTypeFilter) setMjTypeFilter(savedF.mjTypeFilter);
+        // 旧構成（SAVED / FOR YOU の中にレコメンド・M/J文章）で保存された値は新しいタブへ読み替える
+        if (savedF.tab === "listen" || savedF.tab === "mj" || savedF.tab === "reviewed") setTab(savedF.tab);
+        else if (savedF.tab === "saved") { setTab("listen"); setListenMode("saved"); }
+        else if (savedF.tab === "foryou") {
+          if (savedF.forYouMode === "mj") setTab("mj");
+          else { setTab("listen"); setListenMode("recommend"); }
+        }
+        if (savedF.listenMode === "saved" || savedF.listenMode === "recommend") setListenMode(savedF.listenMode);
+        const listenF = savedF.listenFilter ?? savedF.savedFilter;
+        if (listenF) setListenFilter(listenF);
+        const listenM = savedF.listenMonthFilter ?? savedF.savedMonthFilter;
+        if (listenM) setListenMonthFilter(listenM);
+        if (savedF.mjType === "monthly" || savedF.mjType === "japan") setMjType(savedF.mjType);
+        else if (savedF.mjTypeFilter === "japan") setMjType("japan");
+        if (savedF.mjAssignedOnly === true) setMjAssignedOnly(true);
 
         // M/J 文章の月フィルター初期値：保存済み優先、なければ最新月
         const mjAlbumsLocal = albumData.filter((a) => ["採用", "J採用", "掲載", "J掲載"].includes(a.mjAdoption ?? ""));
@@ -110,7 +120,7 @@ export function useMyPageData() {
             ? fetch("/api/spotify/covers", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ albums: missing.map((a) => ({ no: a.no, title: a.title, artist: a.artist })) }),
+                body: JSON.stringify({ albums: missing.map((a) => ({ no: a.no, title: a.title, artist: a.artist, spotifyUrl: a.spotifyUrl, coverUrl: a.coverUrl })) }),
               }).then((r) => r.ok ? r.json() : {}).then((newData: Record<string, { coverUrl: string; spotifyUrl: string }>) => {
                 setSpotifyData((prev) => ({ ...prev, ...newData }));
               })
@@ -125,9 +135,15 @@ export function useMyPageData() {
     init();
   }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // レコメンドの新着は LISTEN > RECOMMEND を開いた時点で既読にする
   function handleTabChange(key: Tab) {
     setTab(key);
-    if (key === "foryou") markForYouSeen();
+    if (key === "listen" && listenMode === "recommend") markForYouSeen();
+  }
+
+  function handleListenModeChange(mode: ListenMode) {
+    setListenMode(mode);
+    if (mode === "recommend") markForYouSeen();
   }
 
   function handleMjSaved(updated: Partial<ReleaseMasterAlbum>) {
@@ -139,10 +155,9 @@ export function useMyPageData() {
     // 未認証時はデータ取得が走らないため、ローディング表示は不要
     session, status, loading: status === "unauthenticated" ? false : loading, hasNewForYou,
     tab, handleTabChange,
-    savedFilter, setSavedFilter, savedMonthFilter, setSavedMonthFilter,
-    forYouFilter, setForYouFilter, forYouMonthFilter, setForYouMonthFilter,
-    forYouMode, setForYouMode,
-    mjMonthFilter, setMjMonthFilter, mjTypeFilter, setMjTypeFilter,
+    listenMode, handleListenModeChange,
+    listenFilter, setListenFilter, listenMonthFilter, setListenMonthFilter,
+    mjType, setMjType, mjMonthFilter, setMjMonthFilter, mjAssignedOnly, setMjAssignedOnly,
     mjWritingAlbum, setMjWritingAlbum, handleMjSaved,
     bookmarks, forYou, myReviewedAlbumNos, myScores, albums,
     spotifyData, scoreSummary,

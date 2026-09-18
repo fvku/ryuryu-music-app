@@ -8,8 +8,8 @@ import MjWritingModal from "@/components/MjWritingModal";
 import { Tab, useMyPageData } from "@/hooks/useMyPageData";
 import ProfileHeader from "@/components/mypage/ProfileHeader";
 import TabBar from "@/components/mypage/TabBar";
-import SavedTab from "@/components/mypage/SavedTab";
-import ForYouTab from "@/components/mypage/ForYouTab";
+import ListenTab from "@/components/mypage/ListenTab";
+import MjTab from "@/components/mypage/MjTab";
 import ReviewedTab from "@/components/mypage/ReviewedTab";
 import { getAssignInfo, getMjAlbums, hasMjText } from "@/components/mypage/utils";
 
@@ -17,10 +17,9 @@ export default function MyPage() {
   const {
     session, status, loading, hasNewForYou,
     tab, handleTabChange,
-    savedFilter, setSavedFilter, savedMonthFilter, setSavedMonthFilter,
-    forYouFilter, setForYouFilter, forYouMonthFilter, setForYouMonthFilter,
-    forYouMode, setForYouMode,
-    mjMonthFilter, setMjMonthFilter, mjTypeFilter, setMjTypeFilter,
+    listenMode, handleListenModeChange,
+    listenFilter, setListenFilter, listenMonthFilter, setListenMonthFilter,
+    mjType, setMjType, mjMonthFilter, setMjMonthFilter, mjAssignedOnly, setMjAssignedOnly,
     mjWritingAlbum, setMjWritingAlbum, handleMjSaved,
     bookmarks, forYou, myReviewedAlbumNos, myScores, albums,
     spotifyData, scoreSummary,
@@ -79,7 +78,7 @@ export default function MyPage() {
 
   const mjAlbums = getMjAlbums(albums);
 
-  // FOR YOU バッジ数: 未確認レコメンド + 自分にASSIGNされた未済みM/J
+  // LISTEN バッジ数: 未レビューのレコメンド / M/J 文章 バッジ数: 自分にASSIGNされた未済みM/J
   const unreviewedRecCount = forYou.filter((rec) => {
     const album = albums.find((a) => isSameAlbum(a, rec));
     return !album || !myReviewedAlbumNos.has(album.no);
@@ -89,11 +88,10 @@ export default function MyPage() {
     if (!assignInfo?.isMe) return false;
     return !hasMjText(album);
   }).length;
-  const forYouBadgeCount = unreviewedRecCount + mjPendingCount;
 
   const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: "saved", label: "SAVED", count: 0 },
-    { key: "foryou", label: "FOR YOU", count: forYouBadgeCount },
+    { key: "listen", label: "LISTEN", count: unreviewedRecCount },
+    { key: "mj", label: "M/J 文章", count: mjPendingCount },
     { key: "reviewed", label: "REVIEWED", count: 0 },
   ];
 
@@ -102,41 +100,39 @@ export default function MyPage() {
       <ProfileHeader session={session} />
       <TabBar tabs={tabs} tab={tab} hasNewForYou={hasNewForYou} onTabChange={handleTabChange} />
 
-      {tab === "saved" && (
-        <SavedTab
+      {tab === "listen" && (
+        <ListenTab
           bookmarkedAlbums={bookmarkedAlbums}
+          forYou={forYou}
+          albums={albums}
           myReviewedAlbumNos={myReviewedAlbumNos}
-          savedFilter={savedFilter}
-          onSavedFilterChange={setSavedFilter}
-          savedMonthFilter={savedMonthFilter}
-          onSavedMonthFilterChange={setSavedMonthFilter}
           spotifyData={spotifyData}
           scoreSummary={scoreSummary}
           myScores={myScores}
           userEmail={userEmail}
+          listenMode={listenMode}
+          onListenModeChange={handleListenModeChange}
+          listenFilter={listenFilter}
+          onListenFilterChange={setListenFilter}
+          listenMonthFilter={listenMonthFilter}
+          onListenMonthFilterChange={setListenMonthFilter}
+          unreviewedRecCount={unreviewedRecCount}
+          hasNewForYou={hasNewForYou}
           onSelectAlbum={setSelectedAlbum}
         />
       )}
 
-      {tab === "foryou" && (
-        <ForYouTab
-          forYou={forYou}
-          albums={albums}
+      {tab === "mj" && (
+        <MjTab
           mjAlbums={mjAlbums}
-          myReviewedAlbumNos={myReviewedAlbumNos}
           spotifyData={spotifyData}
-          forYouMode={forYouMode}
-          onForYouModeChange={setForYouMode}
-          forYouFilter={forYouFilter}
-          onForYouFilterChange={setForYouFilter}
-          forYouMonthFilter={forYouMonthFilter}
-          onForYouMonthFilterChange={setForYouMonthFilter}
+          mjType={mjType}
+          onMjTypeChange={setMjType}
           mjMonthFilter={mjMonthFilter}
           onMjMonthFilterChange={setMjMonthFilter}
-          mjTypeFilter={mjTypeFilter}
-          onMjTypeFilterChange={setMjTypeFilter}
+          mjAssignedOnly={mjAssignedOnly}
+          onMjAssignedOnlyChange={setMjAssignedOnly}
           userEmail={userEmail}
-          onSelectAlbum={setSelectedAlbum}
           onSelectMjAlbum={setMjWritingAlbum}
         />
       )}

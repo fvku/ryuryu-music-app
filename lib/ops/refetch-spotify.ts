@@ -12,31 +12,9 @@ import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-head
 import { getGoogleAuth } from "@/lib/google-auth";
 import { getAllScores } from "@/lib/sheets";
 import { getDisplayName } from "@/lib/members";
+import { artistMatch, titleMatch } from "@/lib/spotify-match";
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
-
-function norm(s: string) { return s.trim().toLowerCase(); }
-
-/** [EP], [Single] 等のプレフィックスを除去してから比較 */
-function stripTypePrefix(s: string) {
-  return s.replace(/^\[(EP|Single|single|ep|Album|album|Compilation|compilation)\]\s*/i, "").trim();
-}
-
-function titleMatch(sheetTitle: string, spotifyTitle: string): boolean {
-  if (norm(sheetTitle) === norm(spotifyTitle)) return true;
-  return norm(stripTypePrefix(sheetTitle)) === norm(stripTypePrefix(spotifyTitle));
-}
-
-/** アーティスト名を比較用に正規化（& ↔ , の揺れを吸収） */
-function normArtist(s: string) { return norm(s).replace(/\s*&\s*/g, ", "); }
-
-/** アーティスト名の一致判定（Spotifyは "A, B" 形式で複数返すことがある） */
-function artistMatch(sheetArtist: string, spotifyArtist: string): boolean {
-  const a = normArtist(sheetArtist);
-  const b = normArtist(spotifyArtist);
-  if (a === b) return true;
-  return b.includes(a) || a.includes(b);
-}
 
 export interface RefetchMismatch {
   rowNum: number;

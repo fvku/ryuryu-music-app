@@ -2,33 +2,38 @@
 
 import Image from "next/image";
 import { ReleaseMasterAlbum } from "@/lib/types";
-import { getAssignInfo, hasMjText, mjAdoptionOrder } from "./utils";
+import { MjType } from "@/hooks/useMyPageData";
+import SegmentTabs from "./SegmentTabs";
+import MonthSelect, { monthsOf } from "./MonthSelect";
+import { getAssignInfo, hasMjText, mjAdoptionOrder, mjTypeOf } from "./utils";
 
-interface ForYouMjPanelProps {
+interface MjTabProps {
   mjAlbums: ReleaseMasterAlbum[];
   spotifyData: Record<string, { coverUrl: string; spotifyUrl: string }>;
+  mjType: MjType;
+  onMjTypeChange: (t: MjType) => void;
   mjMonthFilter: string;
   onMjMonthFilterChange: (m: string) => void;
-  mjTypeFilter: "all" | "monthly" | "japan";
-  onMjTypeFilterChange: (f: "all" | "monthly" | "japan") => void;
+  mjAssignedOnly: boolean;
+  onMjAssignedOnlyChange: (v: boolean) => void;
   userEmail: string;
   onSelectMjAlbum: (album: ReleaseMasterAlbum) => void;
 }
 
-/** FOR YOU > M/J文章モード: 月/MONTHLY・JAPANフィルターと担当割り当て一覧 */
-export default function ForYouMjPanel({
-  mjAlbums, spotifyData, mjMonthFilter, onMjMonthFilterChange, mjTypeFilter, onMjTypeFilterChange,
-  userEmail, onSelectMjAlbum,
-}: ForYouMjPanelProps) {
-  const mjMonths = ["すべて", ...Array.from(new Set(mjAlbums.map((a) => a.date?.substring(0, 7)).filter(Boolean))).sort().reverse()];
+/** M/J 文章タブ: MONTHLY / JAPAN の切替、月と自分の担当（ASSIGNED）での絞り込み、担当割り当て一覧 */
+export default function MjTab({
+  mjAlbums, spotifyData, mjType, onMjTypeChange, mjMonthFilter, onMjMonthFilterChange,
+  mjAssignedOnly, onMjAssignedOnlyChange, userEmail, onSelectMjAlbum,
+}: MjTabProps) {
+  const mjMonths = monthsOf(mjAlbums.map((a) => a.date));
+  const isMine = (a: ReleaseMasterAlbum) => !!getAssignInfo(a, userEmail)?.isMe;
+  // 切替に出す件数は「自分の担当でまだ書いていないもの」（タブのバッジと同じ基準）
+  const pendingCount = (t: MjType) => mjAlbums.filter((a) => mjTypeOf(a) === t && isMine(a) && !hasMjText(a)).length;
 
   const filteredMjAlbums = mjAlbums
+    .filter((a) => mjTypeOf(a) === mjType)
     .filter((a) => mjMonthFilter === "すべて" || a.date?.substring(0, 7) === mjMonthFilter)
-    .filter((a) => {
-      if (mjTypeFilter === "monthly") return a.mjAdoption === "採用" || a.mjAdoption === "掲載";
-      if (mjTypeFilter === "japan") return a.mjAdoption === "J採用" || a.mjAdoption === "J掲載";
-      return true;
-    })
+    .filter((a) => !mjAssignedOnly || isMine(a))
     .sort((a, b) => {
       // 1. 採用 → 掲載
       const adoptDiff = mjAdoptionOrder(a.mjAdoption) - mjAdoptionOrder(b.mjAdoption);
@@ -42,44 +47,35 @@ export default function ForYouMjPanel({
 
   return (
     <>
-      {/* 月フィルター + MONTHLY/JAPAN タブ */}
+      <SegmentTabs
+        options={[
+          { key: "monthly", label: "MONTHLY", count: pendingCount("monthly") },
+          { key: "japan", label: "JAPAN", count: pendingCount("japan") },
+        ]}
+        value={mjType}
+        onChange={onMjTypeChange}
+      />
+
       <div className="flex items-center gap-2 flex-wrap mb-4">
-        <select
-          value={mjMonthFilter}
-          onChange={(e) => onMjMonthFilterChange(e.target.value)}
-          className="px-3 py-1 rounded-xl border text-xs font-medium focus:outline-none flex-shrink-0"
+        <MonthSelect months={mjMonths} value={mjMonthFilter} onChange={onMjMonthFilterChange} />
+        <button
+          onClick={() => onMjAssignedOnlyChange(!mjAssignedOnly)}
+          aria-pressed={mjAssignedOnly}
+          className="px-3 py-1 rounded-full border text-xs font-bold transition-colors flex-shrink-0"
           style={{
-            backgroundColor: "var(--bg-card)",
-            borderColor: mjMonthFilter !== "すべて" ? "var(--accent)" : "var(--border-subtle)",
-            color: mjMonthFilter !== "すべて" ? "white" : "var(--text-secondary)",
+            backgroundColor: mjAssignedOnly ? "rgba(251,191,36,0.2)" : "var(--bg-card)",
+            color: mjAssignedOnly ? "#fbbf24" : "var(--text-secondary)",
+            borderColor: mjAssignedOnly ? "#fbbf24" : "var(--border-subtle)",
           }}
         >
-          {mjMonths.map((m) => (
-            <option key={m} value={m}>
-              {m === "すべて" ? "すべて" : `${m.split("/")[0]}年${parseInt(m.split("/")[1])}月`}
-            </option>
-          ))}
-        </select>
-        {(["all", "monthly", "japan"] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => onMjTypeFilterChange(f)}
-            className="px-3 py-1 rounded-lg border text-xs font-bold transition-colors flex-shrink-0"
-            style={{
-              backgroundColor: mjTypeFilter === f ? "rgba(139,92,246,0.2)" : "transparent",
-              color: mjTypeFilter === f ? "white" : "var(--text-secondary)",
-              borderColor: mjTypeFilter === f ? "var(--accent)" : "var(--border-subtle)",
-            }}
-          >
-            {f === "all" ? "すべて" : f === "monthly" ? "MONTHLY" : "JAPAN"}
-          </button>
-        ))}
+          ASSIGNED
+        </button>
       </div>
 
       {filteredMjAlbums.length === 0 ? (
         <div className="text-center py-16 rounded-2xl border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
           <p className="text-4xl mb-4">📝</p>
-          <p style={{ color: "var(--text-secondary)" }}>該当するアルバムはありません</p>
+          <p style={{ color: "var(--text-secondary)" }}>{mjAssignedOnly ? "担当のアルバムはありません" : "該当するアルバムはありません"}</p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
@@ -110,9 +106,6 @@ export default function ForYouMjPanel({
                   <p className="text-xs truncate mt-0.5" style={{ color: "var(--accent)" }}>{album.artist}</p>
                   <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                     <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{album.date}</span>
-                    <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: "rgba(139,92,246,0.12)", color: "var(--accent)" }}>
-                      {(album.mjAdoption === "採用" || album.mjAdoption === "掲載") ? "MONTHLY" : "JAPAN"}
-                    </span>
                     <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{
                       backgroundColor: (album.mjAdoption === "採用" || album.mjAdoption === "J採用") ? "rgba(34,197,94,0.12)" : "rgba(234,179,8,0.12)",
                       color: (album.mjAdoption === "採用" || album.mjAdoption === "J採用") ? "#22c55e" : "#eab308",

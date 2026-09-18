@@ -4,78 +4,31 @@ import Image from "next/image";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { Recommendation } from "@/lib/sheets";
 import { getDisplayName } from "@/lib/members";
-import { isSameAlbum } from "@/lib/score-utils";
-import { formatDate, ReviewFilter } from "./utils";
+import { formatDate } from "./utils";
 
-interface ForYouRecommendPanelProps {
-  forYou: Recommendation[];
-  albums: ReleaseMasterAlbum[];
+interface RecommendListProps {
+  /** LISTEN の共通フィルター適用済みのレコメンド（album はRelease Masterで見つからなければ undefined） */
+  items: { rec: Recommendation; album: ReleaseMasterAlbum | undefined }[];
+  isFiltered: boolean;
   myReviewedAlbumNos: Set<string>;
   spotifyData: Record<string, { coverUrl: string; spotifyUrl: string }>;
-  forYouFilter: ReviewFilter;
-  onForYouFilterChange: (f: ReviewFilter) => void;
-  forYouMonthFilter: string;
-  onForYouMonthFilterChange: (m: string) => void;
   onSelectAlbum: (album: ReleaseMasterAlbum) => void;
 }
 
-/** FOR YOU > レコメンドモード: 月/レビュー状況フィルターとレコメンド一覧 */
-export default function ForYouRecommendPanel({
-  forYou, albums, myReviewedAlbumNos, spotifyData,
-  forYouFilter, onForYouFilterChange, forYouMonthFilter, onForYouMonthFilterChange, onSelectAlbum,
-}: ForYouRecommendPanelProps) {
-  const forYouMonths = ["すべて", ...Array.from(new Set(
-    forYou.map((rec) => albums.find((a) => isSameAlbum(a, rec))?.date?.substring(0, 7)).filter(Boolean)
-  )).sort().reverse()];
-
-  const filteredForYou = forYou.filter((rec) => {
-    const album = albums.find((a) => isSameAlbum(a, rec));
-    if (forYouMonthFilter !== "すべて" && album?.date?.substring(0, 7) !== forYouMonthFilter) return false;
-    if (!album) return forYouFilter === "all";
-    if (forYouFilter === "reviewed") return myReviewedAlbumNos.has(album.no);
-    if (forYouFilter === "unreviewed") return !myReviewedAlbumNos.has(album.no);
-    return true;
-  });
-
+/** LISTEN > RECOMMEND: 自分宛てのレコメンド一覧 */
+export default function RecommendList({ items, isFiltered, myReviewedAlbumNos, spotifyData, onSelectAlbum }: RecommendListProps) {
   return (
     <>
-      <div className="flex items-center gap-2 flex-wrap mb-4">
-        <select
-          value={forYouMonthFilter}
-          onChange={(e) => onForYouMonthFilterChange(e.target.value)}
-          className="px-3 py-1 rounded-xl border text-xs font-medium focus:outline-none flex-shrink-0"
-          style={{ backgroundColor: "var(--bg-card)", borderColor: forYouMonthFilter !== "すべて" ? "var(--accent)" : "var(--border-subtle)", color: forYouMonthFilter !== "すべて" ? "white" : "var(--text-secondary)" }}
-        >
-          {forYouMonths.map((m) => (
-            <option key={m} value={m}>{m === "すべて" ? "すべて" : `${m!.split("/")[0]}年${parseInt(m!.split("/")[1])}月`}</option>
-          ))}
-        </select>
-        {(["all", "unreviewed", "reviewed"] as ReviewFilter[]).map((f) => (
-          <button
-            key={f}
-            onClick={() => onForYouFilterChange(f)}
-            className="px-3 py-1 rounded-full text-xs font-medium transition-colors flex-shrink-0"
-            style={{
-              backgroundColor: forYouFilter === f ? "rgba(139,92,246,0.3)" : "var(--bg-card)",
-              color: forYouFilter === f ? "white" : "var(--text-secondary)",
-              border: `1px solid ${forYouFilter === f ? "var(--accent)" : "var(--border-subtle)"}`,
-            }}
-          >
-            {f === "all" ? "すべて" : f === "reviewed" ? "レビュー済み" : "未レビュー"}
-          </button>
-        ))}
-      </div>
-      {filteredForYou.length === 0 ? (
+      {items.length === 0 ? (
         <div className="text-center py-16 rounded-2xl border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
           <p className="text-4xl mb-4">✉️</p>
           <p style={{ color: "var(--text-secondary)" }}>
-            {forYouFilter === "all" ? "まだレコメンドが届いていません" : "該当するレコメンドはありません"}
+            {isFiltered ? "該当するレコメンドはありません" : "まだレコメンドが届いていません"}
           </p>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {filteredForYou.map((rec) => {
-            const album = albums.find((a) => isSameAlbum(a, rec));
+          {items.map(({ rec, album }) => {
             const coverUrl = album ? spotifyData[album.no]?.coverUrl || rec.coverUrl : rec.coverUrl;
             const isReviewed = album ? myReviewedAlbumNos.has(album.no) : false;
             return (

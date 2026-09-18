@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
+import { auth } from "@/lib/auth";
 import { getWriteAuth } from "@/lib/release-master";
 import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
@@ -31,6 +32,10 @@ function formatReleaseDate(releaseDate: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  // Release Master へ行を追加するため、ログイン済みメンバーに限る（サインイン時に許可メンバーだけ通している）
+  const session = await auth();
+  if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+
   try {
     const body = (await request.json()) as AddAlbumBody;
     const { title: rawTitle, artist, albumType, waboku, releaseDate, trackCount, totalDurationMs, coverUrl, spotifyUrl } = body;

@@ -9,7 +9,7 @@ interface TabBarProps {
   onTabChange: (key: Tab) => void;
 }
 
-/** SAVED/FOR YOU/REVIEWEDのタブ切替バー（未読赤丸・件数バッジ付き） */
+/** LISTEN/M/J 文章/REVIEWEDのタブ切替バー（レコメンド新着の赤丸・件数バッジ付き） */
 export default function TabBar({ tabs, tab, hasNewForYou, onTabChange }: TabBarProps) {
   return (
     <div className="flex border-b mb-5" style={{ borderColor: "var(--border-subtle)" }}>
@@ -25,7 +25,7 @@ export default function TabBar({ tabs, tab, hasNewForYou, onTabChange }: TabBarP
         >
           <span className="relative inline-flex items-center gap-1">
             {label}
-            {key === "foryou" && hasNewForYou && (
+            {key === "listen" && hasNewForYou && (
               <span className="absolute -top-1 -right-2 w-1.5 h-1.5 rounded-full bg-red-500" />
             )}
             {count > 0 && (
