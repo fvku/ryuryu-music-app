@@ -51,6 +51,7 @@
 |---|---|
 | `check-headers.ts` | Release Master の全列名を表示 |
 | `fill-time-tracks.ts` | Time列(G)・#列(H)をSpotifyから補完 |
+| `convert-time-hr.ts` | Time列の60分以上の値を `1hr 24min` 形式へ書き換え（dry-run / --apply、冪等。2026-09-18に156件適用済み） |
 | `migrate-kaede-email.ts` | メールアドレス移行（dry-run / --apply） |
 | `sync-scores-to-rm.ts` | scoresシート→Release Master スコア同期 |
 | `dedup-scores-normalized.ts` | scoresシートの重複除去 |
