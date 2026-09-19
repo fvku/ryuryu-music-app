@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { isAdminEmail } from "@/lib/admin-auth";
 import { isAllowedMember } from "@/lib/member-access";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +14,6 @@ export async function GET() {
     email,
     isMember: !!email && isAllowedMember(email),
     googleVerified,
-    isAdmin: !!email && isAllowedMember(email) && googleVerified && isAdminEmail(email),
+    isAdmin: !!email && isAllowedMember(email) && googleVerified,
   });
 }

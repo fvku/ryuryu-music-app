@@ -5,10 +5,12 @@
  * 全操作の Unauthorized として現れて原因が分かりにくかったため、
  * アプリ本体と同じ Google ログインへ寄せた（2026-09-11）。
  *
- * 判定は3段構え:
+ * 判定は2段構え:
  *   1. 同一サイトからの操作か（CSRF対策）
  *   2. Googleでログイン済みの許可メンバーか（ジェネレーターと同じ検証）
- *   3. そのうえで管理者か（ADMIN_EMAILS。未設定ならKoheiのみ）
+ *
+ * 以前は 2 のうえで管理者（ADMIN_EMAILS。未設定ならKoheiのみ）に絞っていたが、
+ * アプリにログインできるメンバーなら誰でも操作できるように広げた（2026-09-19）。
  *
  * 誰が何を実行したかは admin_logs シートに追記する。
  */
@@ -20,17 +22,6 @@ import { getGoogleAuth } from "@/lib/google-auth";
 import { isAllowedMember } from "@/lib/member-access";
 
 const LOG_SHEET = "admin_logs";
-
-/** ADMIN_EMAILS 未設定時の既定の管理者 */
-const DEFAULT_ADMIN_EMAILS = ["kohei.fuku0926@gmail.com"];
-
-export function isAdminEmail(
-  email: string | null | undefined,
-  configured = process.env.ADMIN_EMAILS
-): boolean {
-  const list = configured?.split(",").map((v) => v.trim()).filter(Boolean) ?? [];
-  return (list.length ? list : DEFAULT_ADMIN_EMAILS).includes(email ?? "");
-}
 
 /** 同一サイトからの操作かを確認する（lib/generator/access.ts と同じ考え方） */
 function isSameOrigin(request: Request): boolean {
@@ -92,7 +83,7 @@ export type AdminGate =
   | { ok: false; response: NextResponse };
 
 /**
- * 管理者かどうかを確認し、通れば実行ログを残す。
+ * 管理画面を操作できるメンバーかを確認し、通れば実行ログを残す。
  * 弾いた場合も理由つきでログに残す（誤操作の切り分け用）。
  */
 export async function guardAdmin(
@@ -116,7 +107,6 @@ export async function guardAdmin(
   if (session?.loginProvider !== "google" || session?.googleVerifiedEmail !== email) {
     return deny(401, "Googleで再ログインしてください", email, "google-reauth-required");
   }
-  if (!isAdminEmail(email)) return deny(403, "管理者権限がありません", email, "not-admin");
 
   void logAdminAction(email, action, "ok", detail);
   return { ok: true, email };

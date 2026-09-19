@@ -77,11 +77,11 @@ npx tsx scripts/fill-time-tracks.ts --apply --force --from-row=915  # 指定行�
 
 `/admin` と `/api/admin/*` は Google ログインで認可する（2026-09-11に管理者パスワードから移行）。
 
-- 判定は3段構え: 同一オリジンか → Googleログイン済みの許可メンバーか → 管理者か
-- 管理者は `ADMIN_EMAILS`（カンマ区切り）。未設定なら Kohei のみ
+- 判定は2段構え: 同一オリジンか → Googleログイン済みの許可メンバーか
+- アプリにログインできるメンバー（`ALLOWED_MEMBER_EMAILS`、未設定なら `lib/members.ts` の6人）なら誰でも操作できる（2026-09-19に Kohei 限定から拡大。`ADMIN_EMAILS` は廃止）
 - 実装は `lib/admin-auth.ts` の `guardAdmin(req, action, detail)`。各ルートの先頭で呼ぶ
 - 実行者と操作は `admin_logs` シート（A=timestamp, B=email, C=action, D=result, E=detail）に追記
-- 権限不足のログだけ記録する。未ログインや外部オリジンからの呼び出しは誰でも起こせるので残さない
+- 拒否のログは「ログイン済みだが許可メンバーでない／Google再ログインが必要」のケースだけ記録する。未ログインや外部オリジンからの呼び出しは誰でも起こせるので残さない
 - `ADMIN_PASSWORD` は未使用（Vercelの環境変数から削除してよい）
 
 ## プレイリスト収録タグ

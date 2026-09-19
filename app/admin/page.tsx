@@ -740,9 +740,9 @@ export default function AdminPage() {
           <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
             {!viewer?.email
               ? "Googleでログインしてください。"
-              : !viewer.googleVerified
-                ? "Googleで再ログインしてください。"
-                : "このアカウントには管理者権限がありません。"}
+              : !viewer.isMember
+                ? "このアカウントにはアクセスが許可されていません。"
+                : "Googleで再ログインしてください。"}
           </p>
           {viewer?.email && (
             <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>ログイン中: {viewer.email}</p>
