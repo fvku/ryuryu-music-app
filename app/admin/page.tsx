@@ -891,7 +891,7 @@ export default function AdminPage() {
                   <select value={fillLimit} onChange={e => setFillLimit(Number(e.target.value))}
                     className="px-2 py-1 rounded-lg border text-sm"
                     style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>
-                    {[5, 10, 15, 20].map(n => <option key={n} value={n}>{n}件</option>)}
+                    {[5, 10, 15, 20, 30, 50, 100].map(n => <option key={n} value={n}>{n}件</option>)}
                   </select>
                 </label>
               </div>
