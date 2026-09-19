@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
+import { DEFAULT_SPOTIFY_BATCH_LIMIT, SPOTIFY_BATCH_LIMIT_OPTIONS } from "@/lib/admin-spotify-batch";
 
 type TabKey = "weekly" | "monthly" | "maintenance";
 
@@ -355,14 +356,14 @@ export default function AdminPage() {
   const [coversLoading, setCoversLoading] = useState(false);
   const [coversResult, setCoversResult] = useState<{ total: number; fixed: number; failed: number; noChange: number; message?: string } | null>(null);
   const [coversError, setCoversError] = useState<string | null>(null);
-  const [coversLimit, setCoversLimit] = useState(20);
+  const [coversLimit, setCoversLimit] = useState(DEFAULT_SPOTIFY_BATCH_LIMIT);
 
   // refetch-spotify（空URL一括取得）
   type RefetchResult = { written: number; mismatched: number; notFound: number; total: number; totalEmpty: number; mismatches: RefetchMismatch[]; message?: string };
   const [refetchLoading, setRefetchLoading] = useState(false);
   const [refetchResult, setRefetchResult] = useState<RefetchResult | null>(null);
   const [refetchError, setRefetchError] = useState<string | null>(null);
-  const [refetchLimit, setRefetchLimit] = useState(30);
+  const [refetchLimit, setRefetchLimit] = useState(DEFAULT_SPOTIFY_BATCH_LIMIT);
   const [mismatchModalOpen, setMismatchModalOpen] = useState(false);
 
   // repair-spotify（誤入力URL修復）
@@ -824,7 +825,7 @@ export default function AdminPage() {
                   <select value={refetchLimit} onChange={e => setRefetchLimit(Number(e.target.value))}
                     className="px-2 py-1 rounded-lg border text-sm"
                     style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>
-                    {[10, 20, 30, 50].map(n => <option key={n} value={n}>{n}件</option>)}
+                    {SPOTIFY_BATCH_LIMIT_OPTIONS.map(n => <option key={n} value={n}>{n}件</option>)}
                   </select>
                   件処理
                 </label>
@@ -874,37 +875,6 @@ export default function AdminPage() {
               )}
             </div>
 
-            {/* repair-covers */}
-            <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: SECTION.weekly.border }}>
-              <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>カバー画像補完</h3>
-              <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                Spotify URLがあるのにカバー画像URLが空の行をSpotifyから補完します。
-              </p>
-              <div className="mb-3">
-                <label className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-                  最大
-                  <select value={coversLimit} onChange={e => setCoversLimit(Number(e.target.value))}
-                    className="px-2 py-1 rounded-lg border text-sm"
-                    style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>
-                    {[10, 20, 30].map(n => <option key={n} value={n}>{n}件</option>)}
-                  </select>
-                </label>
-              </div>
-              {coversResult && (
-                <div className="rounded-xl p-3 mb-3 border text-xs" style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}>
-                  <p style={{ color: "#4ade80" }}>
-                    {coversResult.message ?? `完了 — 対象: ${coversResult.total} / 修復: ${coversResult.fixed} / 変更なし: ${coversResult.noChange} / 失敗: ${coversResult.failed}`}
-                  </p>
-                </div>
-              )}
-              {coversError && <p className="text-red-400 text-xs mb-3">{coversError}</p>}
-              <button onClick={handleRepairCovers} disabled={coversLoading}
-                className="px-4 py-2 rounded-xl text-sm font-medium border disabled:opacity-50"
-                style={{ borderColor: SECTION.weekly.accent, color: SECTION.weekly.accent }}>
-                {coversLoading ? "実行中..." : "実行"}
-              </button>
-            </div>
-
             {/* fill-time-tracks */}
             <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: SECTION.weekly.border }}>
               <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>Time・曲数補完</h3>
@@ -942,23 +912,6 @@ export default function AdminPage() {
                 className="px-4 py-2 rounded-xl text-sm font-medium border disabled:opacity-50"
                 style={{ borderColor: SECTION.weekly.accent, color: SECTION.weekly.accent }}>
                 {fillLoading ? "実行中..." : "実行"}
-              </button>
-            </div>
-
-            {/* Bulk import */}
-            <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: SECTION.weekly.border }}>
-              <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>Release Master 一括取り込み</h3>
-              <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>Release Masterの全スコアをアプリのscoresシートに取り込みます。すでに取り込み済みのものはスキップされます。</p>
-              {importResult && (
-                <div className="rounded-xl p-3 mb-3 border text-xs" style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}>
-                  <p style={{ color: "#4ade80" }}>取り込み完了 — 新規: {importResult.imported}件 / スキップ: {importResult.skipped}件 / pending削除: {importResult.pendingCleared}件</p>
-                </div>
-              )}
-              {importError && <p className="text-red-400 text-xs mb-3">{importError}</p>}
-              <button onClick={handleBulkImport} disabled={importLoading}
-                className="px-4 py-2 rounded-xl text-sm font-medium border disabled:opacity-50"
-                style={{ borderColor: SECTION.weekly.accent, color: SECTION.weekly.accent }}>
-                {importLoading ? "取り込み中..." : "実行"}
               </button>
             </div>
 
@@ -1117,6 +1070,54 @@ export default function AdminPage() {
 
         {tab === "maintenance" && (
           <>
+            {/* repair-covers */}
+            <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: SECTION.maintenance.border }}>
+              <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>カバー画像補完</h3>
+              <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+                Spotify URLがあるのにカバー画像URLが空の行をSpotifyから補完します。
+              </p>
+              <div className="mb-3">
+                <label className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+                  最大
+                  <select value={coversLimit} onChange={e => setCoversLimit(Number(e.target.value))}
+                    className="px-2 py-1 rounded-lg border text-sm"
+                    style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>
+                    {SPOTIFY_BATCH_LIMIT_OPTIONS.map(n => <option key={n} value={n}>{n}件</option>)}
+                  </select>
+                </label>
+              </div>
+              {coversResult && (
+                <div className="rounded-xl p-3 mb-3 border text-xs" style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}>
+                  <p style={{ color: "#4ade80" }}>
+                    {coversResult.message ?? `完了 — 対象: ${coversResult.total} / 修復: ${coversResult.fixed} / 変更なし: ${coversResult.noChange} / 失敗: ${coversResult.failed}`}
+                  </p>
+                </div>
+              )}
+              {coversError && <p className="text-red-400 text-xs mb-3">{coversError}</p>}
+              <button onClick={handleRepairCovers} disabled={coversLoading}
+                className="px-4 py-2 rounded-xl text-sm font-medium border disabled:opacity-50"
+                style={{ borderColor: SECTION.maintenance.accent, color: SECTION.maintenance.accent }}>
+                {coversLoading ? "実行中..." : "実行"}
+              </button>
+            </div>
+
+            {/* Bulk import */}
+            <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: SECTION.maintenance.border }}>
+              <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>Release Master 一括取り込み</h3>
+              <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>Release Masterの全スコアをアプリのscoresシートに取り込みます。すでに取り込み済みのものはスキップされます。</p>
+              {importResult && (
+                <div className="rounded-xl p-3 mb-3 border text-xs" style={{ backgroundColor: "rgba(34,197,94,0.1)", borderColor: "rgba(34,197,94,0.3)" }}>
+                  <p style={{ color: "#4ade80" }}>取り込み完了 — 新規: {importResult.imported}件 / スキップ: {importResult.skipped}件 / pending削除: {importResult.pendingCleared}件</p>
+                </div>
+              )}
+              {importError && <p className="text-red-400 text-xs mb-3">{importError}</p>}
+              <button onClick={handleBulkImport} disabled={importLoading}
+                className="px-4 py-2 rounded-xl text-sm font-medium border disabled:opacity-50"
+                style={{ borderColor: SECTION.maintenance.accent, color: SECTION.maintenance.accent }}>
+                {importLoading ? "取り込み中..." : "実行"}
+              </button>
+            </div>
+
             {/* assign-uids */}
             <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: SECTION.maintenance.border }}>
               <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>UID採番（Release Master）</h3>

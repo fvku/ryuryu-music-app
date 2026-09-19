@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { refetchSpotifyUrls } from "@/lib/ops/refetch-spotify";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 import { guardAdmin } from "@/lib/admin-auth";
+import { parseSpotifyBatchLimit } from "@/lib/admin-spotify-batch";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export type { RefetchMismatch } from "@/lib/ops/refetch-spotify";
 
@@ -12,7 +13,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const gate = await guardAdmin(req, "refetch-spotify", body);
   if (!gate.ok) return gate.response;
-  const { limit = 30 } = body;
+  const limit = parseSpotifyBatchLimit(body.limit);
+  if (limit === null) return NextResponse.json({ error: "最大件数は1〜100の整数で指定してください" }, { status: 400 });
 
   try {
     const result = await refetchSpotifyUrls({ apply: true, limit });
