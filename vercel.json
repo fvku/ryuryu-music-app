@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/sync-playlist-tags",
       "schedule": "30 15 * * *"
+    },
+    {
+      "path": "/api/cron/supabase-keepalive",
+      "schedule": "0 3 * * 1,4"
     }
   ]
 }
