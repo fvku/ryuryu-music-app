@@ -128,4 +128,25 @@ describe("AOTYの貼り付けテキスト", () => {
       ["Kiyo", "TODOS LOS FURROS TE AMAN HASTA QUE MUERDES", "2026-10-03", null],
     ]);
   });
+
+  it("ページ全体を⌘Aでコピーしても、ヘッダー・サイドバー・月名一覧を作品として拾わない", () => {
+    const fullPage = [
+      "Search albums, artists, genres etc.", "",
+      "Best AlbumsDiscover New Releases Lists Genres News Community Sign In",
+      "This WeekThis MonthNew ReleasesUpcoming", "Upcoming Album Releases",
+      "Patter - Patter Now", "Patter", "Patter Now", "Oct 2 • LP",
+      "Acidgvrl - ROTTËN: THE WORLD TOUR", "Acidgvrl", "ROTTËN: THE WORLD TOUR", "Oct 6 • LP",
+      "PREVNEXT", "Advertisement", " Hide Ads", "Highly AnticipatedView More", "",
+      "Slayyyter", "WOR$T MAN IN AMERICA", "", "The Avalanches", "No Bad Memories",
+      "2026 ReleasesView All", "January", "September", "October", "November", "",
+      " September Playlist", "ALBUMS", "Highest Rated", "© 2026 Album of the Year",
+    ].join("\n");
+    const { entries, skipped } = parseAotyText(fullPage, "2026-10-02");
+    expect(skipped).toBe(0);
+    expect(entries.map((e) => [e.artist, e.title])).toEqual([
+      ["Patter", "Patter Now"],
+      ["Acidgvrl", "ROTTËN: THE WORLD TOUR"],
+    ]);
+  });
 });
+
