@@ -100,4 +100,32 @@ describe("AOTYの貼り付けテキスト", () => {
     expect(excludeReasonFor("Tape One", "Mixtape")).toBeNull();
     expect(excludeReasonFor("Live Forever Young", "LP")).toBeNull();
   });
+
+  it("実際のコピー（2026-09-28）：画像の代替テキスト・批評スコア・日付入りのライブ盤タイトルが混ざっても崩れない", () => {
+    const real = [
+      "Patter", "Patter Now", "Oct 2 • LP",
+      "Bluhm - Between Dreams", "Bluhm", "Between Dreams", "Oct 2 • LP",
+      "The Crystal Teardrop - Love You More", "The Crystal Teardrop", "Love You More", "Oct 2 • LP",
+      "80", "critic score (1)",
+      "Issadora Ava - In the Living of It", "Issadora Ava", "In the Living of It", "Oct 2 • LP",
+      "Scarlet Rose", "Pangea", "Oct 2 • LP",
+      "Cinder Well - Small Prophets (Original Soundtrack)", "Cinder Well", "Small Prophets (Original Soundtrack)", "Oct 2 • Soundtrack",
+      "Cyndee With A C - JEZEBEL (Extended)", "Cyndee With A C", "JEZEBEL (Extended)", "Oct 2 • LP",
+      "Phish - Oct. 3, 2026 | Boardwalk Hall, Atlantic City, NJ", "Phish", "Oct. 3, 2026 | Boardwalk Hall, Atlantic City, NJ", "Oct 3 • Live",
+      "Kiyo - TODOS LOS FURROS TE AMAN HASTA QUE MUERDES", "Kiyo", "TODOS LOS FURROS TE AMAN HASTA QUE MUERDES", "Oct 3 • LP",
+    ].join("\n");
+    const { entries, skipped } = parseAotyText(real, "2026-10-02");
+    expect(skipped).toBe(0);
+    expect(entries.map((e) => [e.artist, e.title, e.date, e.excludeReason])).toEqual([
+      ["Patter", "Patter Now", "2026-10-02", null],
+      ["Bluhm", "Between Dreams", "2026-10-02", null],
+      ["The Crystal Teardrop", "Love You More", "2026-10-02", null],
+      ["Issadora Ava", "In the Living of It", "2026-10-02", null],
+      ["Scarlet Rose", "Pangea", "2026-10-02", null],
+      ["Cinder Well", "Small Prophets (Original Soundtrack)", "2026-10-02", "サウンドトラック"],
+      ["Cyndee With A C", "JEZEBEL (Extended)", "2026-10-02", "拡張版"],
+      ["Phish", "Oct. 3, 2026 | Boardwalk Hall, Atlantic City, NJ", "2026-10-03", "ライブ盤"],
+      ["Kiyo", "TODOS LOS FURROS TE AMAN HASTA QUE MUERDES", "2026-10-03", null],
+    ]);
+  });
 });

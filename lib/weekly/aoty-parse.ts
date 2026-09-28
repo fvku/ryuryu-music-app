@@ -18,8 +18,14 @@ const MONTHS: Record<string, number> = {
   jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
 };
 
-/** "Oct 2 • LP" / "Oct 2" / "October 2, 2026 • EP" */
-const DATE_LINE = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?\s*(?:[•·|\-–]\s*(.+))?$/i;
+/**
+ * "Oct 2 • LP" / "Oct 2" / "October 2, 2026 • EP"
+ *
+ * 区切りは「•」だけ、種別は短い英単語だけを認める。ライブ盤の作品名に
+ * "Oct. 3, 2026 | Boardwalk Hall, ..." のような日付入りのものがあり（Phish）、
+ * 条件が緩いとそれを日付行と取り違えて前後の作品がずれる（2026-09-28 実データで確認）
+ */
+const DATE_LINE = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})(?:,\s*(\d{4}))?(?:\s*[•·]\s*([a-z][a-z ]{0,20}))?$/i;
 
 /** 整形済みの "YYYY/MM/DD<TAB>Title<TAB>Artist" */
 const TSV_LINE = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})\t([^\t]+)\t([^\t]+)/;
@@ -58,7 +64,8 @@ const EXCLUDED_TYPES: Record<string, string> = {
 /** 作品名による除外。デラックス版・再発・ライブ盤などは種別がLPのまま載ることがある */
 const EXCLUDED_TITLE_PATTERNS: [RegExp, string][] = [
   [/\bdeluxe\b/i, "デラックス版"],
-  [/\bexpanded\b/i, "拡張版"],
+  [/\bexpanded\b|\(extended\)/i, "拡張版"],
+  [/\bcover album\b/i, "カバー集"],
   [/\bremaster(ed)?\b/i, "リマスター"],
   [/\breissue\b/i, "リイシュー"],
   [/\banniversary\b/i, "記念盤"],
