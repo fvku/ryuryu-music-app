@@ -122,7 +122,7 @@ Release Master の `memo`（旧playlist）列に「そのアルバムがどの�
 
 ## 今週のリリース作業（/weekly）
 
-金曜19時のWeekly投稿の準備を、メンバーの誰でもできるように1ページにまとめたもの（2026-09-28〜）。週は土曜〜金曜（`lib/weekly/week.ts`。ジェネレーターと同じ定義）。API は `/api/admin/weekly`（`guardAdmin` で認可、`action` で分岐）。
+金曜19時のWeekly投稿の準備を、メンバーの誰でもできるように1ページにまとめたもの（2026-09-28〜）。入口はマイページ上部の「投稿作業」カード（タップで Weekly作業・投稿画像ジェネレーター・管理者ページへのメニューが開く。`components/mypage/ProfileHeader.tsx`）。フッターのリンクは2026-09-28に廃止。週は土曜〜金曜（`lib/weekly/week.ts`。ジェネレーターと同じ定義）。API は `/api/admin/weekly`（`guardAdmin` で認可、`action` で分岐）。
 
 1. 邦楽：New Music Wednesday（既定 `37i9dQZF1DWYBDycFJuxRt`。`settings` シートの `weekly_japan_playlist` で変更可）を埋め込み経由で読み、アルバムと4曲以上のEPだけを候補にする。インスト・ライブ・別バージョンを除いて4曲未満ならシングル扱い。℗の年が配信日より2年以上前ならリイシュー候補。同じアーティストの行が前後7日にあれば登録済み扱い（ローマ字／日本語表記の揺れ対策）
 2. 洋楽：AOTY はサーバーからの取得を Cloudflare が403で弾くため、人がコピーしたページのテキストを貼る（`lib/weekly/aoty-parse.ts`）。日付行（`Oct 2 • LP`）の直前2行をアーティスト名・作品名として読む。整形済みのタブ区切りも可。オリジナルアルバムだけが対象で、EP・デラックス版・リイシュー・ライブ盤などは除外候補にする

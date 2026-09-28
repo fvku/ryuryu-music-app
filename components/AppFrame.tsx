@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { isImmersiveRoute } from "@/lib/app-chrome";
 
@@ -22,20 +21,7 @@ export default function AppFrame({ children }: { children: React.ReactNode }) {
           className="mt-16 border-t py-8 pb-40 text-center text-sm"
           style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
         >
-          <p>
-            <Link href="/weekly" className="hover:text-white transition-colors underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>
-              今週のリリース作業
-            </Link>
-            <span className="mx-2">·</span>
-            <Link href="/generator" className="hover:text-white transition-colors underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>
-              投稿画像ジェネレーター
-            </Link>
-            <span className="mx-2">·</span>
-            <Link href="/admin" className="hover:text-white transition-colors underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>
-              管理者
-            </Link>
-          </p>
-          <p className="mt-2">© 月次アルバムレビュー</p>
+          <p>© 月次アルバムレビュー</p>
         </footer>
       )}
     </>
