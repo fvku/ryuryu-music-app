@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
 
     const dataRows = dataRes.data.values ?? [];
 
-    // No.列（A列）は末尾まで数式("=ROW()-1")が事前に入っているため、
+    // No.列（A列）には数式("=ROW()-1")が事前に入っている行があるため、
     // dataRows.length だけでは「実データの最終行」を判定できない。
     // タイトル・アーティストが両方入っている最後の行を後ろから探し、その直後に追記する
     // （MISMATCH解消でクリアされた途中の空白行は再利用しない）
@@ -108,13 +108,17 @@ export async function POST(request: NextRequest) {
     const uidColIdx = col[SHEET_COL.UID] ?? -1;
     if (uidColIdx >= 0) cellsToWrite.push([uidColIdx, generateAlbumUid()]);
 
+    // No.列の数式は途中の行で途切れている（2026-09-28時点で2407行目まで）。
+    // No.が空の行はアプリにもジェネレーターにも出ないので、空なら数式を入れる
+    const hasNo = !!(dataRows[writeRow - 2]?.[0] ?? "").trim();
+
     await Promise.all([
       // 日付はUSER_ENTEREDで書く（RAWだと文字列扱いになり、シート上で先頭に'が付く）
       sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `'Release Master'!${indexToColumnLetter(1)}${writeRow}`,
+        range: `'Release Master'!${hasNo ? indexToColumnLetter(1) : "A"}${writeRow}`,
         valueInputOption: "USER_ENTERED",
-        requestBody: { values: [[dateStr]] },
+        requestBody: { values: [hasNo ? [dateStr] : ["=ROW()-1", dateStr]] },
       }),
       sheets.spreadsheets.values.batchUpdate({
         spreadsheetId,

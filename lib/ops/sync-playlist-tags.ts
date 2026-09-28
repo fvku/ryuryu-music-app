@@ -23,6 +23,7 @@
 import { google } from "googleapis";
 import { getAccessToken } from "@/lib/spotify";
 import { getGoogleAuth } from "@/lib/google-auth";
+import { isInSheetDateRange, type SheetDateRange } from "@/lib/weekly/week";
 import {
   buildHeaderMap,
   indexToColumnLetter,
@@ -105,7 +106,7 @@ interface EmbedPayload {
  * 同じページに Web Player 用の匿名トークンが埋まっている。
  * これを使うと公式APIのプレイリスト取得が通ることがあるので、併せて取り出す。
  */
-async function fetchEmbedPlaylist(playlistId: string): Promise<EmbedPayload> {
+export async function fetchEmbedPlaylist(playlistId: string): Promise<EmbedPayload> {
   const res = await fetchWithRetry(`https://open.spotify.com/embed/playlist/${playlistId}`, {
     headers: { "User-Agent": EMBED_UA },
     cache: "no-store",
@@ -549,6 +550,8 @@ export interface SyncPlaylistTagsOptions {
    * プレイリスト側の取得量は変わらないが、書き込み対象を当月に絞れる。
    */
   month?: string;
+  /** Date列の範囲で絞る（週次ページ用）。指定すると month より優先する。週は月をまたぐことがあるため */
+  dateRange?: SheetDateRange;
   /** playlist列が無いときにヘッダーを作る */
   initColumn?: boolean;
   log?: (msg: string) => void;
@@ -576,7 +579,8 @@ export async function syncPlaylistTags(
   options: SyncPlaylistTagsOptions
 ): Promise<SyncPlaylistTagsResult> {
   const { apply, initColumn = false, log = () => {} } = options;
-  const month = options.month?.trim() || currentMonth();
+  const { dateRange } = options;
+  const month = dateRange ? `${dateRange.from}〜${dateRange.to}` : options.month?.trim() || currentMonth();
 
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
   if (!spreadsheetId) throw new Error("RELEASE_MASTER_SPREADSHEET_ID is not set");
@@ -630,7 +634,9 @@ export async function syncPlaylistTags(
 
   // 日付は "YYYY/MM/DD" 形式。当月だけを対象にすると、過去分を毎回なぞらずに済む
   const inScope = (row: string[]) =>
-    month === "all" || (row[dateIdx] ?? "").trim().startsWith(month);
+    dateRange
+      ? isInSheetDateRange(row[dateIdx] ?? "", dateRange)
+      : month === "all" || (row[dateIdx] ?? "").trim().startsWith(month);
 
   // 対象行を先に確定させ、そのアルバムのクレジットをまとめて引く。
   // 収録タグは「そのアーティストの曲が1曲でも入っているか」で判定するので、

@@ -13,6 +13,7 @@ import { google } from "googleapis";
 import { getGoogleAuth } from "@/lib/google-auth";
 import { indexToColumnLetter } from "@/lib/sheet-headers";
 import { formatTimeTracks } from "@/lib/time-format";
+import { isInSheetDateRange, type SheetDateRange } from "@/lib/weekly/week";
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -78,6 +79,8 @@ export interface FillTimeTracksOptions {
   fromRow?: number;
   /** 先頭からN件のみ処理（API側のタイムアウト対策） */
   limit?: number;
+  /** Date列がこの範囲の行だけを対象にする（週次ページ用） */
+  dateRange?: SheetDateRange;
   log?: (msg: string) => void;
 }
 
@@ -98,7 +101,7 @@ export interface FillTimeTracksResult {
 }
 
 export async function fillTimeTracks(options: FillTimeTracksOptions): Promise<FillTimeTracksResult> {
-  const { apply, force = false, fromRow = 1, limit, log = () => {} } = options;
+  const { apply, force = false, fromRow = 1, limit, dateRange, log = () => {} } = options;
 
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
   if (!spreadsheetId) throw new Error("RELEASE_MASTER_SPREADSHEET_ID is not set");
@@ -117,6 +120,7 @@ export async function fillTimeTracks(options: FillTimeTracksOptions): Promise<Fi
   const noIdx      = col["No."]     ?? 0;
   const titleIdx   = col["Title"]   ?? 2;
   const artistIdx  = col["Artist"]  ?? 3;
+  const dateIdx    = col["Date"]    ?? 1;
 
   const cTime = indexToColumnLetter(timeIdx);
 
@@ -128,8 +132,11 @@ export async function fillTimeTracks(options: FillTimeTracksOptions): Promise<Fi
       artist:  (row[artistIdx]  ?? "").trim(),
       time:    (row[timeIdx]    ?? "").trim(),
       spotify: (row[spotifyIdx] ?? "").trim(),
+      date:    (row[dateIdx]    ?? "").trim(),
     }))
-    .filter((r) => r.no && r.title && r.rowNum >= fromRow && (force || !r.time));
+    // 日付範囲の指定があるときは、No.の数式が入っていない追加直後の行も対象にする
+    .filter((r) => (dateRange ? isInSheetDateRange(r.date, dateRange) : r.no))
+    .filter((r) => r.title && r.rowNum >= fromRow && (force || !r.time));
 
   const skipNoUrl = candidates.filter((r) => !r.spotify.startsWith("https://open.spotify.com/album/")).length;
   const allTargets = candidates.filter((r) => r.spotify.startsWith("https://open.spotify.com/album/"));

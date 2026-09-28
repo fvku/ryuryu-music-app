@@ -23,6 +23,10 @@ export default function AppFrame({ children }: { children: React.ReactNode }) {
           style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
         >
           <p>
+            <Link href="/weekly" className="hover:text-white transition-colors underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>
+              今週のリリース作業
+            </Link>
+            <span className="mx-2">·</span>
             <Link href="/generator" className="hover:text-white transition-colors underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>
               投稿画像ジェネレーター
             </Link>

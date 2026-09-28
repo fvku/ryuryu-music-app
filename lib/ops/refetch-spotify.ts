@@ -13,6 +13,7 @@ import { getGoogleAuth } from "@/lib/google-auth";
 import { getAllScores } from "@/lib/sheets";
 import { getDisplayName } from "@/lib/members";
 import { artistMatch, titleMatch } from "@/lib/spotify-match";
+import { isInSheetDateRange, type SheetDateRange } from "@/lib/weekly/week";
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -38,6 +39,8 @@ export interface RefetchSpotifyOptions {
   fromRow?: number;
   /** 先頭からN件のみ処理（API側のタイムアウト対策） */
   limit?: number;
+  /** Date列がこの範囲（"YYYY/MM/DD"、両端を含む）の行だけを対象にする（週次ページ用） */
+  dateRange?: SheetDateRange;
   /** 進捗ログ（CLIは console.log、APIは省略） */
   log?: (msg: string) => void;
 }
@@ -52,7 +55,7 @@ export interface RefetchSpotifyResult {
 }
 
 export async function refetchSpotifyUrls(options: RefetchSpotifyOptions): Promise<RefetchSpotifyResult> {
-  const { apply, force = false, fromRow = 0, limit, log = () => {} } = options;
+  const { apply, force = false, fromRow = 0, limit, dateRange, log = () => {} } = options;
 
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
   if (!spreadsheetId) throw new Error("RELEASE_MASTER_SPREADSHEET_ID is not set");
@@ -96,6 +99,7 @@ export async function refetchSpotifyUrls(options: RefetchSpotifyOptions): Promis
   const allTargets = dataRows
     .map((row, i) => ({ row, rowNum: i + 2 }))
     .filter(({ row }) => isTarget(row))
+    .filter(({ row }) => !dateRange || isInSheetDateRange(row[dateIdx] ?? "", dateRange))
     .filter(({ rowNum }) => fromRow <= 0 || rowNum >= fromRow);
 
   const totalEmpty = allTargets.length;
@@ -134,10 +138,16 @@ export async function refetchSpotifyUrls(options: RefetchSpotifyOptions): Promis
     const sheetMemo   = memoIdx !== undefined ? (row[memoIdx] ?? "").trim() : "";
 
     try {
-      const results = await searchAlbums(`${sheetArtist} ${sheetTitle}`);
+      const allResults = await searchAlbums(`${sheetArtist} ${sheetTitle}`);
+      // 洋楽はアルバムだけを扱う。配信前は同名の先行シングルが先頭に来ることがあり、
+      // それを書き込むと Time が "1songs" になって本物のアルバムが後から入らなくなる
+      const results = sheetGenre === "洋楽" ? allResults.filter((r) => r.albumType === "album") : allResults;
       const found = results[0];
 
       if (!found?.spotifyUrl?.startsWith("https://open.spotify.com/")) {
+        if (allResults.length > results.length) {
+          log(`[行${rowNum}] ${sheetArtist} - ${sheetTitle} ... シングルのみ見つかりました（アルバムはまだ配信されていない可能性）`);
+        }
         log(`[行${rowNum}] ${sheetArtist} - ${sheetTitle} ... NOT FOUND`);
         result.notFound++;
         await sleep(300);
