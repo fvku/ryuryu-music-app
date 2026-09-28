@@ -41,6 +41,8 @@
 - `lib/playlist-sources.ts` — プレイリスト収録タグの取得対象（`playlists` シートのCRUD）
 - `lib/ops/playlist-archive.ts` — プレイリスト収録の観測履歴（100曲の窓から外れた分を後から拾うための蓄積）
 - `lib/spotify.ts` — Spotify API クライアント
+- `app/weekly/page.tsx` — 今週のリリース作業（Weekly投稿の準備を1ページで案内。コアは `lib/ops/weekly.ts`・`lib/weekly/`）
+- `lib/ops/fill-listeners.ts` — Spotify月間リスナー数の取得（旧GAS `fetchMonthlyListeners` の移植）
 - `app/page.tsx` — ホーム（アルバム一覧、フィルター）
 - `app/recommend/page.tsx` — タイムライン（レコメンド＋レビュー）
 - `app/mypage/page.tsx` — マイページ（saved/foryou/reviewed タブ）
@@ -117,6 +119,19 @@ Release Master の `memo`（旧playlist）列に「そのアルバムがどの�
 - 収録曲の取得は並列、アルバム解決は全プレイリスト分をまとめて直列（公式APIを並列で叩くと429になる）
 - 対象は既定で**当月のみ**（Date列の "YYYY/MM" 前方一致）。管理画面の「対象月」で変更、CLIは `--month=2026/08` / `--all`。プレイリスト側の取得量は月を絞っても変わらない
 - 取得対象は管理画面（週次リリース処理タブ）から追加・削除する。`genre`（旧genre/memo）列には触れない
+
+## 今週のリリース作業（/weekly）
+
+金曜19時のWeekly投稿の準備を、メンバーの誰でもできるように1ページにまとめたもの（2026-09-28〜）。週は土曜〜金曜（`lib/weekly/week.ts`。ジェネレーターと同じ定義）。API は `/api/admin/weekly`（`guardAdmin` で認可、`action` で分岐）。
+
+1. 邦楽：New Music Wednesday（既定 `37i9dQZF1DWYBDycFJuxRt`。`settings` シートの `weekly_japan_playlist` で変更可）を埋め込み経由で読み、アルバムと4曲以上のEPだけを候補にする。インスト・ライブ・別バージョンを除いて4曲未満ならシングル扱い。℗の年が配信日より2年以上前ならリイシュー候補。同じアーティストの行が前後7日にあれば登録済み扱い（ローマ字／日本語表記の揺れ対策）
+2. 洋楽：AOTY はサーバーからの取得を Cloudflare が403で弾くため、人がコピーしたページのテキストを貼る（`lib/weekly/aoty-parse.ts`）。日付行（`Oct 2 • LP`）の直前2行をアーティスト名・作品名として読む。整形済みのタブ区切りも可。オリジナルアルバムだけが対象で、EP・デラックス版・リイシュー・ライブ盤などは除外候補にする
+3. 情報の更新：今週の行だけを対象に Spotify URL → Time → 月間リスナー数 → 収録タグ を順に実行（既存の ops に `dateRange` オプションを追加して流用）
+4. 振り分け（WEEK列）はシートで行う。5. 画像はジェネレーター
+
+- 行の追加は重複を書き込み直前にも再確認する。A列（No.）の数式は2407行目で途切れているため、空なら `=ROW()-1` を入れる（No.が空の行はアプリ・ジェネレーターに出ない）。`/api/sheets/add-album` も同様
+- 洋楽の Spotify URL 取得はアルバム形式の結果だけを採用する（配信前は同名の先行シングルが先頭に来るため）
+- 月間リスナー数はアーティストページのHTMLから読む。短いUA（`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`）でないとサーバー描画されず数値が入っていない。書き込み先は「リスナー / Google Script 作動」列（旧GASと同じ）。アーティストはアルバムのクレジットから特定し、URLが無い行だけ名前の完全一致で探す。特定できなければセルに何も書かない
 
 ## フィルター状態の永続化（localStorage）
 
