@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import type { HowToUseBlock, HowToUseSection } from "@/lib/how-to-use";
 
-export default function HowToUseModal() {
+/** 本文（見出し・段落・箇条書き）は content/how-to-use.md がマスター。ここは表示だけを担当する。 */
+export default function HowToUseModal({ sections }: { sections: HowToUseSection[] }) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -57,52 +59,11 @@ export default function HowToUseModal() {
 
             {/* Content */}
             <div className="px-5 py-6 flex flex-col gap-7">
-
-              <Section title="なんのアプリ？">
-                <p>毎月アルバムを聴いて、点数つけて、「これよかった」「これは微妙」を記録＆共有するやつです。グループのレビュー文化をちゃんとデータにしよう、という試みです。</p>
-              </Section>
-
-              <Section title="ホーム">
-                <p>いつもクイスーが聞いてくれている有象無象のアルバムをすべて収録しています。有象のアルバムはもちろん、無象のアルバムも早めにレビューしてみんなに知らせましょう。</p>
-                <Items items={[
-                  ["月で絞る", "今月分がデフォルトで開くようになってます。「先月どうだったっけ」もプルダウンで見れます"],
-                  ["ジャンル", "得意ジャンルに絞ってください。たまには得意じゃない邦楽も聞くようにします"],
-                  ["M/J採用", "採用されたやつだけ見たいとか、逆に落ちたやつ気になるとか、自由に"],
-                  ["🎯 Up Next (for Review)", "「まだ聴いてないやつ全部出して」ボタンです。採用判定前＆自分がまだレビューしてないアルバムを一発で絞れます。宿題リストの確認にどうぞ"],
-                ]} />
-              </Section>
-
-              <Section title="アルバム開いたら">
-                <p>タップすると詳細が出てきます。いろいろできます。</p>
-                <Items items={[
-                  ["M/J採用、変えられます", "バッジをポチっとタップすれば変更できます。「検討に早めにしとこ」が目的です。念のため反映前にダイアログで誤タップを防いでます。安心して触ってください"],
-                  ["Release Master 速報", "リリースマスターにスコアや一言が書かれてるのに、まだアプリに反映されてないやつがここにこっそり出ます。フライング情報コーナー"],
-                  ["みんなのレコメンド", "このアルバムについて誰かが誰かに送ったレコメンドが全部見れます。ログインしてなくても見れます"],
-                  ["レビューを書く", "0〜10点、0.5刻み。コメントも書ける。「点数はよくわからんけど一言だけ言いたい」ならスコアなしでコメントだけでもOKです"],
-                  ["ブックマーク", "左上のやつ。「まだ聴いてないけどとりあえず確保」なアルバムを積んでおく場所です"],
-                  ["閉じ方", "右上の ✕ か、上のバー部分をぐっと下にスワイプすると閉じます"],
-                ]} />
-              </Section>
-
-              <Section title="タイムライン">
-                <p>みんなのレビューとレコメンドが新しい順に流れてきます。自分にメンションが来てると黄色くなるのですぐわかります。「なんか知らんけど薦められてた」に気づける設計です。</p>
-              </Section>
-
-              <Section title="マイページ">
-                <p>Googleでログインして使います。</p>
-                <Items items={[
-                  ["LISTEN", "これから聴くものの置き場。月とレビュー状況の絞り込みは下の2つで共通です"],
-                  ["LISTEN > SAVED", "ブックマークしたやつ。「いつか聴く」の墓場にならないように定期的に開いてください"],
-                  ["LISTEN > RECOMMEND", "誰かがあなたに送ったレコメンドが届きます。アイコンに赤丸が出たら新着あり。ちゃんと見てあげてください、送った人が悲しむので"],
-                  ["M/J 文章", "MONTHLY / JAPAN で採用・掲載されたアルバムと担当者の一覧。「ASSIGNED」を押すと自分の担当分だけになります"],
-                  ["REVIEWED", "自分がレビューしたやつの一覧。リリース日順。意外とあまり使わないかもですが、あると便利かなと設置してます"],
-                ]} />
-              </Section>
-
-              <Section title="レコメンドの送り方">
-                <p>くいすーがいつもやってくれてるやつを機能化しました。バッジですぐ気づけるので便利！しかもすぐSpotifyで聞けます。アルバム勧められるって良いよね、の感情を取り戻したい。</p>
-              </Section>
-
+              {sections.map((section) => (
+                <Section key={section.title} title={section.title}>
+                  {section.blocks.map((block, i) => <Block key={i} block={block} />)}
+                </Section>
+              ))}
             </div>
           </div>
         </div>,
@@ -110,6 +71,11 @@ export default function HowToUseModal() {
       )}
     </>
   );
+}
+
+function Block({ block }: { block: HowToUseBlock }) {
+  if (block.type === "paragraph") return <p>{block.text}</p>;
+  return <Items items={block.items} />;
 }
 
 function Items({ items }: { items: [string, string][] }) {

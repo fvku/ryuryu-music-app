@@ -47,6 +47,7 @@
 - `app/recommend/page.tsx` — タイムライン（レコメンド＋レビュー）
 - `app/mypage/page.tsx` — マイページ（saved/foryou/reviewed タブ）
 - `components/ReviewModal.tsx` — アルバムクリック時のモーダル（メインUI）
+- `content/how-to-use.md` — ヘッダーの「使い方」モーダルの本文のマスター。`lib/how-to-use.ts` が見出し（`##`）・段落・箇条書き（`- **ラベル** — 説明`）を読み込み、`components/HowToUseModal.tsx` が表示する。画面の挙動を変えたら、対応する説明もここで更新する
 
 ## スクリプト一覧（scripts/）
 

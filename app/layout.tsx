@@ -6,6 +6,7 @@ import Providers from "@/components/Providers";
 import BottomNav from "@/components/BottomNav";
 import AppFrame from "@/components/AppFrame";
 import HowToUseModal from "@/components/HowToUseModal";
+import { loadHowToUseSections } from "@/lib/how-to-use";
 import ColumnErrorIndicator from "@/components/ColumnErrorIndicator";
 import SpotifyClipboardDetector from "@/components/SpotifyClipboardDetector";
 import SpotifyHeaderButton from "@/components/SpotifyHeaderButton";
@@ -38,6 +39,7 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const howToUseSections = loadHowToUseSections();
   return (
     <html lang="ja">
       <body className="min-h-screen" style={{ backgroundColor: "var(--bg-primary)", color: "var(--text-primary)" }}>
@@ -54,7 +56,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <div className="max-w-6xl mx-auto px-4 py-2 grid grid-cols-[1fr_auto_1fr] items-center">
               {/* 左: モバイル=使い方、PC=列エラー表示 */}
               <div className="flex items-center">
-                <span className="sm:hidden"><HowToUseModal /></span>
+                <span className="sm:hidden"><HowToUseModal sections={howToUseSections} /></span>
                 <span className="hidden sm:block"><ColumnErrorIndicator /></span>
               </div>
               <Link href="/" className="hover:opacity-80 transition-opacity">
@@ -62,7 +64,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </Link>
               {/* 右: モバイル=SpotifyFAB、PC=使い方+SpotifyFAB */}
               <div className="flex justify-end items-center gap-2">
-                <span className="hidden sm:block"><HowToUseModal /></span>
+                <span className="hidden sm:block"><HowToUseModal sections={howToUseSections} /></span>
                 <SpotifyHeaderButton />
               </div>
             </div>
