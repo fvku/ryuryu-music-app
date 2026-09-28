@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // 画面に埋め込む自分の版。components/UpdateBanner.tsx が /api/version と比べて更新を知らせる（ローカルでは空）
+  env: {
+    NEXT_PUBLIC_APP_VERSION: process.env.VERCEL_GIT_COMMIT_SHA ?? "",
+  },
   images: {
     remotePatterns: [
       {

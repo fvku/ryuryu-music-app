@@ -47,6 +47,7 @@
 - `app/recommend/page.tsx` — タイムライン（レコメンド＋レビュー）
 - `app/mypage/page.tsx` — マイページ（saved/foryou/reviewed タブ）
 - `components/ReviewModal.tsx` — アルバムクリック時のモーダル（メインUI）
+- `components/UpdateBanner.tsx` — 新しいデプロイがあれば「再読み込み」を促すバナー。前面復帰時に `/api/version`（`VERCEL_GIT_COMMIT_SHA`）とビルド時に埋め込んだ版（`next.config.mjs` の `NEXT_PUBLIC_APP_VERSION`）を比べる。ホーム画面アプリはService Workerが無いので再追加しなくても更新は届く。古いままになるのはバックグラウンドから復帰した画面だけ
 - `content/how-to-use.md` — ヘッダーの「使い方」モーダルの本文のマスター。`lib/how-to-use.ts` が見出し（`##`）・段落・箇条書き（`- **ラベル** — 説明`）を読み込み、`components/HowToUseModal.tsx` が表示する。画面の挙動を変えたら、対応する説明もここで更新する
 
 ## スクリプト一覧（scripts/）
