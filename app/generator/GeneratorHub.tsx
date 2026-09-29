@@ -93,6 +93,7 @@ export default function GeneratorHub({
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
+      <Link href="/mypage" className="inline-block text-xs text-violet-300 hover:underline">← マイページ</Link>
       <section
         className="rounded-2xl border p-5 sm:p-7"
         style={{ background: "linear-gradient(135deg,rgba(139,92,246,.18),rgba(30,64,175,.12))", borderColor: "var(--border-accent)" }}

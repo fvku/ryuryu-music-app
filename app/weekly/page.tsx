@@ -258,6 +258,7 @@ export default function WeeklyPage() {
   if (!viewer.isAdmin) {
     return (
       <div className="max-w-sm mx-auto mt-16 rounded-2xl p-8 border text-center" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>
+        <Link href="/mypage" className="inline-block mb-4 text-xs text-violet-300 hover:underline">← マイページ</Link>
         <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>今週のリリース作業</h1>
         <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
           {!viewer.email ? "Googleでログインしてください。"
@@ -282,6 +283,7 @@ export default function WeeklyPage() {
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-4">
       <header className="flex flex-col gap-3">
+        <Link href="/mypage" className="self-start text-xs text-violet-300 hover:underline">← マイページ</Link>
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>今週のリリース作業</h1>
           <Link href="/admin" className="text-xs underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>管理者ページ</Link>
