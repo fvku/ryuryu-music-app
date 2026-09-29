@@ -417,7 +417,7 @@ export default function WeeklyPage() {
       {/* 3. 情報の更新 */}
       <StepCard
         no={3}
-        title="Spotify URL, 曲数時間, 月次リスナー数取得"
+        title="Spotify URL, 曲数時間, 月間リスナー数, プレイリスト収録タグ取得"
         when="金曜0時〜夕方。数時間おきに何度でも"
         done={total > 0 && withUrl === total && withListeners === total ? true : total > 0 ? `URL ${withUrl}/${total}` : undefined}
         why={<>
