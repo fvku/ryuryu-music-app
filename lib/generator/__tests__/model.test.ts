@@ -16,6 +16,16 @@ function weeklyFixture() {
 }
 
 describe("shared document format", () => {
+  it("preserves optional manual cover positions and rejects invalid coordinates", () => {
+    const content = fixture().items[0].content;
+    expect(parseItemContent(content)).not.toHaveProperty("coverFocusX");
+    for (const coverFocusX of [null, 0, .23, 1]) {
+      expect(parseItemContent({ ...content, coverFocusX }).coverFocusX).toBe(coverFocusX);
+    }
+    for (const coverFocusX of [-.01, 1.01, NaN, Infinity, "0.5", {}]) {
+      expect(() => parseItemContent({ ...content, coverFocusX })).toThrow();
+    }
+  });
   it("round-trips all fields/typography, source identity, explicit newlines, and separate pages", () => {
     const original = fixture(); original.items[0].source.uid = "RM-uid-123";
     const result = parseDocument(JSON.parse(JSON.stringify(original)));

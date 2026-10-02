@@ -36,6 +36,17 @@ beforeEach(async () => {
 afterAll(async () => { await db?.close(); });
 
 describe("generator database transaction contract (embedded PostgreSQL)", () => {
+  it("saves manual crop positions, resets to automatic, and restores the saved position", async () => {
+    const lock = await acquire("item", doc.items[0].id);
+    const content = { ...doc.items[0].content, coverFocusX: .23 };
+    await save(lock, content);
+    expect(parseDocument((await read()).document).items.find(item => item.id === lock.targetId)!.content.coverFocusX).toBe(.23);
+    await save(lock, { ...content, coverFocusX: null }, actor, 2);
+    expect((await read()).document.items.find(item => item.id === lock.targetId)!.content.coverFocusX).toBeNull();
+    const restored = await query<Snapshot>("select public.generator_item_save($1,$2,$3,$4) as result",
+      [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 3, restoreVersion: 2 }]);
+    expect(restored.document.items.find(item => item.id === lock.targetId)!.content.coverFocusX).toBe(.23);
+  });
   it("creates the full snapshot, keeps source/formatting, and starts one history revision", async () => {
     const result = await read();
     expect(result.version).toBe(1);

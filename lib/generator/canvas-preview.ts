@@ -1,6 +1,6 @@
 import type { GeneratorDocument, ItemContent } from "./model";
 
-export type CanvasPreviewSlot = Pick<ItemContent, "fields" | "show" | "tracking" | "kerns" | "bodyLeadMode" | "bodyMaxLead" | "typography"> & {
+export type CanvasPreviewSlot = Pick<ItemContent, "fields" | "show" | "tracking" | "kerns" | "bodyLeadMode" | "bodyMaxLead" | "typography" | "coverFocusX"> & {
   id: string;
   sourceUid: string | null;
   sourceNo: string | null;
@@ -40,7 +40,8 @@ export function canvasPreviewPage(document: GeneratorDocument, pageIndex: number
     if (!item) return [];
     const { fields, show, tracking, kerns, bodyLeadMode, bodyMaxLead, typography } = item.content;
     return [{ id: item.id, sourceUid: item.source.uid, sourceNo: item.source.no, sourceCoverUrl: item.source.coverUrl || null, jacketAssetId: item.content.jacketAssetId,
-      fields, show, tracking, kerns, bodyLeadMode, bodyMaxLead, typography }];
+      fields, show, tracking, kerns, bodyLeadMode, bodyMaxLead, typography,
+      ...(item.content.coverFocusX === undefined ? {} : { coverFocusX: item.content.coverFocusX }) }];
   });
   if (slots.length !== sourceIds.length) return null;
   const computedWeek = document.series === "weekly" ? isoWeek(document.period.start) : null;

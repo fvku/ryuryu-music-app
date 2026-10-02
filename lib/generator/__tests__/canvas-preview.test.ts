@@ -22,9 +22,13 @@ describe("generator canvas preview pages", () => {
       album({ no: "2", title: "Second", weekAdoption: "採用" }),
       album({ no: "3", title: "Other", weekAdoption: "掲載" }),
     ], "2027-01-01");
+    document.items[0].content.coverFocusX = .23;
     const cover = canvasPreviewPage(document, 0)!;
     expect(cover).toMatchObject({ kind: "cover", no: 0, week: { year: 2026, number: 53 } });
     expect(cover.slots.map(slot => slot.fields.title)).toEqual(["First", "Second"]);
+    expect(cover.slots[0].coverFocusX).toBe(.23);
+    [document.pages[1].itemIds, document.pages[2].itemIds] = [document.pages[2].itemIds, document.pages[1].itemIds];
+    expect(canvasPreviewPage(document, 0)!.slots[1].coverFocusX).toBe(.23);
     expect(canvasPreviewPage(document, 1)).toMatchObject({ kind: "feature", no: 1 });
     expect(canvasPreviewPage(document, 3)).toMatchObject({ kind: "others", no: 3 });
   });

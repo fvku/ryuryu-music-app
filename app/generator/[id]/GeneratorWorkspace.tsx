@@ -18,6 +18,7 @@ import { GeneratorRuntimeProvider } from "../runtime";
 import { Chip, Modal, Panel, PrimaryButton, SecondaryButton, SegmentedControl, SelectInput, StatusBanner, useMediaQuery } from "../ui";
 import { PageInspector, RestoreControl, StructureDialog, type TargetState } from "./Inspectors";
 import ItemInspector from "./ItemInspector";
+import CoverCropInspector from "./CoverCropInspector";
 import SourceUpdateDialog, { type SourceUpdate } from "./SourceUpdateDialog";
 import { clearRecovery, readRecovery, writeRecovery } from "./recovery";
 import { collectSources, pendingSourceUpdates, sourceChanged } from "./source-payload";
@@ -156,7 +157,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const previewPage = previewPages[currentIndex] || null;
   const visiblePages = structurePages || snapshot.document.pages;
   const page = visiblePages[currentIndex] || visiblePages[0];
-  const pageItems = page?.itemIds
+  const editingPage = page ? { ...page, itemIds: previewPage?.slots.map(slot => slot.id) || page.itemIds } : null;
+  const pageItems = editingPage?.itemIds
     .map(id => items.get(id))
     .filter((item): item is GeneratorDocument["items"][number] => Boolean(item)) || [];
   const activeItem = pageItems[Math.min(slotIndex, Math.max(0, pageItems.length - 1))] || null;
@@ -288,9 +290,15 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     setBusy(false);
   }
 
+  function editablePage(pageId: string) {
+    const target = (structurePages || snapshot.document.pages).find(value => value.id === pageId);
+    if (!target) return null;
+    return { ...target, itemIds: previewPages.find(value => value.id === pageId)?.slots.map(slot => slot.id) || target.itemIds };
+  }
+
   /** その画像で自分が持っているロック。画像を離れるとき・編集を終えるときにまとめて返す。 */
   function locksForPage(pageId: string): ActiveLock[] {
-    const target = (structurePages || snapshot.document.pages).find(value => value.id === pageId);
+    const target = editablePage(pageId);
     if (!target) return [];
     return Object.values(locksRef.current).filter(lock =>
       (lock.kind === "page" && lock.targetId === pageId) || (lock.kind === "item" && target.itemIds.includes(lock.targetId)));
@@ -303,7 +311,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
   /** その画像で共有DBへ送る対象。自動の初期値だけの背景色も含む（「保存」を押せば確定できるように）。 */
   function saveTargetsFor(pageId: string) {
-    const target = (structurePages || snapshot.document.pages).find(value => value.id === pageId);
+    const target = editablePage(pageId);
     if (!target) return [];
     return imageSaveTargets({
       page: target,
@@ -362,7 +370,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     }
     if (action === "transfer") {
       // 別の画面が持っていた作品のロックも引き取る。取らないと作品の欄だけ直せないまま残る。
-      const target = (structurePages || snapshot.document.pages).find(value => value.id === pageId);
+      const target = editablePage(pageId);
       const mine = session.snapshotRef.current.locks.filter(lock => lock.kind === "item" && lock.owner === actor
         && target?.itemIds.includes(lock.targetId) && !locksRef.current[keyOf("item", lock.targetId)]);
       for (const lock of mine) await session.tryAcquire("item", lock.targetId, "transfer");
@@ -404,7 +412,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
   /** その画像の未保存の変更を捨てる。作品の下書き・取り込み基準・背景色が対象。 */
   function discardImage(pageId: string) {
-    const target = (structurePages || snapshot.document.pages).find(value => value.id === pageId);
+    const target = editablePage(pageId);
     if (!target) return;
     const keys = new Set([...target.itemIds, pageId]);
     const omit = <T,>(current: Record<string, T>) => Object.fromEntries(Object.entries(current).filter(([id]) => !keys.has(id)));
@@ -882,13 +890,13 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const imageEditLost = Boolean(page && editingPageId === page.id && !pageLockHeld);
   const attempt = page && editAttempt?.pageId === page.id ? editAttempt : null;
   const blocker = page
-    ? pageEditBlocker({ page, documentId, locks: snapshot.locks, isHeld: (kind, id) => Boolean(activeLocks[keyOf(kind, id)]), actor })
+    ? pageEditBlocker({ page: editingPage!, documentId, locks: snapshot.locks, isHeld: (kind, id) => Boolean(activeLocks[keyOf(kind, id)]), actor })
     : null;
   const pageNumber = previewPage?.no ?? (snapshot.document.series === "weekly" ? currentIndex : currentIndex + 2);
 
   /** この画像が最後に保存されたのはいつか。文書の通し番号ではなく、画像ごとに見せる。 */
   const imageSaved = page
-    ? history.find(entry => (entry.targetKind === "item" && page.itemIds.includes(entry.targetId || ""))
+    ? history.find(entry => (entry.targetKind === "item" && editingPage!.itemIds.includes(entry.targetId || ""))
       || (entry.targetKind === "page" && entry.targetId === page.id)) || null
     : null;
 
@@ -1024,7 +1032,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   function selectFromPreview(value: PreviewSelection & { touch?: boolean }) {
     // 編集できない間は選べない。無反応だと壊れて見えるので、理由を言う。
     if (!imageEditing) {
-      setStatus({ tone: "warn", text: "この画像はいま編集できないため、文字を選べません。右のパネルで理由を確認してください。" });
+      setStatus({ tone: "warn", text: "この画像はいま編集できないため、調整対象を選べません。右のパネルで理由を確認してください。" });
       return;
     }
     const item = pageItems[value.slotIndex];
@@ -1044,8 +1052,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const pageBadges = derivePageBadges({
     pages: previewPages.map(value => ({
       id: value.id,
-      // 表紙のジャケットは各メイン画像の作品。作品の未保存や編集中はそちらで言い、表紙は自分の背景色だけにする。
-      itemIds: value.kind === "cover" ? [] : value.slots.map(slot => slot.id),
+      // 表紙の切り抜き位置も作品ごとの下書き・ロックを使う。
+      itemIds: value.slots.map(slot => slot.id),
       bgColor: snapshot.document.pages.find(saved => saved.id === value.id)?.bgColor ?? null,
     })),
     isItemDirty: itemDirty,
@@ -1394,6 +1402,32 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                         defined={Boolean(savedPage.bgColor) || (pageColors[savedPage.id] !== undefined && !isAutoColor(savedPage.id))}
                         candidates={colorCandidates[savedPage.id] || []}
                         onColor={value => setPageColors(current => ({ ...current, [savedPage.id]: value }))}
+                      />
+                    </section>
+                  )}
+
+                  {activeItem && page?.kind === "cover" && previewPage && (
+                    <section className="space-y-2 border-t pt-4" style={{ borderColor: "var(--border-subtle)" }}>
+                      <h3 className="text-xs font-semibold">ジャケットの切り抜き位置</h3>
+                      <SelectInput
+                        aria-label="調整するジャケット"
+                        value={String(slotIndex)}
+                        onChange={event => setSlotIndex(Number(event.target.value))}
+                      >
+                        {pageItems.map((item, index) => (
+                          <option key={item.id} value={index}>メイン {index + 1} · {item.content.fields.title} / {item.content.fields.artist}</option>
+                        ))}
+                      </SelectInput>
+                      <CoverCropInspector
+                        key={`${activeItem.id}:${inspectorEpoch}`}
+                        documentId={documentId}
+                        page={previewPage}
+                        slotIndex={slotIndex}
+                        disabled={!itemLockHeld || busy}
+                        onFocus={coverFocusX => setDrafts(current => ({
+                          ...current,
+                          [activeItem.id]: { ...(current[activeItem.id] || cloneContent(activeItem.content)), coverFocusX },
+                        }))}
                       />
                     </section>
                   )}

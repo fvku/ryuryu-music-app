@@ -47,6 +47,7 @@ export default function GeneratorPreview({
   const preparedRef = useRef<LegacyPage | null>(null);
   const [status, setStatus] = useState("描画を準備しています…"), [warnings, setWarnings] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
+  const [preparedSignature, setPreparedSignature] = useState<string | null>(null);
   const [rects, setRects] = useState<Rect[]>([]);
   const dragRef = useRef<{ anchor: number; slotIndex: number } | null>(null);
   const signature = JSON.stringify(page);
@@ -63,6 +64,7 @@ export default function GeneratorPreview({
       const context = drawPageInto(runtime, canvas, prepared, 1200);
       if (!context) { setStatus("描画領域を準備できませんでした。"); return; }
       preparedRef.current = prepared;
+      setPreparedSignature(signature);
       // 対象月の波が無いまま描いている場合も、はみ出しと同じ「書き出せない状態」として扱う
       const issues = [...waveWarnings(runtime), ...runtime.renderer.inspectPage(context, prepared)];
       setWarnings(issues);
@@ -133,7 +135,7 @@ export default function GeneratorPreview({
 
   async function exportPng(share: boolean) {
     const prepared = preparedRef.current;
-    if (!runtime || !prepared || exporting) return;
+    if (!runtime || !prepared || exporting || preparedSignature !== signature) return;
     setExporting(true);
     try {
       const { canvas } = await runtime.exporter.renderTiled(prepared, runtime.images, {
@@ -165,7 +167,7 @@ export default function GeneratorPreview({
   const blocked = warnings.length > 0;
   const blockedCount = warnings.length;
   const interactionHint = page.kind === "cover"
-    ? "表紙の選定は「並び順を変更」から入れ替えられます。"
+    ? "ジャケットの帯を押すと、切り抜き位置を調整できます。"
     : page.kind === "others"
       ? "行をクリックすると対応する作品を選べます。"
       : "クリックで調整対象、ドラッグで範囲を選べます。";
@@ -191,7 +193,7 @@ export default function GeneratorPreview({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          className="block aspect-square h-auto w-full cursor-text select-none"
+          className={`block aspect-square h-auto w-full ${page.kind === "cover" ? "cursor-pointer" : "cursor-text"} select-none`}
           aria-label={`画像${pageNumber} ${pageLabel(page)}`}
         />
         {/* 選択表示は操作用。DOMに重ねるだけなのでPNGにも保存データにも入らない。 */}
@@ -222,9 +224,9 @@ export default function GeneratorPreview({
       {/* 出力できない理由は、出力ボタンと同じ視野に置く。 */}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {/* 「保存」はみんなのデータへの確定だけに使う。画像は「書き出す」（2026-09-18、利用者の指定）。 */}
-        <PrimaryButton disabled={exporting || !runtime || blocked} onClick={() => void exportPng(false)}>PNGを書き出す</PrimaryButton>
+        <PrimaryButton disabled={exporting || !runtime || blocked || preparedSignature !== signature} onClick={() => void exportPng(false)}>PNGを書き出す</PrimaryButton>
         {/* 中身はOSの共有シート（LINE・Instagramなど）。非対応のブラウザでは書き出しになる。 */}
-        <SecondaryButton disabled={exporting || !runtime || blocked} onClick={() => void exportPng(true)}>アプリで送る</SecondaryButton>
+        <SecondaryButton disabled={exporting || !runtime || blocked || preparedSignature !== signature} onClick={() => void exportPng(true)}>アプリで送る</SecondaryButton>
         <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{value.theme.outputSize}px</span>
         {blocked && (
           <details

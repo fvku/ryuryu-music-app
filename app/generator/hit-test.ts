@@ -110,7 +110,11 @@ export function hitTest(
   x: number,
   y: number,
 ): Hit | null {
-  if (page.kind === "cover") return null;
+  if (page.kind === "cover") {
+    const cover = runtime.layout.WEEKLY.COVER;
+    const slotIndex = cover.RANK_TO_BAND.findIndex(band => inside(cover.bandCell(band), x, y));
+    return slotIndex >= 0 && page.slots[slotIndex] ? { slotIndex, key: "title", index: null } : null;
+  }
   if (page.kind === "feature") {
     const slot = page.slots[0], weekly = runtime.layout.WEEKLY;
     if (!slot) return null;

@@ -69,6 +69,7 @@ type LayoutModule = {
     TITLE_BASELINE: number;
     ARTIST_BASELINE: number;
     TYPE: { title: { size: number }; artist: { size: number }; meta: { size: number } };
+    COVER: { RANK_TO_BAND: number[]; bandCell(index: number): Cell };
     OTHERS: { BODY: { BOX: Cell }; TYPE: { body: { size: number } }; layoutFor(lineCount: number): { lead: number; baseline: number }; fits(lineCount: number): boolean };
   };
 };
@@ -255,12 +256,14 @@ export async function preparePage(runtime: GeneratorRuntime, documentId: string,
   const jackets = await Promise.all(sources.map(source => source ? loadImage(source).catch(() => null) : Promise.resolve(null)));
   // 表紙の帯だけ、人物の顔を中心に切り抜く（2026-09-14、2026#37の目視で指摘）。中央切り出しが既定の
   // フォールバックなので、検出できなかった作品だけ従来どおりの見た目になる（他の帯を巻き込まない）。
-  const focusXs = page.kind === "cover" ? await detectCoverFocusX(jackets) : jackets.map(() => undefined);
+  const focusXs = page.kind === "cover"
+    ? await detectCoverFocusX(jackets.map((image, index) => page.slots[index].coverFocusX == null ? image : null))
+    : jackets.map(() => undefined);
   const bgColor = page.bgColor || FALLBACK_BACKGROUND;
   return {
     ...page,
     bgColor,
-    slots: page.slots.map((slot, index) => ({ ...slot, jacket: { img: jackets[index], focusX: focusXs[index] }, ...(index === 0 ? { bgColor } : {}) })),
+    slots: page.slots.map((slot, index) => ({ ...slot, jacket: { img: jackets[index], focusX: page.kind === "cover" ? slot.coverFocusX ?? focusXs[index] : undefined }, ...(index === 0 ? { bgColor } : {}) })),
   };
 }
 
