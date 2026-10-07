@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { GeneratorDocument, ItemContent } from "@/lib/generator/model";
-import { applySelectedSpacing, rebaseKerns, selectedSpacing } from "@/lib/generator/text-edit";
+import { applySelectedSpacing, keepEarlierLines, rebaseKerns, selectedSpacing, type LaidOutLine } from "@/lib/generator/text-edit";
 import type { BodyDiagnostic } from "../GeneratorPreview";
+import { useGeneratorRuntime } from "../runtime";
 import { Checkbox, Chip, Field, SecondaryButton, TextArea, TextInput } from "../ui";
 import { type TargetState } from "./Inspectors";
 import { cloneContent, same, type FieldSelection } from "./workspace-types";
@@ -52,11 +53,9 @@ function EditableNumberInput({
   integer?: boolean;
 }) {
   const [draft, setDraft] = useState(value);
-  const focused = useRef(false);
-
-  useEffect(() => {
-    if (!focused.current) setDraft(value);
-  }, [value]);
+  const [focused, setFocused] = useState(false);
+  // 入力中は打った文字を保つ。離れたら実際に入った値を出す（評価文は前の行を守るため指定値と変わることがある）。
+  const shown = focused ? draft : value;
 
   function parse(raw: string): number | null {
     if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw.trim())) return null;
@@ -81,10 +80,10 @@ function EditableNumberInput({
     <TextInput
       type="text"
       inputMode="decimal"
-      value={draft}
+      value={shown}
       disabled={disabled}
       placeholder={placeholder}
-      onFocus={() => { focused.current = true; }}
+      onFocus={() => { setDraft(value); setFocused(true); }}
       onDoubleClick={event => event.currentTarget.select()}
       onChange={event => {
         const raw = event.target.value;
@@ -94,7 +93,7 @@ function EditableNumberInput({
       }}
       onBlur={() => {
         commit(true);
-        focused.current = false;
+        setFocused(false);
       }}
       onKeyDown={event => {
         if (event.key !== "Enter") return;
@@ -147,6 +146,10 @@ export default function ItemInspector({
   const [jacketUrl, setJacketUrl] = useState("");
   const [jacketNote, setJacketNote] = useState<{ tone: "warn" | "info"; text: string } | null>(null);
   const [fetchingJacket, setFetchingJacket] = useState(false);
+  const { runtime } = useGeneratorRuntime();
+  const measureRef = useRef<CanvasRenderingContext2D | null>(null);
+  /** 前の行へ上がらないよう字間をとどめた文字（評価文）。画面で知らせるだけ。 */
+  const [heldSpacing, setHeldSpacing] = useState<{ start: number; end: number; value: number; range: string } | null>(null);
 
   /** 貼ったURLはサーバーで安全に取得し、既存のジャケット差し替えとして保存する。 */
   async function applyJacketUrl(draft: ItemContent) {
@@ -215,13 +218,30 @@ export default function ItemInspector({
   const range = target === selection.key
     ? { start: selection.start, end: selection.end }
     : { start: 0, end: 0 };
+  // 評価文は選択が無ければ全体を対象に読む。文字ごとに違う字間が残っていれば Mixed と出す。
   const tracking = target === "text"
-    ? selectedSpacing(value.fields.text, value.tracking, value.kerns, range.start, range.end)
+    ? selectedSpacing(value.fields.text, value.tracking, value.kerns, range.end > range.start ? range.start : 0, range.end > range.start ? range.end : value.fields.text.length)
     : selectedSpacing(value.fields[target], value.typography[target]?.tracking ?? 0, value.typography[target]?.kerns ?? {}, range.start, range.end);
+
+  /** 描画と同じ折り返しで評価文を組む。ランタイムの準備前は null（前の行の確認を省く）。 */
+  function bodyLayout(text: string) {
+    if (!runtime) return null;
+    measureRef.current ??= document.createElement("canvas").getContext("2d");
+    const context = measureRef.current;
+    if (!context) return null;
+    return ({ tracking, kerns }: { tracking: number; kerns: Record<string, number> }): LaidOutLine[] =>
+      runtime.renderer.bodyLines(context, text, tracking, Object.keys(kerns).length ? kerns : null);
+  }
 
   function setTracking(next: number) {
     if (target === "text") {
-      applyDraft({ ...value, ...applySelectedSpacing(value.fields.text, value.tracking, value.kerns, range.start, range.end, next) });
+      const before = { tracking: value.tracking, kerns: value.kerns };
+      const after = applySelectedSpacing(value.fields.text, value.tracking, value.kerns, range.start, range.end, next);
+      // 選択範囲より前の行は変えない（行頭の文字が前の行へ上がって語が割れるのを防ぐ）。全体の変更は対象外。
+      const layout = range.end > range.start ? bodyLayout(value.fields.text) : null;
+      const kept = layout ? keepEarlierLines(before, after, range.start, range.end, layout) : { ...after, held: null };
+      setHeldSpacing(kept.held && { ...kept.held, range: `${range.start}:${range.end}` });
+      applyDraft({ ...value, tracking: kept.tracking, kerns: kept.kerns });
       return;
     }
     const current = value.typography[target] || { tracking: 0, kerns: {}, leading: defaultLeading(target) };
@@ -293,7 +313,9 @@ export default function ItemInspector({
 
         {allowTracking && (
           <p className="mt-1.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-            範囲：{range.end > range.start ? `${range.start + 1}〜${range.end}文字目` : "この欄の全体（入力欄で文字を選ぶと、その範囲だけ変えられます）"}
+            範囲：{range.end > range.start ? `${range.start + 1}〜${range.end}文字目` : target === "text"
+              ? "この欄の全体（入力欄かプレビューで文字をドラッグして選ぶと、その範囲だけ変えられます。前の行の折り返しは変わりません）"
+              : "この欄の全体（入力欄で文字を選ぶと、その範囲だけ変えられます）"}
           </p>
         )}
 
@@ -351,6 +373,12 @@ export default function ItemInspector({
             </Field>
           )}
         </div>
+
+        {allowTracking && target === "text" && heldSpacing?.range === `${range.start}:${range.end}` && (
+          <p className="mt-2 text-[11px] leading-4 text-amber-300">
+            行頭の「{value.fields.text.slice(heldSpacing.start, heldSpacing.end)}」は前の行へ上がって行が変わらないよう、字間を{toPercent(heldSpacing.value)}%にとどめました。
+          </p>
+        )}
 
         {!allowTracking && (
           <p className="mt-2 text-[10px]" style={{ color: "var(--text-secondary)" }}>
