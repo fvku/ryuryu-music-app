@@ -87,6 +87,7 @@ export const SHEET_COL = {
   GENRE_MEMO:  "genre",          // L列（2026-09-18に「genre/memo」から改名。手入力のジャンル）
   PLAYLIST:    "memo",           // K列（2026-09-18に「playlist」から改名。sync-playlist-tags.ts が自動更新する収録プレイリスト名 + 手動メモ）
   COUNTRY:     "国",             // M列
+  ARTIST_READING: "読み",        // 任意の列（無くてよい）。ジェネレーターの並び替えに使うアーティスト名の読み
   WEEK_ADOPTION: "WEEK",         // P列（Weekly: 採用／掲載／不採用）
   MJ_ADOPTION: "M/J採用",        // R列
   MJ_ASSIGN:   "ASSIGN",         // S列

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ReleaseMasterAlbum } from "../types";
+import { compareArtistReading } from "./artist-reading";
 import { GeneratorError } from "./errors";
 import { parseDocument, type GeneratorDocument, type GeneratorItem } from "./model";
 
@@ -17,13 +18,14 @@ function dateKey(value: string): number {
   const match = value.match(/(\d{4})\D+(\d{1,2})(?:\D+(\d{1,2}))?/);
   return match ? Number(match[1]) * 10000 + Number(match[2]) * 100 + Number(match[3] || 0) : Number.MAX_SAFE_INTEGER;
 }
-function byArtist(a: ReleaseMasterAlbum, b: ReleaseMasterAlbum): number {
-  const left = a.artist.trim().toLowerCase(), right = b.artist.trim().toLowerCase();
-  return left < right ? -1 : left > right ? 1 : 0;
-}
+/**
+ * Monthly／Japan（採用・掲載それぞれ）の並び：EPは区分の末尾 → 日付 → アーティスト名。
+ * 同じ日付どうしは、英字はa-z、日本語はあいうえお順（2026-10-07、Koheiの決定。以前は文字コード順で、
+ * 和文は読みと無関係に並んでいた）。漢字の読みはRelease Masterの「読み」列、無ければ辞書の推定（artist-reading.ts）。
+ */
 export function sortAlbums(albums: ReleaseMasterAlbum[]): ReleaseMasterAlbum[] {
   return albums.slice().sort((a, b) => Number(ep.test(a.title)) - Number(ep.test(b.title)) || dateKey(a.date) - dateKey(b.date)
-    || byArtist(a, b));
+    || compareArtistReading(a, b));
 }
 /** 洋邦の並び順。空欄・想定外の値は末尾へ置き、取りこぼしに気づけるようにする。 */
 function genreRank(album: ReleaseMasterAlbum): number {
