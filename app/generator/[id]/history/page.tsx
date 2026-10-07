@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { generatorActor } from "@/lib/generator/access";
+import { pageNumber } from "@/lib/generator/canvas-preview";
 import type { GeneratorHistoryEntry, GeneratorSnapshot } from "@/lib/generator/client-types";
 import { GeneratorError } from "@/lib/generator/errors";
 import { uuid } from "@/lib/generator/model";
@@ -23,7 +24,7 @@ function targetName(snapshot: GeneratorSnapshot, entry: GeneratorHistoryEntry): 
   }
   if (entry.targetKind === "page") {
     const index = snapshot.document.pages.findIndex(value => value.id === entry.targetId);
-    return index < 0 ? "削除された画像" : `画像 ${snapshot.document.series === "weekly" ? index : index + 2}`;
+    return index < 0 ? "削除された画像" : `画像 ${pageNumber(snapshot.document, index)}`;
   }
   return null;
 }

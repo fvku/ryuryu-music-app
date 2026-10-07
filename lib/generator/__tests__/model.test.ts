@@ -71,6 +71,23 @@ describe("shared document format", () => {
   ])("rejects a weekly document with %s", (_, mutate) => {
     const doc = weeklyFixture(); mutate(doc); expect(() => parseDocument(doc)).toThrow();
   });
+  it("accepts one empty Monthly/Japan cover only at the start, and the vertical cover position", () => {
+    const withCover = fixture();
+    withCover.pages.unshift({ id: randomUUID(), kind: "cover", itemIds: [], bgColor: null });
+    expect(parseDocument(withCover)).toEqual(withCover);
+    const japan = structuredClone(withCover); japan.series = "japan";
+    expect(parseDocument(japan)).toEqual(japan);
+    const twice = structuredClone(withCover); twice.pages.splice(1, 0, { id: randomUUID(), kind: "cover", itemIds: [], bgColor: null });
+    expect(() => parseDocument(twice)).toThrow();
+    const late = structuredClone(withCover); late.pages.push(late.pages.shift()!);
+    expect(() => parseDocument(late)).toThrow();
+    const filled = structuredClone(withCover); filled.pages[0].itemIds = [filled.items[0].id]; filled.pages[1].itemIds = [];
+    expect(() => parseDocument(filled)).toThrow();
+    const content = fixture().items[0].content;
+    expect(parseItemContent(content)).not.toHaveProperty("coverFocusY");
+    for (const coverFocusY of [null, 0, .8, 1]) expect(parseItemContent({ ...content, coverFocusY }).coverFocusY).toBe(coverFocusY);
+    for (const coverFocusY of [-.01, 1.01, "0.5"]) expect(() => parseItemContent({ ...content, coverFocusY })).toThrow();
+  });
   it("keeps an odd final listed page without an invented second item", () => {
     const doc = fixture(); doc.items.pop(); doc.pages[1].itemIds.pop();
     expect(parseDocument(doc).pages[1].itemIds).toHaveLength(1);

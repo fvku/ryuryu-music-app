@@ -18,8 +18,9 @@ describe("generator Release Master import", () => {
   it("creates adopted and odd listed pages while preserving source and editable values", () => {
     const input = [album({ title: "[EP] Adopted" }), album({ no: "2", title: "Listed A", mjAdoption: "掲載" }), album({ no: "3", title: "Listed B", mjAdoption: "掲載" }), album({ no: "4", title: "Listed C", mjAdoption: "掲載" })];
     const doc = importDocument(input, "monthly", "2026-08", "2026-09-05T00:00:00.000Z");
-    expect(doc.pages.map(page => [page.kind, page.itemIds.length])).toEqual([["adopted", 1], ["listed", 2], ["listed", 1]]);
-    expect(doc.items[0].source.fields.title).toBe("[EP] Adopted"); expect(doc.items[0].content.fields.title).toBe("Adopted");
+    expect(doc.pages.map(page => [page.kind, page.itemIds.length])).toEqual([["cover", 0], ["adopted", 1], ["listed", 2], ["listed", 1]]);
+    // [EP]は画像に出す（2026-10-07〜）。取り込み時に外さない。
+    expect(doc.items[0].source.fields.title).toBe("[EP] Adopted"); expect(doc.items[0].content.fields.title).toBe("[EP] Adopted");
     expect(doc.items[0].content.fields.duration).toBe("10songs, 40min");
     expect(doc.items[0].source.coverUrl).toBeNull();
     expect(doc.items[0].source.importedAt).toBe("2026-09-05T00:00:00.000Z");

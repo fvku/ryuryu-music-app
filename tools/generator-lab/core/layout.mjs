@@ -401,8 +401,39 @@ const Layout = (() => {
     },
   };
 
+  // ============================================================
+  // Monthly／Japanの表紙（`cover`）。🔵 2026-10-07、Koheiから受け取った見本（2000×2000、2026年9月Japan表紙の
+  // 画像部分）を実測した。ジャケット6枚を、斜めの切れ目で分けた6枠へ敷き詰めるだけ（文字・ロゴは無し）。
+  // 水平の切れ目は傾き約0.1（右下がり）、縦の切れ目は約-0.19（上ほど右）。座標は見本の2000基準を
+  // 1200基準へ0.6倍したもの。見本の各領域を切り出して描き戻すと、画素差0で一致することを確認済み。
+  //
+  // SLOTSの順＝文書の先頭からの作品の順（採用→掲載）。左上→右上→中央右→右下→中央左→左下。
+  // 採用5＋掲載1でも採用4＋掲載2でも、同じ順で枠に入る（Koheiの指定、2026-10-07）。
+  // 継ぎ目に下地が透けないよう、各枠は外側へ少し広げて描き、DRAW_ORDERの後ろが上に重なる。
+  // ============================================================
+  const COLLAGE = {
+    SLOTS: [
+      [[0, 0], [537, 0], [427.8, 582.6], [0, 540]],                                  // 左上
+      [[537, 0], [1200, 0], [1200, 352.2], [483, 288]],                              // 右上
+      [[483, 288], [1200, 352.2], [1200, 654], [777, 618], [427.8, 582.6]],          // 中央右
+      [[777, 618], [1200, 654], [1200, 1200], [664.2, 1200]],                        // 右下
+      [[0, 540], [427.8, 582.6], [777, 618], [720, 912], [0, 840]],                  // 中央左
+      [[0, 840], [720, 912], [664.2, 1200], [0, 1200]],                              // 左下
+    ],
+    DRAW_ORDER: [0, 1, 2, 4, 3, 5],
+    /** 継ぎ目を埋めるために外側へ広げる量（1200基準のpx）。 */
+    BLEED: 1,
+    /** 枠の外接矩形。ジャケットはこれを覆う倍率（cover-fit）で敷く。 */
+    boxOf(index) {
+      const poly = COLLAGE.SLOTS[index];
+      const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
+      const x = Math.min(...xs), y = Math.min(...ys);
+      return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+    },
+  };
+
   return {
-    CANVAS, EXPORT_SUPER_SAMPLE, RULE, RULE_COLOR, PANEL_FILL, BACKGROUND, CELLS, LISTED, TYPE, TEXT, TEXT_RULE, WEEKLY,
+    CANVAS, EXPORT_SUPER_SAMPLE, RULE, RULE_COLOR, PANEL_FILL, BACKGROUND, CELLS, LISTED, TYPE, TEXT, TEXT_RULE, WEEKLY, COLLAGE,
     MIN_WEIGHT, renderWeightOf, baselinesFor, titleBaselines, bodyBand, bodyLead, bodyLayoutFor, bodyFits,
     get renderWeightDelta() { return renderWeightDelta; },
     set renderWeightDelta(v) { renderWeightDelta = v; },

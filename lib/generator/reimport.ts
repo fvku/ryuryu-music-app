@@ -13,6 +13,11 @@ export type ReimportDiff = {
   removed: ReimportRemoved[];
   moved: ReimportMoved[];
   limits: { featureMax: number | null; othersMax: number | null; featureAfter: number | null; othersAfter: number | null };
+  /**
+   * Monthly／Japanで表紙（画像01）がまだ無い。2026-10-07より前に作った文書が該当し、
+   * 取り込み直しを確定すると先頭に表紙を足す（並び順の保存は画像を増やせないため、この経路だけが足せる）。
+   */
+  coverMissing: boolean;
 };
 
 type Selected = { album: ReleaseMasterAlbum; group: ReimportGroup; key: string };
@@ -24,11 +29,13 @@ export function releaseMasterKey(album: Pick<ReleaseMasterAlbum, "uid" | "no" | 
   return `name:${normalized(album.title)}::${normalized(album.artist)}`;
 }
 function itemNameKey(item: GeneratorItem): string { return `${normalized(item.source.fields.title)}::${normalized(item.source.fields.artist)}`; }
+const EP_PREFIX = /^\s*[\[［]\s*ep\s*[\]］]\s*/i;
 function edited(item: GeneratorItem, series: GeneratorDocument["series"]): boolean {
   const expected = { ...item.source.fields };
-  if (series !== "weekly") expected.title = expected.title.replace(/^\s*[\[［]\s*ep\s*[\]］]\s*/i, "");
   if (series === "weekly") expected.text = "";
-  return JSON.stringify(expected) !== JSON.stringify(item.content.fields);
+  if (JSON.stringify(expected) === JSON.stringify(item.content.fields)) return false;
+  // 2026-10-07より前のMonthly／Japanは、取り込み時に作品名の`[EP]`を外していた。その形も手直しとは数えない。
+  return series === "weekly" || JSON.stringify({ ...expected, title: expected.title.replace(EP_PREFIX, "") }) !== JSON.stringify(item.content.fields);
 }
 function groupOf(document: GeneratorDocument): Map<string, ReimportGroup> {
   const result = new Map<string, ReimportGroup>();
@@ -122,7 +129,8 @@ export function collectReimportDiff(document: GeneratorDocument, albums: Release
   }
   const featureAfter = document.series === "weekly" ? chosen.filter(value => value.group === "feature").length : null;
   const othersAfter = document.series === "weekly" ? chosen.filter(value => value.group === "others").length : null;
-  return { added, removed, moved, limits: { featureMax: document.series === "weekly" ? 5 : null, othersMax: document.series === "weekly" ? 60 : null, featureAfter, othersAfter } };
+  return { added, removed, moved, limits: { featureMax: document.series === "weekly" ? 5 : null, othersMax: document.series === "weekly" ? 60 : null, featureAfter, othersAfter },
+    coverMissing: document.series !== "weekly" && document.pages[0]?.kind !== "cover" };
 }
 
 function orderedAlbums(ids: string[], matched: Map<string, Selected>, group: ReimportGroup,
@@ -204,7 +212,9 @@ export function buildReimport({
   } else {
     for (let index = 0; index < ids.listed.length; index += 2) listed.push(page(oldListed[listed.length]?.id || randomUUID(), "listed", ids.listed.slice(index, index + 2), oldListed[listed.length]));
   }
-  const result = [...adopted, ...listed];
+  // 表紙は残す。無い旧文書には足す（取り込み直しの確定画面に「表紙を追加」と出している）。
+  const oldCover = original.find(value => value.kind === "cover");
+  const result = [page(oldCover?.id || randomUUID(), "cover", [], oldCover), ...adopted, ...listed];
   parseDocument({ ...document, pages: result, items: [...document.items.filter(item => !removed.has(item.id)), ...addItems] });
   return { pages: result, addItems, removeItemIds };
 }

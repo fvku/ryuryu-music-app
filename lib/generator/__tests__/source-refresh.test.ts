@@ -22,6 +22,22 @@ describe("Release Masterの再取得", () => {
     expect(collect(importWeeklyDocument(weeklyAlbums, "2026-08-07"), weeklyAlbums)).toEqual([]);
   });
 
+  it("[EP]を外して取り込んでいた旧文書には、[EP]付きの作品名を手直し扱いせずに差分として出す", () => {
+    const albums = [album({ title: "[EP] Adopted" })];
+    const document = monthly(albums);
+    document.items[0].content.fields.title = "Adopted";
+    expect(collect(document, albums)[0].changes).toEqual([
+      { key: "title", current: "Adopted", next: "[EP] Adopted", edited: false },
+    ]);
+  });
+
+  it("表紙の無い旧文書でも、採用の先頭を画像02として数える", () => {
+    const albums = [album()];
+    const document = monthly(albums);
+    const legacy = { ...document, pages: document.pages.slice(1) };
+    expect(collect(legacy, [{ ...albums[0], country: "UK" }])[0].pageNo).toBe(2);
+  });
+
   it("Release Master側で直した項目を、画像番号つきで差分に出す", () => {
     const albums = [album()];
     const document = monthly(albums);

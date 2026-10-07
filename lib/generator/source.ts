@@ -138,7 +138,8 @@ export function selectWeeklyAlbums(albums: ReleaseMasterAlbum[], week: string) {
 export function createGeneratorItem(album: ReleaseMasterAlbum, series: GeneratorSeries, importedAt: string): GeneratorItem {
   const sourceFields = { title: album.title, artist: album.artist, duration: album.duration, genreMemo: album.genreMemo,
     country: album.country, trackNo: album.mjTrackNo, track: album.mjTrack, text: album.mjText };
-  const contentFields = { ...sourceFields, title: series === "weekly" ? album.title : album.title.replace(ep, ""), text: series === "weekly" ? "" : album.mjText };
+  // 作品名の`[EP]`は全企画で残す（2026-10-07、Koheiの指示。以前はMonthly／Japanだけ取り込み時に外していた）。
+  const contentFields = { ...sourceFields, text: series === "weekly" ? "" : album.mjText };
   return { id: randomUUID(), source: { kind: "release-master", uid: album.uid.trim() || null, no: album.no || null, date: album.date,
     importedAt, coverUrl: album.coverUrlLarge.trim() || album.coverUrl.trim() || null, fields: sourceFields }, content: { fields: contentFields, show: { title: true, artist: true, duration: true,
       genreMemo: true, country: series !== "japan", track: series !== "weekly" }, tracking: 0, kerns: {}, bodyLeadMode: "auto", bodyMaxLead: 42,
@@ -150,7 +151,8 @@ export function importDocument(albums: ReleaseMasterAlbum[], series: MonthlyGene
   if (!source.length) throw new GeneratorError("NOT_FOUND", 404, "対象月・企画の採用／掲載アルバムがありません。");
   if (source.length > 200) throw new GeneratorError("INVALID_INPUT", 400, "対象アルバムが多すぎます。");
   const items: GeneratorItem[] = source.map(album => createGeneratorItem(album, series, importedAt));
-  const pages: GeneratorDocument["pages"] = [];
+  // 表紙（画像01）は先頭。ジャケットは採用→掲載の先頭6作品から描画時に導出する（canvas-preview.ts）。
+  const pages: GeneratorDocument["pages"] = [{ id: randomUUID(), kind: "cover", itemIds: [], bgColor: null }];
   let index = 0;
   for (let i = 0; i < selected.adopted.length; i++, index++) pages.push({ id: randomUUID(), kind: "adopted", itemIds: [items[index].id], bgColor: null });
   for (let i = 0; i < selected.listed.length; i += 2) {
