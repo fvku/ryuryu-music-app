@@ -218,7 +218,7 @@ export default function GeneratorPreview({
         {status}
         <span className="mx-1">·</span>
         {interactionHint}
-        {!page.bgColor && <span className="ml-1 text-amber-300">背景色は未設定（プレビューだけ仮の色）。</span>}
+        {!page.bgColor && page.kind !== "cover" && <span className="ml-1 text-amber-300">背景色は未設定（プレビューだけ仮の色）。</span>}
       </p>
 
       {/* 出力できない理由は、出力ボタンと同じ視野に置く。 */}

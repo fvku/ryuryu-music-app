@@ -30,6 +30,7 @@ import {
   imageSaveTargets,
   keyOf,
   pageEditBlocker,
+  pageUsesBgColor,
   recoveryHasChanges,
   same,
   targetLabels,
@@ -254,8 +255,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     return () => window.clearTimeout(timer);
   }, [setStatus, status]);
 
-  // 背景色の候補はジャケットの画素から拾う。表紙は作品を持たないので、最初のメインのジャケットを使う。
-  const colorSource = previewPage?.kind === "cover" ? previewPages.find(value => value.kind === "feature") || null : previewPage;
+  // 背景色の候補はジャケットの画素から拾う。表紙は背景色を選ばないので拾わない。
+  const colorSource = previewPage && pageUsesBgColor(previewPage) ? previewPage : null;
   const updateAutoColors = useCallback((update: (current: Record<string, string>) => Record<string, string>) => {
     autoColorsRef.current = update(autoColorsRef.current);
     setAutoColors(autoColorsRef.current);
@@ -376,9 +377,10 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       for (const lock of mine) await session.tryAcquire("item", lock.targetId, "transfer");
     }
     // 背景色が未設定の画像は、ジャケットから拾った候補の先頭を仮の初期値にする。
-    // 決めるのは人なので、そのまま保存もできるし、候補やカラーピッカーで直してもよい。
-    const savedColor = snapshot.document.pages.find(value => value.id === pageId)?.bgColor ?? null;
-    if (savedColor === null && pageColors[pageId] === undefined) {
+    // 決めるのは人なので、そのまま保存もできるし、候補やカラーピッカーで直してもよい。表紙は背景色を選ばない。
+    const savedPage = snapshot.document.pages.find(value => value.id === pageId);
+    const savedColor = savedPage?.bgColor ?? null;
+    if (savedPage && pageUsesBgColor(savedPage) && savedColor === null && pageColors[pageId] === undefined) {
       const initial = colorCandidatesRef.current[pageId]?.[0] ?? FALLBACK_PAGE_COLOR;
       updateAutoColors(current => ({ ...current, [pageId]: initial }));
       setPageColors(current => current[pageId] !== undefined ? current : { ...current, [pageId]: initial });
@@ -965,8 +967,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     discardImage(page.id);
     setDiscardPrompt(false);
     // 編集は続ける。背景色が未設定なら、仮の初期値を入れ直す。
-    const savedColor = snapshot.document.pages.find(value => value.id === page.id)?.bgColor ?? null;
-    if (savedColor === null) {
+    const savedPage = snapshot.document.pages.find(value => value.id === page.id);
+    if (savedPage && pageUsesBgColor(savedPage) && savedPage.bgColor === null) {
       const initial = colorCandidatesRef.current[page.id]?.[0] ?? FALLBACK_PAGE_COLOR;
       updateAutoColors(current => ({ ...current, [page.id]: initial }));
       setPageColors(current => ({ ...current, [page.id]: initial }));
@@ -1052,6 +1054,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const pageBadges = derivePageBadges({
     pages: previewPages.map(value => ({
       id: value.id,
+      kind: value.kind,
       // 表紙の切り抜き位置も作品ごとの下書き・ロックを使う。
       itemIds: value.slots.map(slot => slot.id),
       bgColor: snapshot.document.pages.find(saved => saved.id === value.id)?.bgColor ?? null,
@@ -1389,7 +1392,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             <div className="space-y-5 px-4 py-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
               {!imageEditing ? renderNotEditing() : (
                 <>
-                  {savedPage && (
+                  {savedPage && pageUsesBgColor(savedPage) && (
                     <section className="space-y-2">
                       <h3 className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
                         背景色<span className="ml-1 font-normal">（この画像だけ）</span>
@@ -1407,7 +1410,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                   )}
 
                   {activeItem && page?.kind === "cover" && previewPage && (
-                    <section className="space-y-2 border-t pt-4" style={{ borderColor: "var(--border-subtle)" }}>
+                    <section className="space-y-2">
                       <h3 className="text-xs font-semibold">ジャケットの切り抜き位置</h3>
                       <SelectInput
                         aria-label="調整するジャケット"

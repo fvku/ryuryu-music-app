@@ -30,6 +30,12 @@ describe("画像ごとのサムネイル表示状態", () => {
     expect(badges.p2.dirty).toBe(false);
   });
 
+  it("Weeklyの表紙は背景色を選ばないので、未設定でも「背景色なし」を出さない", () => {
+    const badges = derive({ pages: [{ id: "c1", kind: "cover", itemIds: ["i1"], bgColor: null }, ...pages] });
+    expect(badges.c1.needsColor).toBe(false);
+    expect(badges.p2.needsColor).toBe(true);
+  });
+
   it("その画像に載る作品のロックを、画像の編集者として示す", () => {
     const badges = derive({ foreignLocks: [{ kind: "item", targetId: "i2", owner: "meri@example.com" }] });
     expect(badges.p1.lockedBy).toBeNull();

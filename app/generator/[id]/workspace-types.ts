@@ -137,6 +137,13 @@ export type FieldSelection = {
  * 画像ごとの状態。文書全体の「未保存◯件」だけでは、どの画像のことかがサムネイルから分からない。
  * 画面から切り離してテストできるよう、純粋な導出にしてある。
  */
+/**
+ * その画像で背景色を選ぶか。Weeklyの表紙は5本の帯と全面のオーバーレイで覆われ、背景色が見えないので選ばない（2026-10-06）。
+ */
+export function pageUsesBgColor(page: { kind?: string }): boolean {
+  return page.kind !== "cover";
+}
+
 export function derivePageBadges({
   pages,
   isItemDirty,
@@ -145,7 +152,7 @@ export function derivePageBadges({
   foreignLocks,
   heldLocks = [],
 }: {
-  pages: { id: string; itemIds: string[]; bgColor?: string | null }[];
+  pages: { id: string; kind?: string; itemIds: string[]; bgColor?: string | null }[];
   isItemDirty(itemId: string): boolean;
   /** 背景色が未保存のページ。 */
   dirtyPageIds: ReadonlySet<string>;
@@ -166,7 +173,7 @@ export function derivePageBadges({
       // 未保存の画像から離れるとロックを持ったままにする。見えないと解放できないので印を出す。
       held: heldLocks.some(lock => (lock.kind === "page" && lock.targetId === page.id)
         || (lock.kind === "item" && page.itemIds.includes(lock.targetId))),
-      needsColor: !(pageColors[page.id] ?? page.bgColor),
+      needsColor: pageUsesBgColor(page) && !(pageColors[page.id] ?? page.bgColor),
     };
   }
   return result;
