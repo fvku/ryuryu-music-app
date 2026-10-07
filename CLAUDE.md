@@ -26,6 +26,7 @@
   - A=No., B=Date, C=Title, D=Artist, E=Body, F=洋邦, G=Time, H=#, I=リスナー, K=memo（旧playlist）, L=genre（旧genre/memo）, M=国, P=WEEK, R=M/J採用, S=ASSIGN, T=M Number, U=Track, V=Start Time, W=M/J採用（220-300）, Y=Kwisoo, Z=Meri, AA=Kohei, AB=Eddie, AC=Hanawa, AD=Kaede, AF=Spotify, AG=spotifyカバー（640×640）, AJ=UID
   - 列位置は 2026-09-11 に playlist を K 列へ移動した時点のもの。コードはヘッダー名で解決するため、移動しても壊れない
   - K/L列は 2026-09-18 に見出しを「playlist」→「memo」「genre/memo」→「genre」へ改名した（データの意味は変わらない。K=収録プレイリスト名＋手動メモ、L=手入力ジャンル）。`lib/sheet-headers.ts` の `buildHeaderMap` が新旧どちらの見出しでも解決するので、改名前後どちらの状態でもコードは動く
+  - `読み` = 任意の列（無くてよい）。ジェネレーターで同じ日付の作品をあいうえお順に並べるときのアーティスト名の読み。空なら辞書（kuromoji）で推定するので、読み違えた行だけ書けばよい
   - `画像リンク変換` = Apple Music のカバー画像URL（2000×2000）。列位置は可変なのでヘッダー名で解決する。`spotifyカバー` より充足率が高く、高解像度が要る用途（monthly-generator）はこちらを使う
 
 ## 主要ファイル
@@ -158,6 +159,8 @@ Release Master の `memo`（旧playlist）列に「そのアルバムがどの�
 Monthly／Japan画像ジェネレーターの機能版は`app/generator/`に実装済み。ページ遷移・情報設計・UI／ビジュアルデザインを変更する前に、[Claude Code向け引き継ぎプロンプト](docs/claude-generator-ui-handoff.md)を**最初から最後まで読み**、そこからリンクされた操作仕様・共有保存契約・UI実装記録も確認すること。引き継ぎには、初回UI変更で失われかけた機能と2026-09-07の受入で復元した機能がまとまっている。
 
 本文は天地左右25pxを確保し、複数行の行送りを利用可能な高さまで自動最大化するのが既定。最小行送りは28pxで、収まらない場合は警告してPNG生成を止める。この描画結果、`bodyLeadMode`／`bodyMaxLead`の保存契約、既存文書を自動として扱う互換性はUI変更でも維持する。API・DB・適用済みマイグレーションの変更が必要な場合は独断で変更せず、理由・案・影響範囲をCodexへの引き継ぎ事項として残す。
+
+Monthly／Japanの表紙（画像01）は、採用→掲載の先頭6作品のジャケットを斜めの6枠に並べたコラージュ（2026-10-07〜。`Layout.COLLAGE`）。切り抜き位置は作品ごとの`coverFocusX`／`coverFocusY`。表紙の無い旧文書は「Release Masterから取り込み直す」で表紙が追加される。作品名の`[EP]`は取り込みで外さない。採用・掲載の並びは EP末尾 → 日付 → アーティスト名（英字a-z → 日本語あいうえお順。漢字はRelease Masterの`読み`列、無ければ辞書で推定。`lib/generator/artist-reading.ts`）。
 
 特に、Timeの空欄補完、Release Masterから文字情報を読み直す再取得導線（差分選択→ローカル下書き→作品ごとの保存）、字間・行送りの直接数値入力と`Mixed`表示、作品・背景の自動ロック取得と対象別version保存、プレビューからのおすすめ曲番号／曲名の個別選択、保存再送の`requestId`維持、heartbeat競合防止、並び順を含むローカル復旧、stickyと非表示タブでの画像準備は完成済み機能として維持する。「作品を編集」「背景を編集」の開始ボタンは再追加しない。
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canvasPreviewPage } from "../canvas-preview";
+import { canvasPreviewPage, COLLAGE_SLOT_COUNT, pageNumber } from "../canvas-preview";
 import { importDocument, importWeeklyDocument } from "../source";
 import type { ReleaseMasterAlbum } from "../../types";
 
@@ -11,9 +11,35 @@ const album = (overrides: Partial<ReleaseMasterAlbum> = {}): ReleaseMasterAlbum 
 });
 
 describe("generator canvas preview pages", () => {
-  it("keeps Monthly numbering from image 2", () => {
+  it("numbers the Monthly cover 01 and keeps the first adopted image at 02", () => {
     const document = importDocument([album({ date: "2026-08-01" })], "monthly", "2026-08");
-    expect(canvasPreviewPage(document, 0)).toMatchObject({ kind: "adopted", no: 2, week: null });
+    expect(canvasPreviewPage(document, 0)).toMatchObject({ kind: "cover", no: 1, week: null, coverLayout: "collage" });
+    expect(canvasPreviewPage(document, 1)).toMatchObject({ kind: "adopted", no: 2, week: null, coverLayout: null });
+  });
+
+  it("keeps image 02 first for older Monthly documents without a cover", () => {
+    const document = importDocument([album({ date: "2026-08-01" })], "monthly", "2026-08");
+    const legacy = { ...document, pages: document.pages.slice(1) };
+    expect(pageNumber(legacy, 0)).toBe(2);
+    expect(canvasPreviewPage(legacy, 0)).toMatchObject({ kind: "adopted", no: 2 });
+  });
+
+  it("fills the Japan collage with the first six works in adopted → listed order and follows reordering", () => {
+    const input = [
+      ...["A1", "A2", "A3", "A4", "A5"].map((title, index) => album({ no: String(index + 1), title, date: `2026-09-0${index + 1}`, mjAdoption: "J採用" })),
+      ...["L1", "L2", "L3"].map((title, index) => album({ no: String(index + 6), title, date: `2026-09-0${index + 1}`, mjAdoption: "J掲載" })),
+    ];
+    const document = importDocument(input, "japan", "2026-09");
+    document.items[5].content.coverFocusY = .8;
+    const cover = canvasPreviewPage(document, 0)!;
+    expect(cover.slots.map(slot => slot.fields.title)).toEqual(["A1", "A2", "A3", "A4", "A5", "L1"]);
+    expect(cover.slots[5].coverFocusY).toBe(.8);
+    expect(cover.slots.every(slot => slot.coverFocusX === undefined)).toBe(true);
+    // 掲載の上下を入れ替えると、表紙の6枚目も入れ替わる（表紙にitemIdを保存しないため）。
+    const listed = document.pages.find(page => page.kind === "listed")!;
+    listed.itemIds.reverse();
+    expect(canvasPreviewPage(document, 0)!.slots[5].fields.title).toBe("L2");
+    expect(COLLAGE_SLOT_COUNT).toBe(6);
   });
 
   it("numbers Weekly from cover 0 and derives cover jackets from feature order", () => {

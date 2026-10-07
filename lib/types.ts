@@ -32,6 +32,8 @@ export interface ReleaseMasterAlbum {
   spotifyUrl: string; // AB column
   coverUrl: string;   // AC column（spotifyカバー。640×640）
   coverUrlLarge: string; // 画像リンク変換 column（Apple Music。2000×2000）。空の行もありうる
+  /** 読み column（任意の列）。ジェネレーターで同じ日付の作品をあいうえお順に並べるときの読み。空なら辞書で推定 */
+  artistReading?: string;
 }
 
 export interface Score {

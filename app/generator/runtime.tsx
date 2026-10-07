@@ -21,9 +21,10 @@ import type { ReleaseMasterAlbum } from "@/lib/types";
 import { pickWaveMonth, waveMonthWarning, type WaveChoice } from "./wave-month";
 
 export type LegacySlot = CanvasPreviewPage["slots"][number] & {
-  // focusXは表紙（cover）ページの帯だけが使う。顔検出できなかった・未対象のページはundefinedのままで、
+  // focusXは表紙（cover）ページだけが使う。Weeklyの帯で顔検出できなかった・未対象のページはundefinedのままで、
   // Render.drawWeeklyCoverが既定の0.5（中央切り出し、従来どおり）にフォールバックする。
-  jacket: { img: HTMLImageElement | null; focusX?: number };
+  // focusYはMonthly／Japan表紙（コラージュ）だけが使う。未指定は中央。
+  jacket: { img: HTMLImageElement | null; focusX?: number; focusY?: number };
   bgColor?: string;
 };
 export type LegacyPage = Omit<CanvasPreviewPage, "slots"> & { slots: LegacySlot[] };
@@ -52,6 +53,7 @@ type Renderer = {
   bodyLineCount(context: CanvasRenderingContext2D, text: string, tracking: number, kerns: Record<string, number> | null): number;
   bodyLines(context: CanvasRenderingContext2D, text: string, tracking: number, kerns: Record<string, number> | null): BodyLine[];
   titleLinesOf(context: CanvasRenderingContext2D, text: string, cell: Cell): string[];
+  collagePlacement(img: { width: number; height: number }, box: Cell, focusX?: number, focusY?: number): Cell;
 };
 type LayoutModule = {
   CANVAS: number;
@@ -72,6 +74,7 @@ type LayoutModule = {
     COVER: { RANK_TO_BAND: number[]; bandCell(index: number): Cell };
     OTHERS: { BODY: { BOX: Cell }; TYPE: { body: { size: number } }; layoutFor(lineCount: number): { lead: number; baseline: number }; fits(lineCount: number): boolean };
   };
+  COLLAGE: { SLOTS: number[][][]; DRAW_ORDER: number[]; boxOf(index: number): Cell };
 };
 type PagesModule = {
   toDrawData(slot: CanvasPreviewPage["slots"][number]): DrawData;
@@ -245,7 +248,8 @@ async function detectCoverFocusX(images: (HTMLImageElement | null)[]): Promise<(
 
 /** ジャケットを解決して、描画コアが受け取れる形のページにする。 */
 export async function preparePage(runtime: GeneratorRuntime, documentId: string, page: CanvasPreviewPage): Promise<LegacyPage> {
-  if (page.kind === "cover" && !runtime.coverFontReady()) throw new Error("Weekly表紙に必要な書体を読み込めません。");
+  const weeklyCover = page.kind === "cover" && page.coverLayout !== "collage";
+  if (weeklyCover && !runtime.coverFontReady()) throw new Error("Weekly表紙に必要な書体を読み込めません。");
   // Other Releasesは文字リストのみ。使わないジャケットを30件読み込まない。
   const sources = page.slots.map(slot => page.kind === "others" ? null :
     (slot.jacketAssetId && assetUrl(documentId, slot.jacketAssetId))
@@ -256,14 +260,19 @@ export async function preparePage(runtime: GeneratorRuntime, documentId: string,
   const jackets = await Promise.all(sources.map(source => source ? loadImage(source).catch(() => null) : Promise.resolve(null)));
   // 表紙の帯だけ、人物の顔を中心に切り抜く（2026-09-14、2026#37の目視で指摘）。中央切り出しが既定の
   // フォールバックなので、検出できなかった作品だけ従来どおりの見た目になる（他の帯を巻き込まない）。
-  const focusXs = page.kind === "cover"
+  // Monthly／Japanのコラージュは中央が既定で、顔検出はしない（枠ごとに縦横とも切るため、横位置だけ寄せても足りない）。
+  const focusXs = weeklyCover
     ? await detectCoverFocusX(jackets.map((image, index) => page.slots[index].coverFocusX == null ? image : null))
     : jackets.map(() => undefined);
   const bgColor = page.bgColor || FALLBACK_BACKGROUND;
   return {
     ...page,
     bgColor,
-    slots: page.slots.map((slot, index) => ({ ...slot, jacket: { img: jackets[index], focusX: page.kind === "cover" ? slot.coverFocusX ?? focusXs[index] : undefined }, ...(index === 0 ? { bgColor } : {}) })),
+    slots: page.slots.map((slot, index) => ({ ...slot, jacket: {
+      img: jackets[index],
+      focusX: page.kind === "cover" ? slot.coverFocusX ?? focusXs[index] : undefined,
+      focusY: page.kind === "cover" ? slot.coverFocusY ?? undefined : undefined,
+    }, ...(index === 0 ? { bgColor } : {}) })),
   };
 }
 

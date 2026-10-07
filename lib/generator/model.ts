@@ -13,8 +13,13 @@ export type ItemContent = {
   bodyMaxLead: number;
   typography: Partial<Record<Exclude<typeof FIELD_KEYS[number], "text">, Typography>>;
   jacketAssetId: string | null;
-  /** Weekly表紙だけに使う水平中心（0〜1）。未指定・nullは顔検出による自動。 */
+  /**
+   * 表紙での切り抜き位置（0〜1）。Weeklyは帯の水平中心（未指定・nullは顔検出による自動）。
+   * Monthly／Japanはコラージュの枠の中心に来る画像上の点で、未指定・nullは中央。
+   */
   coverFocusX?: number | null;
+  /** Monthly／Japan表紙だけが使う縦位置（0〜1）。Weeklyの帯は縦に切らないので使わない。 */
+  coverFocusY?: number | null;
 };
 export type GeneratorItemSource = {
   kind: "manual" | "release-master";
@@ -98,7 +103,7 @@ export function parseItemSource(value: unknown): GeneratorItemSource {
   };
 }
 export function parseItemContent(value: unknown): ItemContent {
-  const raw = record(value, ["fields", "show", "tracking", "kerns", "bodyLeadMode", "bodyMaxLead", "typography", "jacketAssetId", "coverFocusX"]);
+  const raw = record(value, ["fields", "show", "tracking", "kerns", "bodyLeadMode", "bodyMaxLead", "typography", "jacketAssetId", "coverFocusX", "coverFocusY"]);
   const text = fields(raw.fields), visibility = record(raw.show, SHOW_KEYS), tracking = number(raw.tracking, -.2, .2);
   const bodyLeadMode = raw.bodyLeadMode === undefined ? "auto" : raw.bodyLeadMode;
   if (bodyLeadMode !== "auto" && bodyLeadMode !== "custom") invalid();
@@ -109,7 +114,8 @@ export function parseItemContent(value: unknown): ItemContent {
   return { fields: text, show: Object.fromEntries(SHOW_KEYS.map(key => [key, bool(visibility[key])])) as ItemContent["show"],
     tracking, kerns: kerns(raw.kerns, text.text, tracking), bodyLeadMode, bodyMaxLead: number(raw.bodyMaxLead, 28, 84), typography,
     jacketAssetId: nullableId(raw.jacketAssetId),
-    ...(raw.coverFocusX === undefined ? {} : { coverFocusX: raw.coverFocusX === null ? null : number(raw.coverFocusX, 0, 1) }) };
+    ...(raw.coverFocusX === undefined ? {} : { coverFocusX: raw.coverFocusX === null ? null : number(raw.coverFocusX, 0, 1) }),
+    ...(raw.coverFocusY === undefined ? {} : { coverFocusY: raw.coverFocusY === null ? null : number(raw.coverFocusY, 0, 1) }) };
 }
 function date(value: unknown): string {
   const result = string(value, 10);
@@ -167,6 +173,10 @@ export function parseDocument(value: unknown): GeneratorDocument {
         if (weeklyStage !== "feature" || othersCount || raw.itemIds.length > 60) invalid();
         othersCount += 1; weeklyStage = "others";
       }
+    } else if (raw.kind === "cover") {
+      // Monthly／Japanの表紙は任意（2026-10-07追加。それより前の文書には無い）。あるなら先頭に1枚だけ。
+      // ジャケットは後ろのページの作品から導出するので、itemIdsは持たない。
+      if (pageIds.size !== 1 || raw.itemIds.length !== 0) invalid();
     } else {
       if (!["adopted", "listed"].includes(raw.kind)) invalid();
       if (listed && raw.kind === "adopted") invalid();

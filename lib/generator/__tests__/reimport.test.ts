@@ -1,13 +1,48 @@
 import { describe, expect, it } from "vitest";
 import type { ReleaseMasterAlbum } from "../../types";
 import { buildReimport, collectReimportDiff } from "../reimport";
-import { importWeeklyDocument } from "../source";
+import { importDocument, importWeeklyDocument } from "../source";
 
 const album = (overrides: Partial<ReleaseMasterAlbum> = {}): ReleaseMasterAlbum => ({
   no: "1", uid: "uid-a", date: "2027/01/01", title: "A", artist: "Artist A", genre: "洋楽",
   duration: "10songs, 40min", weekNumber: "53", genreMemo: "Rock", playlistMemo: "", country: "US", weekAdoption: "採用",
   mjAdoption: "", mjAssign: "", mjTrackNo: "", mjTrack: "", mjStartTime: "", mjText: "source text",
   legacyScores: [], spotifyUrl: "", coverUrl: "", coverUrlLarge: "", ...overrides,
+});
+
+describe("Monthly/Japan cover through re-import", () => {
+  const japan = (overrides: Partial<ReleaseMasterAlbum>) => album({ date: "2026/09/09", weekAdoption: "", mjAdoption: "J採用", ...overrides });
+
+  it("adds the cover to an older document that has none, keeping every other page", () => {
+    const albums = [japan({}), japan({ no: "2", uid: "uid-b", title: "B", mjAdoption: "J掲載" })];
+    const document = importDocument(albums, "japan", "2026-09");
+    const legacy = { ...document, pages: document.pages.slice(1) };
+    legacy.pages[0].bgColor = "#123456";
+    expect(collectReimportDiff(legacy, albums).coverMissing).toBe(true);
+    const result = buildReimport({ document: legacy, albums, addKeys: [], removeItemIds: [], resort: false });
+    expect(result.pages.map(page => page.kind)).toEqual(["cover", "adopted", "listed"]);
+    expect(result.pages.slice(1)).toEqual(legacy.pages);
+    expect(result.addItems).toEqual([]);
+  });
+
+  it("keeps the existing cover page ID and reports nothing missing", () => {
+    const albums = [japan({})];
+    const document = importDocument(albums, "japan", "2026-09");
+    expect(collectReimportDiff(document, albums).coverMissing).toBe(false);
+    const result = buildReimport({ document, albums, addKeys: [], removeItemIds: [], resort: true });
+    expect(result.pages[0]).toEqual(document.pages[0]);
+  });
+
+  it("does not count an older title imported without [EP] as a hand edit", () => {
+    const albums = [japan({}), japan({ no: "2", uid: "uid-b", title: "[EP] B", mjAdoption: "J掲載" })];
+    const document = importDocument(albums, "japan", "2026-09");
+    const ep = document.items.find(item => item.source.uid === "uid-b")!;
+    ep.content.fields.title = "B";
+    const diff = collectReimportDiff(document, [albums[0]]);
+    expect(diff.removed).toEqual([expect.objectContaining({ itemId: ep.id, edited: false })]);
+    ep.content.fields.title = "B (edited)";
+    expect(collectReimportDiff(document, [albums[0]]).removed).toEqual([expect.objectContaining({ itemId: ep.id, edited: true })]);
+  });
 });
 
 describe("generator re-import", () => {

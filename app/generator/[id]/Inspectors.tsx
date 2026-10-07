@@ -224,7 +224,8 @@ export function StructureDialog({
     onPages(swapWeeklyFeatureItem(pages, featureId, otherId));
   }
 
-  const isWeekly = pages.some(page => page.kind === "cover");
+  // Monthly／Japanにも表紙（2026-10-07〜）があるので、表紙の有無ではなくWeekly固有のページで見分ける。
+  const isWeekly = pages.some(page => page.kind === "feature" || page.kind === "others");
   const rows = pages.flatMap<{ id: string; kind: OrderedPageKind }>(page => {
     if (page.kind === "adopted" || page.kind === "listed" || page.kind === "feature" || page.kind === "others") {
       const kind: OrderedPageKind = page.kind;
@@ -313,7 +314,9 @@ export function StructureDialog({
       title="並び順を変更"
       description={isWeekly
         ? "メイン5枚の順番、Other Releasesの順番、および両者の入れ替えができます。表紙のジャケットの順もメインに合わせて変わります。"
-        : "採用・掲載それぞれの中で前後に動かせます。並びが変わると、画像への割り当ても入れ替わります。"}
+        : pages[0]?.kind === "cover"
+          ? "採用・掲載それぞれの中で前後に動かせます。並びが変わると、画像への割り当ても入れ替わります。表紙には上から6作品が入ります。"
+          : "採用・掲載それぞれの中で前後に動かせます。並びが変わると、画像への割り当ても入れ替わります。"}
       onClose={onClose}
     >
       <div className="space-y-3">

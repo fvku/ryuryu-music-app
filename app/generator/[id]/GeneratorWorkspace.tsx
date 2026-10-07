@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { canvasPreviewPage, type CanvasPreviewPage } from "@/lib/generator/canvas-preview";
+import { canvasPreviewPage, COLLAGE_SLOT_LABELS, pageNumber as pageNumberOf, type CanvasPreviewPage } from "@/lib/generator/canvas-preview";
 import type { GeneratorSnapshot } from "@/lib/generator/client-types";
 import type { GeneratorDocument, GeneratorItemSource, ItemContent } from "@/lib/generator/model";
 import type { ReimportDiff } from "@/lib/generator/reimport";
@@ -629,7 +629,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
         refreshError = (error as Error).message;
       }
       setSourceUpdate({ diff, refresh, sources, refreshError });
-      const structureCount = diff.added.length + diff.removed.length + diff.moved.length;
+      const structureCount = diff.added.length + diff.removed.length + diff.moved.length + (diff.coverMissing ? 1 : 0);
       const fieldCount = refresh.reduce((count, item) => count + item.changes.length, 0);
       setStatus(refreshError
         ? { tone: "warn", text: `作品の増減・区分は${structureCount}件あります。文字情報は読み込めませんでした: ${refreshError}` }
@@ -701,7 +701,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
    */
   async function applySourceUpdate(value: SourceUpdate) {
     const structureChanged = value.addKeys.length > 0 || value.removeItemIds.length > 0 || value.resort
-      || (sourceUpdate?.diff.moved.length || 0) > 0;
+      || (sourceUpdate?.diff.moved.length || 0) > 0 || Boolean(sourceUpdate?.diff.coverMissing);
     let document = snapshot.document;
     if (structureChanged) {
       const lock = await acquireReimportLock(value.removeItemIds);
@@ -807,7 +807,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       return next;
     });
     const pageNumbers = [...new Set(document.pages
-      .map((page, index) => ({ page, no: document.series === "weekly" ? index : index + 2 }))
+      .map((page, index) => ({ page, no: pageNumberOf(document, index) }))
       .filter(({ page }) => page.itemIds.some(id => grouped.has(id)))
       .map(({ no }) => no))].sort((left, right) => left - right);
     const count = [...grouped.values()].reduce((sum, changes) => sum + changes.length, 0);
@@ -878,7 +878,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   );
   const unsavedLabels = [
     ...snapshot.document.items.filter(item => itemDirty(item.id)).map(item => `作品「${item.content.fields.title || "作品名未入力"}」`),
-    ...dirtyPages.map(({ index }) => `画像 ${snapshot.document.series === "weekly" ? index : index + 2} の背景色`),
+    ...dirtyPages.map(({ index }) => `画像 ${pageNumberOf(snapshot.document, index)} の背景色`),
     ...(structureDirty ? ["並び順"] : []),
   ];
   const imageChanges = page ? changesFor(page.id) : [];
@@ -894,7 +894,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const blocker = page
     ? pageEditBlocker({ page: editingPage!, documentId, locks: snapshot.locks, isHeld: (kind, id) => Boolean(activeLocks[keyOf(kind, id)]), actor })
     : null;
-  const pageNumber = previewPage?.no ?? (snapshot.document.series === "weekly" ? currentIndex : currentIndex + 2);
+  const pageNumber = previewPage?.no ?? pageNumberOf(snapshot.document, currentIndex);
 
   /** この画像が最後に保存されたのはいつか。文書の通し番号ではなく、画像ごとに見せる。 */
   const imageSaved = page
@@ -1418,7 +1418,9 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                         onChange={event => setSlotIndex(Number(event.target.value))}
                       >
                         {pageItems.map((item, index) => (
-                          <option key={item.id} value={index}>メイン {index + 1} · {item.content.fields.title} / {item.content.fields.artist}</option>
+                          <option key={item.id} value={index}>
+                            {previewPage.coverLayout === "collage" ? COLLAGE_SLOT_LABELS[index] : `メイン ${index + 1}`} · {item.content.fields.title} / {item.content.fields.artist}
+                          </option>
                         ))}
                       </SelectInput>
                       <CoverCropInspector
@@ -1427,9 +1429,13 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                         page={previewPage}
                         slotIndex={slotIndex}
                         disabled={!itemLockHeld || busy}
-                        onFocus={coverFocusX => setDrafts(current => ({
+                        onFocus={focus => setDrafts(current => ({
                           ...current,
-                          [activeItem.id]: { ...(current[activeItem.id] || cloneContent(activeItem.content)), coverFocusX },
+                          [activeItem.id]: {
+                            ...(current[activeItem.id] || cloneContent(activeItem.content)),
+                            ...(focus.x !== undefined ? { coverFocusX: focus.x } : {}),
+                            ...(focus.y !== undefined ? { coverFocusY: focus.y } : {}),
+                          },
                         }))}
                       />
                     </section>

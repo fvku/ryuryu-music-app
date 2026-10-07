@@ -1635,3 +1635,61 @@ UI側が差分を開く前に行っていた画像ロックの解放・別端末
 ### 未確認事項
 
 - 和文の禁則（行頭禁則の文字が行頭に来る行）でのとどめ方（汎用の行比較なので動く想定だが実文では未確認）。
+
+## 37. 2026-10-07：Monthly／Japanの表紙（画像01）とEP表記（Opus 5.5）
+
+Koheiの依頼：「9月のMonthly Japanの表紙を採用5枚＋掲載1枚の計6枚で、見本画像のように斜めに並べる。これを画像ジェネレーターに入れたい。[EP]の表記がジェネレーターだと消えるのも無くしたい」。
+
+### 表紙（コラージュ）
+
+- 版面は見本（2000×2000）を実測した斜めの6枠（`Layout.COLLAGE`、1200基準へ0.6倍）。見本の各領域を切り出して描き戻すと画素差0で一致する。文字・ロゴは無い。
+- 枠に入るのは文書の並びで**採用→掲載の先頭6作品**。左上→右上→中央右→右下→中央左→左下の順。採用5＋掲載1でも採用4＋掲載2でも同じ規則で埋まる。表紙は`itemIds: []`で、ジャケットは描画のたびに後ろのページから導出する（Weekly表紙と同じ考え方。並び替え・swapへ自動で追従する）。
+- 切り抜き位置は作品ごとに横`coverFocusX`・縦`coverFocusY`（0〜1、外接矩形の中心に来る画像上の点。null＝中央）。Weeklyの`coverFocusX`と同じ欄を使う（1つの作品がWeekly表紙とMonthly表紙の両方に出ることは無い）。`coverFocusY`は`item.content`への任意キーの追加だけで、DB・APIの変更は無い。顔検出はWeeklyの帯だけ（コラージュは縦横どちらにも切るため）。
+- 画像番号は表紙が01、採用の先頭は従来どおり02（`pageNumber()`に集約。表紙の無い旧文書は02始まりのまま）。PNG名は`monthly-japan_26_09_01.png`。
+- 編集は表紙の枠を押して作品を選び、右の「ジャケットの切り抜き位置」で縦／横のスライダー（正方形のジャケットは枠の形に応じて動く軸が1つなので、動かない軸は出さない）。プレビュー小窓は斜めの枠の形で見える範囲を示す。保存は既存どおり作品ごと（item PATCH）。
+- 新しく取り込む文書は先頭に表紙が付く。**既存の文書（例：2026-09 Japan）は「読み込み → Release Masterから取り込み直す」で表紙が追加される**（差分ダイアログに「表紙：追加」と出る）。並び順の保存（`generator_structure_save`）は画像の増減を受け付けないため、画像を足せる既存の経路は取り込み直し（`generator_reimport`）だけ。DB関数は変更していない。
+
+### EP表記
+
+- 取り込みで作品名の`[EP]`を外さない（Monthly／Japanも。Weeklyは元から残していた）。並び順の「EPは区分の末尾」は従来どおり。
+- 既存文書の作品は`[EP]`が外れたまま保存されている。「Release Masterから取り込み直す」の文字情報の節に「作品名：TOU. → [EP] TOU.」が**手直しではない差分**として出るので、選んで反映 → 保存すれば戻る。外した形を「手で修正済み」と誤判定しないよう、再取り込みの`edited`判定と文字情報の差分の両方で旧形式を許容した。
+
+### 変更したファイル
+
+| ファイル | 内容 |
+|---|---|
+| `tools/generator-lab/core/layout.mjs` | `COLLAGE`（6枠の座標・描画順・継ぎ目のにじみ・外接矩形） |
+| `tools/generator-lab/core/render.mjs` | `drawCollageCover`・`collagePlacement`。`drawPage`は`coverLayout === 'collage'`のときだけコラージュへ分岐（指定なしは従来のWeekly表紙） |
+| `lib/generator/model.ts` | Monthly／Japanで先頭1枚だけ空の`cover`を許可。`coverFocusY` |
+| `lib/generator/canvas-preview.ts` | `pageNumber()`・`coverItemIds()`・`coverLayout`・`COLLAGE_SLOT_LABELS` |
+| `lib/generator/source.ts` | 取り込みで表紙を先頭に作る。`[EP]`を残す |
+| `lib/generator/reimport.ts` | 差分に`coverMissing`。取り込み直しで表紙を保持／追加。旧EP形式を手直しに数えない |
+| `app/generator/[id]/source-refresh.ts` | `[EP]`付きの作品名を最新値として出し、旧形式は手直しに数えない。画像番号は`pageNumber()` |
+| `app/generator/[id]/CoverCropInspector.tsx` | コラージュ用の縦横スライダーと、斜めの枠の形のプレビュー。位置を動かしている間はスライダーを無効にしない |
+| `app/generator/hit-test.ts` | 斜めの枠の当たり判定（描画順の逆から） |
+| `app/generator/runtime.tsx` | 書体の確認と顔検出はWeekly表紙だけ。`focusY`を描画へ渡す |
+| `app/generator/[id]/GeneratorWorkspace.tsx`・`ReimportDialog.tsx`・`Inspectors.tsx`・`GeneratorPreview.tsx`・`history/page.tsx` | 画像番号の集約、表紙追加の表示、Weekly判定を表紙の有無からfeature／othersの有無へ、表紙の文言 |
+
+### 実行した確認
+
+- `npx tsc --noEmit --incremental false`・`npm run lint`・`npm run build`：成功。`npx vitest run`：31ファイル・347件成功（新規9件：表紙の位置と導出・旧文書の番号・モデル検証・取り込み直しでの表紙追加／保持・旧EP形式・当たり判定）。`node --test tools/generator-lab/test/*.mjs`：61件成功。
+- 描画コアで9月Japanの実ジャケット6枚を描き、事前にPythonで作った同じ配置の画像と比較（差は縁の再標本化だけ）。
+- 実ブラウザ（固定データの`uipreview-temp`を一時的にJapan 8作品＋表紙へ書き換えて確認し、確認後に元へ戻した。画像取得・ロックAPIはPlaywrightで差し替え）：表紙が画像1・採用が2から、中央左の枠を押すと「中央左 · Garden」が選ばれ、縦位置スライダーで顔が枠に入る、ヘッダーが「未保存：画像1 画像6」、PNGが2400pxの`monthly-japan_26_08_01.png`で書き出せる。
+
+### 未確認事項
+
+- 共有DB上の実文書での「取り込み直し → 表紙追加」（この環境に共有DBの資格情報が無いため）。
+- iPhoneでの縦横スライダーの操作感。
+
+## 38. 2026-10-07：同じ日付どうしの並びを a-z・あいうえお順に（Opus 5.5）
+
+Koheiの決定：「同じ日付どうしは、アルファベットであればa-z順、日本語ではあいうえお順」。漢字の読みは「辞書で自動推定＋Release Masterの読み列で上書き」を選んだ。
+
+- 対象はMonthly／Japanの`sortAlbums`（採用・掲載それぞれ。初回取り込みと「取り込み時の規則で区分内を並べ直す」）。EP末尾 → 日付 → の順は変えず、最後のアーティスト名の比較だけを変えた。
+- 以前は小文字の文字コード比較で、和文は読みと無関係（「細野→松田→斉藤→石川」）だった。いまは英字a-z（大文字小文字を区別しない）→ 日本語あいうえお順（`Intl.Collator("ja")`を読みに対して使う）。
+- 読み：Release Masterに「読み」列（任意。無くてよい）があればその値、無ければkuromojiの推定（`lib/generator/artist-reading.ts`）。推定は人名で概ね正しいが、実例で「有元→ゆうもと」「幽体→かそけたい」と読み違える。直したい行だけ「読み」列に書けばよい。
+- 辞書は`readGeneratorReleaseMaster`がシートの読み込みと並行して準備する（初回約2秒）。読み込めなければ名前のまま並べ、取り込み自体は止めない。Vercelへは`next.config.mjs`の`outputFileTracingIncludes`で辞書を同梱（ビルドの追跡結果で12ファイル同梱を確認）。
+- WeeklyのOther Releases（`sortWeeklyOthers`）は変えていない。2026#37の実物投稿（カナの名前が漢字の名前より先）と一致させた並びのため。
+- 既存文書の並びは`itemIds`に固定されているので、取り込み直しで「区分内を並べ直す」を選んだときだけ新しい規則で並ぶ。
+
+確認：`npx vitest run` 32ファイル・351件成功（新規4件：漢字の読み順・英字a-zと日本語の前後・読み列の優先・日付とEPの優先）。`tsc`・`lint`・`build`成功。

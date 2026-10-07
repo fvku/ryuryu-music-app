@@ -34,3 +34,18 @@ it("selects each Weekly cover jacket in its rendered band", async () => {
   }
   expect(hitTest(runtime, {} as CanvasRenderingContext2D, page, -1, 600)).toBeNull();
 });
+
+// Monthly／Japan表紙のコラージュ。斜めの枠のどこを押しても、その枠の作品（文書の先頭からの順）を選ぶ。
+it("selects each Monthly/Japan collage jacket inside its slanted slot", async () => {
+  const { default: layout } = await import("@/tools/generator-lab/core/layout.mjs");
+  const runtime = { layout } as unknown as Parameters<typeof hitTest>[0];
+  const page = { kind: "cover", coverLayout: "collage", slots: Array.from({ length: 6 }, () => ({})) } as unknown as Parameters<typeof hitTest>[2];
+  const at = (x: number, y: number) => hitTest(runtime, {} as CanvasRenderingContext2D, page, x, y)?.slotIndex;
+  expect([at(200, 200), at(900, 100), at(900, 450), at(1000, 900), at(300, 700), at(200, 1100)]).toEqual([0, 1, 2, 3, 4, 5]);
+  // 縦の切れ目は上ほど右。同じx=520でも、上端は左上、切れ目の下では中央右になる。
+  expect(at(520, 10)).toBe(0);
+  expect(at(520, 400)).toBe(2);
+  // 作品が5件しか無い文書では、6枠目は何も選ばない。
+  const five = { ...page, slots: page.slots.slice(0, 5) } as Parameters<typeof hitTest>[2];
+  expect(hitTest(runtime, {} as CanvasRenderingContext2D, five, 200, 1100)).toBeNull();
+});

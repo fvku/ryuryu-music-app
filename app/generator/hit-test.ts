@@ -103,6 +103,15 @@ export function selectionRects(
  * プレビューのクリック位置 → 編集対象。
  * 帯は描画時と同じ bandLayout を使い、各文字列の実位置に最も近い項目を返す。
  */
+function insidePolygon(polygon: number[][], x: number, y: number): boolean {
+  let hit = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [xi, yi] = polygon[i], [xj, yj] = polygon[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) hit = !hit;
+  }
+  return hit;
+}
+
 export function hitTest(
   runtime: GeneratorRuntime,
   context: CanvasRenderingContext2D,
@@ -110,6 +119,12 @@ export function hitTest(
   x: number,
   y: number,
 ): Hit | null {
+  if (page.kind === "cover" && page.coverLayout === "collage") {
+    // 後から描く枠が上に重なるので、描画順の逆から当てる。
+    const { SLOTS, DRAW_ORDER } = runtime.layout.COLLAGE;
+    const slotIndex = [...DRAW_ORDER].reverse().find(index => insidePolygon(SLOTS[index], x, y));
+    return slotIndex !== undefined && page.slots[slotIndex] ? { slotIndex, key: "title", index: null } : null;
+  }
   if (page.kind === "cover") {
     const cover = runtime.layout.WEEKLY.COVER;
     const slotIndex = cover.RANK_TO_BAND.findIndex(band => inside(cover.bandCell(band), x, y));

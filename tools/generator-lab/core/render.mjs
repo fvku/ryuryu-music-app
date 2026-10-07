@@ -378,6 +378,53 @@ const Render = (() => {
   }
 
   /**
+   * ジャケットを枠の外接矩形へcover-fitで敷くときの配置。focusX/focusYは「外接矩形の中心に来る画像上の点」
+   * （0〜1）。矩形を覆えない位置へは動かさない（端で止める）。表紙コラージュとその位置調整UIで同じ式を使う。
+   */
+  function collagePlacement(img, box, focusX = 0.5, focusY = 0.5) {
+    const s = Math.max(box.w / img.width, box.h / img.height);
+    const w = img.width * s, h = img.height * s;
+    const x = Math.min(box.x, Math.max(box.x + box.w - w, box.x + box.w / 2 - focusX * w));
+    const y = Math.min(box.y, Math.max(box.y + box.h - h, box.y + box.h / 2 - focusY * h));
+    return { x, y, w, h };
+  }
+
+  function grownPolygon(poly, d) {
+    const cx = poly.reduce((a, p) => a + p[0], 0) / poly.length, cy = poly.reduce((a, p) => a + p[1], 0) / poly.length;
+    return poly.map(([x, y]) => {
+      const dx = x - cx, dy = y - cy, l = Math.hypot(dx, dy) || 1;
+      return [x + dx / l * d, y + dy / l * d];
+    });
+  }
+
+  /**
+   * Monthly／Japanの表紙（`cover`）。ジャケット6枚を斜めの6枠へ敷き詰める（Layout.COLLAGEのコメント参照）。
+   * 文字・ロゴ・オーバーレイは無い。背景は白（枠が足りないときに透けるのはここだけ）。
+   *
+   * @param {object} cover { jackets: Array<{img, focusX, focusY}|null>（文書の先頭からの作品順） }
+   */
+  function drawCollageCover(ctx, cover) {
+    const C = L.COLLAGE;
+    ctx.clearRect(0, 0, L.CANVAS, L.CANVAS);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, L.CANVAS, L.CANVAS);
+    for (const index of C.DRAW_ORDER) {
+      const entry = cover.jackets && cover.jackets[index];
+      const img = entry && entry.img;
+      if (!img) continue;
+      const p = collagePlacement(img, C.boxOf(index), entry.focusX ?? 0.5, entry.focusY ?? 0.5);
+      ctx.save();
+      ctx.beginPath();
+      grownPolygon(C.SLOTS[index], C.BLEED).forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+      ctx.closePath();
+      ctx.clip();
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, p.x, p.y, p.w, p.h);
+      ctx.restore();
+    }
+  }
+
+  /**
    * Weekly（NEW RELEASE WEEK）のOther Releases（`others`）。🔵 2026-09-08、実物投稿（2026_W-6.png）を実測して確定
    * （generator-weekly-design.md §6.3・§12、Layout.WEEKLY.OTHERSのコメント参照）。
    *
@@ -433,6 +480,11 @@ const Render = (() => {
     if (page.kind === 'listed') return drawListed(ctx, page, bg);
     if (page.kind === 'feature') return drawWeeklyFeature(ctx, top, bg);
     if (page.kind === 'others') return drawWeeklyOthers(ctx, page.slots, bg);
+    // Monthly／Japanの表紙はコラージュ。`coverLayout`はcanvas-preview.tsが文書の企画から決める。
+    // 指定が無いページは従来どおりWeekly表紙として描く（旧ラボ・既存テストの呼び出しを変えないため）。
+    if (page.kind === 'cover' && page.coverLayout === 'collage') return drawCollageCover(ctx, {
+      jackets: page.slots.map(slot => slot.jacket && slot.jacket.img && { img: slot.jacket.img, focusX: slot.jacket.focusX, focusY: slot.jacket.focusY }),
+    });
     if (page.kind === 'cover') return drawWeeklyCover(ctx, {
       // slot.jacket.focusX は preparePage()（app側）が顔検出で埋める。未検出・エラー時はundefinedのまま
       // ＝drawWeeklyCover側の既定（0.5＝中央切り出し）に落ちる。
@@ -498,7 +550,7 @@ const Render = (() => {
     return warnings;
   }
 
-  return { inspectPage, draw, drawCells, drawCover, drawBackground, titleLinesOf, bodyLineCount, bodyLines, bodySpec, drawBody, drawAdopted: draw, drawListed, drawPage, drawWeeklyFeature, fitWeeklyTitle, drawWeeklyOthers, drawWeeklyCover };
+  return { inspectPage, draw, drawCells, drawCover, drawBackground, titleLinesOf, bodyLineCount, bodyLines, bodySpec, drawBody, drawAdopted: draw, drawListed, drawPage, drawWeeklyFeature, fitWeeklyTitle, drawWeeklyOthers, drawWeeklyCover, drawCollageCover, collagePlacement };
 })();
 
 export default Render;

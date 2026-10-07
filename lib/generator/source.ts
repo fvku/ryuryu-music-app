@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ReleaseMasterAlbum } from "../types";
+import { compareArtistReading } from "./artist-reading";
 import { GeneratorError } from "./errors";
 import { parseDocument, type GeneratorDocument, type GeneratorItem } from "./model";
 
@@ -17,13 +18,14 @@ function dateKey(value: string): number {
   const match = value.match(/(\d{4})\D+(\d{1,2})(?:\D+(\d{1,2}))?/);
   return match ? Number(match[1]) * 10000 + Number(match[2]) * 100 + Number(match[3] || 0) : Number.MAX_SAFE_INTEGER;
 }
-function byArtist(a: ReleaseMasterAlbum, b: ReleaseMasterAlbum): number {
-  const left = a.artist.trim().toLowerCase(), right = b.artist.trim().toLowerCase();
-  return left < right ? -1 : left > right ? 1 : 0;
-}
+/**
+ * Monthly／Japan（採用・掲載それぞれ）の並び：EPは区分の末尾 → 日付 → アーティスト名。
+ * 同じ日付どうしは、英字はa-z、日本語はあいうえお順（2026-10-07、Koheiの決定。以前は文字コード順で、
+ * 和文は読みと無関係に並んでいた）。漢字の読みはRelease Masterの「読み」列、無ければ辞書の推定（artist-reading.ts）。
+ */
 export function sortAlbums(albums: ReleaseMasterAlbum[]): ReleaseMasterAlbum[] {
   return albums.slice().sort((a, b) => Number(ep.test(a.title)) - Number(ep.test(b.title)) || dateKey(a.date) - dateKey(b.date)
-    || byArtist(a, b));
+    || compareArtistReading(a, b));
 }
 /** 洋邦の並び順。空欄・想定外の値は末尾へ置き、取りこぼしに気づけるようにする。 */
 function genreRank(album: ReleaseMasterAlbum): number {
@@ -138,7 +140,8 @@ export function selectWeeklyAlbums(albums: ReleaseMasterAlbum[], week: string) {
 export function createGeneratorItem(album: ReleaseMasterAlbum, series: GeneratorSeries, importedAt: string): GeneratorItem {
   const sourceFields = { title: album.title, artist: album.artist, duration: album.duration, genreMemo: album.genreMemo,
     country: album.country, trackNo: album.mjTrackNo, track: album.mjTrack, text: album.mjText };
-  const contentFields = { ...sourceFields, title: series === "weekly" ? album.title : album.title.replace(ep, ""), text: series === "weekly" ? "" : album.mjText };
+  // 作品名の`[EP]`は全企画で残す（2026-10-07、Koheiの指示。以前はMonthly／Japanだけ取り込み時に外していた）。
+  const contentFields = { ...sourceFields, text: series === "weekly" ? "" : album.mjText };
   return { id: randomUUID(), source: { kind: "release-master", uid: album.uid.trim() || null, no: album.no || null, date: album.date,
     importedAt, coverUrl: album.coverUrlLarge.trim() || album.coverUrl.trim() || null, fields: sourceFields }, content: { fields: contentFields, show: { title: true, artist: true, duration: true,
       genreMemo: true, country: series !== "japan", track: series !== "weekly" }, tracking: 0, kerns: {}, bodyLeadMode: "auto", bodyMaxLead: 42,
@@ -150,7 +153,8 @@ export function importDocument(albums: ReleaseMasterAlbum[], series: MonthlyGene
   if (!source.length) throw new GeneratorError("NOT_FOUND", 404, "対象月・企画の採用／掲載アルバムがありません。");
   if (source.length > 200) throw new GeneratorError("INVALID_INPUT", 400, "対象アルバムが多すぎます。");
   const items: GeneratorItem[] = source.map(album => createGeneratorItem(album, series, importedAt));
-  const pages: GeneratorDocument["pages"] = [];
+  // 表紙（画像01）は先頭。ジャケットは採用→掲載の先頭6作品から描画時に導出する（canvas-preview.ts）。
+  const pages: GeneratorDocument["pages"] = [{ id: randomUUID(), kind: "cover", itemIds: [], bgColor: null }];
   let index = 0;
   for (let i = 0; i < selected.adopted.length; i++, index++) pages.push({ id: randomUUID(), kind: "adopted", itemIds: [items[index].id], bgColor: null });
   for (let i = 0; i < selected.listed.length; i += 2) {

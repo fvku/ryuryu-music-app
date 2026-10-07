@@ -1,4 +1,5 @@
 import { rebaseKerns } from "@/lib/generator/text-edit";
+import { pageNumber } from "@/lib/generator/canvas-preview";
 import type { GeneratorDocument, GeneratorItem, ItemContent } from "@/lib/generator/model";
 import type { ReleaseMasterAlbum } from "@/lib/types";
 
@@ -42,7 +43,11 @@ export const FIELD_LABELS: Record<RefreshFieldKey, string> = {
   text: "評価文",
 };
 
-/** 取り込みと同じ `[EP]` の前置き。lib/generator/source.ts の `ep` と同じ規則。 */
+/**
+ * 作品名の `[EP]` の前置き。lib/generator/source.ts の `ep` と同じ規則。
+ * 2026-10-07から取り込みでは外さない。それより前のMonthly／Japanは外して取り込んでいたので、
+ * その形を「手直し」と誤って数えないためだけに使う。
+ */
 const EP_PREFIX = /^\s*[\[［]\s*ep\s*[\]］]\s*/i;
 
 export type SourceRefreshChange = {
@@ -58,7 +63,7 @@ export type SourceRefreshChange = {
 export type SourceRefreshItem = {
   itemId: string;
   pageId: string;
-  /** 画像番号。Weeklyは0始まり、Monthly／Japanは2始まり（canvasPreviewPageと同じ）。 */
+  /** 画像番号。canvasPreviewPageと同じ`pageNumber`で数える。 */
   pageNo: number;
   kind: RefreshPageKind;
   /** 一覧の見出しに使う現在の作品名とアーティスト。 */
@@ -106,7 +111,7 @@ export function matchAlbum(item: GeneratorItem, index: ReturnType<typeof indexAl
 /** Release Masterの1行を、取り込みと同じ規則で `content.fields` の値へ直す。 */
 export function releaseMasterValue(album: ReleaseMasterAlbum, key: RefreshFieldKey, series: GeneratorDocument["series"]): string {
   switch (key) {
-    case "title": return series === "weekly" ? album.title : album.title.replace(EP_PREFIX, "");
+    case "title": return album.title;
     case "artist": return album.artist;
     case "duration": return album.duration;
     case "genreMemo": return album.genreMemo;
@@ -120,9 +125,15 @@ export function releaseMasterValue(album: ReleaseMasterAlbum, key: RefreshFieldK
 /** 取り込み時に `content.fields` へ入った値。手で直したかどうかの基準にする。 */
 function importedValue(item: GeneratorItem, key: RefreshFieldKey, series: GeneratorDocument["series"]): string {
   const value = item.source.fields[key];
-  if (key === "title") return series === "weekly" ? value : value.replace(EP_PREFIX, "");
   if (key === "text") return series === "weekly" ? "" : value;
   return value;
+}
+
+/** 手で直した項目か。`[EP]`を外して取り込んでいた旧Monthly／Japanの作品名は、手直しに数えない。 */
+function editedValue(item: GeneratorItem, key: RefreshFieldKey, series: GeneratorDocument["series"], current: string): boolean {
+  const imported = importedValue(item, key, series);
+  if (current === imported) return false;
+  return !(key === "title" && series !== "weekly" && current === imported.replace(EP_PREFIX, ""));
 }
 
 /**
@@ -157,14 +168,14 @@ export function collectSourceRefresh({
           const next = releaseMasterValue(album, key, document.series);
           const current = content.fields[key];
           if (next === current) continue;
-          changes.push({ key, current, next, edited: current !== importedValue(item, key, document.series) });
+          changes.push({ key, current, next, edited: editedValue(item, key, document.series, current) });
         }
       }
       if (!album || changes.length) {
         results.push({
           itemId,
           pageId: page.id,
-          pageNo: document.series === "weekly" ? pageIndex : pageIndex + 2,
+          pageNo: pageNumber(document, pageIndex),
           kind,
           title: content.fields.title,
           artist: content.fields.artist,

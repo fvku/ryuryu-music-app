@@ -24,9 +24,10 @@ export function reimportOutcome(document: GeneratorDocument, diff: ReimportDiff,
   for (const value of diff.added) if (selection.addKeys.has(value.key)) counts[value.group] += 1;
   for (const value of diff.removed) if (selection.removeItemIds.has(value.itemId)) counts[value.group] -= 1;
   for (const value of diff.moved) { counts[value.from] -= 1; counts[value.to] += 1; }
-  const images = document.series === "weekly" ? 2 + counts.feature : counts.adopted + Math.ceil(counts.listed / 2);
+  // Monthly／Japanは実行後に必ず表紙（画像01）が付く（旧文書には足す）。
+  const images = document.series === "weekly" ? 2 + counts.feature : 1 + counts.adopted + Math.ceil(counts.listed / 2);
   const invalid = document.series === "weekly" && (counts.feature > (diff.limits.featureMax || 5) || counts.others > (diff.limits.othersMax || 60));
-  const changes = selection.addKeys.size + selection.removeItemIds.size + diff.moved.length;
+  const changes = selection.addKeys.size + selection.removeItemIds.size + diff.moved.length + (diff.coverMissing ? 1 : 0);
   return { counts, images, invalid, changes };
 }
 
@@ -90,7 +91,14 @@ export function ReimportSection({ document, diff, disabled, unsavedItemIds = [],
         </div>)}
       </div>}
 
-      {!diff.added.length && !diff.removed.length && !diff.moved.length && <p className="text-sm">作品の増減・区分移動はありません。</p>}
+      {diff.coverMissing && <div className="space-y-2">
+        <h4 className="text-xs font-semibold">表紙</h4>
+        <div className="rounded-lg border p-2 text-sm" style={{ borderColor: "var(--border-subtle)" }}>
+          <Chip tone="success">追加</Chip> <span className="ml-1">画像01に表紙（採用→掲載の先頭6作品のジャケット）を作ります。採用の画像番号は02からのままです。</span>
+        </div>
+      </div>}
+
+      {!diff.added.length && !diff.removed.length && !diff.moved.length && !diff.coverMissing && <p className="text-sm">作品の増減・区分移動はありません。</p>}
 
       <Checkbox
         checked={selection.resort}

@@ -4,6 +4,12 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: process.env.VERCEL_GIT_COMMIT_SHA ?? "",
   },
+  // ジェネレーターの並べ替えでアーティスト名の読みを推定する辞書（lib/generator/artist-reading.ts）。
+  // 辞書ファイルは実行時にパスで読むので、バンドルせず、Vercelの関数へ明示的に同梱する。
+  serverExternalPackages: ["kuromoji"],
+  outputFileTracingIncludes: {
+    "/api/generator/**/*": ["./node_modules/kuromoji/dict/**/*"],
+  },
   images: {
     remotePatterns: [
       {
