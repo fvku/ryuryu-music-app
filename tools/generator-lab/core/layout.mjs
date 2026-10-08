@@ -432,8 +432,30 @@ const Layout = (() => {
     },
   };
 
+  // ============================================================
+  // Monthly（洋楽）の表紙（`cover`）。🔵 2026-10-08、Koheiの指定：ジャケット9枚を3×3で隙間なく並べる
+  // （文字・ロゴは無し）。左上から右へ、行ごとに投稿順（採用→掲載の文書の並び）。斜めの6枠はJapanだけ。
+  // COLLAGEと同じ形（SLOTS・DRAW_ORDER・BLEED・boxOf）にして、描画・当たり判定・切り抜きUIを共用する。
+  // ============================================================
+  const GRID_TILE = CANVAS / 3;
+  const GRID = {
+    SLOTS: Array.from({ length: 9 }, (_, index) => {
+      const x = (index % 3) * GRID_TILE, y = Math.floor(index / 3) * GRID_TILE;
+      return [[x, y], [x + GRID_TILE, y], [x + GRID_TILE, y + GRID_TILE], [x, y + GRID_TILE]];
+    }),
+    DRAW_ORDER: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    BLEED: 1,
+    boxOf(index) {
+      const [[x, y], [right], , [, bottom]] = GRID.SLOTS[index];
+      return { x, y, w: right - x, h: bottom - y };
+    },
+  };
+
+  /** 表紙の版面（`coverLayout`）ごとの枠。Weeklyの縦帯はここに含めない。 */
+  const COVER_TILES = { collage: COLLAGE, grid: GRID };
+
   return {
-    CANVAS, EXPORT_SUPER_SAMPLE, RULE, RULE_COLOR, PANEL_FILL, BACKGROUND, CELLS, LISTED, TYPE, TEXT, TEXT_RULE, WEEKLY, COLLAGE,
+    CANVAS, EXPORT_SUPER_SAMPLE, RULE, RULE_COLOR, PANEL_FILL, BACKGROUND, CELLS, LISTED, TYPE, TEXT, TEXT_RULE, WEEKLY, COLLAGE, GRID, COVER_TILES,
     MIN_WEIGHT, renderWeightOf, baselinesFor, titleBaselines, bodyBand, bodyLead, bodyLayoutFor, bodyFits,
     get renderWeightDelta() { return renderWeightDelta; },
     set renderWeightDelta(v) { renderWeightDelta = v; },

@@ -2,6 +2,7 @@
 
 import { useMemo, type Dispatch, type SetStateAction } from "react";
 import type { GeneratorDocument } from "@/lib/generator/model";
+import { COVER_SLOT_LABELS, coverLayoutOf } from "@/lib/generator/canvas-preview";
 import type { ReimportDiff, ReimportGroup } from "@/lib/generator/reimport";
 import { Checkbox, Chip } from "../ui";
 
@@ -94,7 +95,7 @@ export function ReimportSection({ document, diff, disabled, unsavedItemIds = [],
       {diff.coverMissing && <div className="space-y-2">
         <h4 className="text-xs font-semibold">表紙</h4>
         <div className="rounded-lg border p-2 text-sm" style={{ borderColor: "var(--border-subtle)" }}>
-          <Chip tone="success">追加</Chip> <span className="ml-1">画像01に表紙（採用→掲載の先頭6作品のジャケット）を作ります。採用の画像番号は02からのままです。</span>
+          <Chip tone="success">追加</Chip> <span className="ml-1">画像01に表紙（採用→掲載の先頭{document.series === "weekly" ? 5 : COVER_SLOT_LABELS[coverLayoutOf(document.series) as "collage" | "grid"].length}作品のジャケット）を作ります。採用の画像番号は02からのままです。</span>
         </div>
       </div>}
 

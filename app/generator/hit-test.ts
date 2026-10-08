@@ -119,9 +119,9 @@ export function hitTest(
   x: number,
   y: number,
 ): Hit | null {
-  if (page.kind === "cover" && page.coverLayout === "collage") {
+  if (page.kind === "cover" && (page.coverLayout === "collage" || page.coverLayout === "grid")) {
     // 後から描く枠が上に重なるので、描画順の逆から当てる。
-    const { SLOTS, DRAW_ORDER } = runtime.layout.COLLAGE;
+    const { SLOTS, DRAW_ORDER } = runtime.layout.COVER_TILES[page.coverLayout];
     const slotIndex = [...DRAW_ORDER].reverse().find(index => insidePolygon(SLOTS[index], x, y));
     return slotIndex !== undefined && page.slots[slotIndex] ? { slotIndex, key: "title", index: null } : null;
   }

@@ -18,7 +18,7 @@ export type PreviewDiagnostics = { pageId: string; warnings: string[]; body: Bod
 function pageLabel(page: CanvasPreviewPage): string {
   if (page.kind === "adopted") return "採用 · 1作品";
   if (page.kind === "listed") return `掲載 · ${page.slots.length}作品`;
-  if (page.kind === "cover") return page.coverLayout === "collage" ? `表紙 · 先頭${page.slots.length}作品` : `表紙 · メイン${page.slots.length}作品`;
+  if (page.kind === "cover") return page.coverLayout !== "weekly" ? `表紙 · 先頭${page.slots.length}作品` : `表紙 · メイン${page.slots.length}作品`;
   if (page.kind === "feature") return "メイン · 1作品";
   return `Other Releases · ${page.slots.length}作品`;
 }
@@ -167,7 +167,7 @@ export default function GeneratorPreview({
   const blocked = warnings.length > 0;
   const blockedCount = warnings.length;
   const interactionHint = page.kind === "cover"
-    ? page.coverLayout === "collage" ? "ジャケットの枠を押すと、切り抜き位置を調整できます。" : "ジャケットの帯を押すと、切り抜き位置を調整できます。"
+    ? page.coverLayout !== "weekly" ? "ジャケットの枠を押すと、切り抜き位置を調整できます。" : "ジャケットの帯を押すと、切り抜き位置を調整できます。"
     : page.kind === "others"
       ? "行をクリックすると対応する作品を選べます。"
       : "クリックで調整対象、ドラッグで範囲を選べます。";

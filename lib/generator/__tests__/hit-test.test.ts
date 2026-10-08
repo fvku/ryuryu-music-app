@@ -49,3 +49,15 @@ it("selects each Monthly/Japan collage jacket inside its slanted slot", async ()
   const five = { ...page, slots: page.slots.slice(0, 5) } as Parameters<typeof hitTest>[2];
   expect(hitTest(runtime, {} as CanvasRenderingContext2D, five, 200, 1100)).toBeNull();
 });
+
+// Monthly表紙の3×3。左上から右へ、行ごとに文書の先頭からの作品を選ぶ。
+it("selects each Monthly 3×3 cover tile in reading order", async () => {
+  const { default: layout } = await import("@/tools/generator-lab/core/layout.mjs");
+  const runtime = { layout } as unknown as Parameters<typeof hitTest>[0];
+  const page = { kind: "cover", coverLayout: "grid", slots: Array.from({ length: 9 }, () => ({})) } as unknown as Parameters<typeof hitTest>[2];
+  const at = (x: number, y: number) => hitTest(runtime, {} as CanvasRenderingContext2D, page, x, y)?.slotIndex;
+  expect([200, 600, 1000].flatMap(y => [200, 600, 1000].map(x => at(x, y)))).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  // 隙間は無い。枠の境目のすぐ両側で、隣どうしの作品になる。
+  expect([at(399, 10), at(401, 10), at(10, 799), at(10, 801)]).toEqual([0, 1, 3, 6]);
+  expect(layout.GRID.boxOf(4)).toEqual({ x: 400, y: 400, w: 400, h: 400 });
+});
