@@ -153,7 +153,7 @@ export function importDocument(albums: ReleaseMasterAlbum[], series: MonthlyGene
   if (!source.length) throw new GeneratorError("NOT_FOUND", 404, "対象月・企画の採用／掲載アルバムがありません。");
   if (source.length > 200) throw new GeneratorError("INVALID_INPUT", 400, "対象アルバムが多すぎます。");
   const items: GeneratorItem[] = source.map(album => createGeneratorItem(album, series, importedAt));
-  // 表紙（画像01）は先頭。ジャケットは採用→掲載の先頭6作品から描画時に導出する（canvas-preview.ts）。
+  // 表紙（画像01）は先頭。ジャケットは採用→掲載の先頭（Monthly 9・Japan 6）作品から描画時に導出する（canvas-preview.ts）。
   const pages: GeneratorDocument["pages"] = [{ id: randomUUID(), kind: "cover", itemIds: [], bgColor: null }];
   let index = 0;
   for (let i = 0; i < selected.adopted.length; i++, index++) pages.push({ id: randomUUID(), kind: "adopted", itemIds: [items[index].id], bgColor: null });

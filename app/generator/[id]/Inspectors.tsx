@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GeneratorHistoryEntry } from "@/lib/generator/client-types";
 import type { GeneratorDocument } from "@/lib/generator/model";
+import { COVER_SLOT_LABELS, coverLayoutOf } from "@/lib/generator/canvas-preview";
 import { getMemberShortName } from "@/lib/members";
 import { Checkbox, Chip, Field, Modal, PrimaryButton, SecondaryButton, SelectInput } from "../ui";
 import { useGeneratorRuntime } from "../runtime";
@@ -203,6 +204,7 @@ type StructureDrag = { id: string; pointerId: number; startY: number; startScrol
 export function StructureDialog({
   state,
   notice = null,
+  series,
   pages,
   items,
   onPages,
@@ -211,6 +213,7 @@ export function StructureDialog({
   state: TargetState;
   /** 編集を始められない理由。ダイアログが画面上部の帯を覆うので、ここに出す。 */
   notice?: string | null;
+  series: GeneratorDocument["series"];
   pages: GeneratorDocument["pages"];
   items: Map<string, GeneratorDocument["items"][number]>;
   onPages(value: GeneratorDocument["pages"]): void;
@@ -226,6 +229,8 @@ export function StructureDialog({
 
   // Monthly／Japanにも表紙（2026-10-07〜）があるので、表紙の有無ではなくWeekly固有のページで見分ける。
   const isWeekly = pages.some(page => page.kind === "feature" || page.kind === "others");
+  const coverLayout = coverLayoutOf(series);
+  const coverCount = coverLayout === "weekly" ? 0 : COVER_SLOT_LABELS[coverLayout].length;
   const rows = pages.flatMap<{ id: string; kind: OrderedPageKind }>(page => {
     if (page.kind === "adopted" || page.kind === "listed" || page.kind === "feature" || page.kind === "others") {
       const kind: OrderedPageKind = page.kind;
@@ -315,7 +320,7 @@ export function StructureDialog({
       description={isWeekly
         ? "メイン5枚の順番、Other Releasesの順番、および両者の入れ替えができます。表紙のジャケットの順もメインに合わせて変わります。"
         : pages[0]?.kind === "cover"
-          ? "採用・掲載それぞれの中で前後に動かせます。並びが変わると、画像への割り当ても入れ替わります。表紙には上から6作品が入ります。"
+          ? `採用・掲載それぞれの中で前後に動かせます。並びが変わると、画像への割り当ても入れ替わります。表紙には上から${coverCount}作品が入ります。`
           : "採用・掲載それぞれの中で前後に動かせます。並びが変わると、画像への割り当ても入れ替わります。"}
       onClose={onClose}
     >

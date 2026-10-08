@@ -1693,3 +1693,29 @@ Koheiの決定：「同じ日付どうしは、アルファベットであれば
 - 既存文書の並びは`itemIds`に固定されているので、取り込み直しで「区分内を並べ直す」を選んだときだけ新しい規則で並ぶ。
 
 確認：`npx vitest run` 32ファイル・351件成功（新規4件：漢字の読み順・英字a-zと日本語の前後・読み列の優先・日付とEPの優先）。`tsc`・`lint`・`build`成功。
+
+## 39. 2026-10-08：Monthly（洋楽）の表紙を3×3に（Opus 5.5）
+
+Koheiの指摘：「Japanの表紙を作ってもらったが、Monthly（洋楽）の1枚目は左上から順に投稿順にタイルで隙間なく3-3-3で9枚が並ぶ仕様。変えてほしい」。§37の斜めの6枠はJapanの見本から作ったもので、Monthlyにも同じ版面を当てていた。
+
+### 変更
+
+- Monthlyの表紙は、採用→掲載の先頭**9作品**を400×400の3×3で隙間なく並べる（`Layout.GRID`）。順は左上→上中央→右上→中央左→中央→中央右→左下→下中央→右下。文字・ロゴは無し。9件に満たない月は足りない枠が白のまま（作品を繰り返さない）。
+- Japanは§37の斜めの6枠のまま（`Layout.COLLAGE`）。
+- 版面は`canvas-preview.ts`の`coverLayoutOf(series)`で企画から決める（weekly／grid／collage）。`GRID`は`COLLAGE`と同じ形（SLOTS・DRAW_ORDER・BLEED・boxOf）にし、`Layout.COVER_TILES`から引くので、描画（`drawCollageCover`）・当たり判定・切り抜き位置UIは両方で共用。
+- 表紙は`itemIds: []`のまま描画のたびに導出するので、**既存のMonthly文書もデータの変更なしで次の表示から3×3になる**。DB・API・保存形式は変えていない。
+- 切り抜き位置（`coverFocusX`／`coverFocusY`）はそのまま効く。正方形のジャケットは正方形の枠にぴったり収まるので、Monthlyでは通常スライダーが出ない（正方形でないジャケットだけ動く軸が出る）。
+- 枠の名前（`COVER_SLOT_LABELS`）、並び順ダイアログ・取り込み直しの差分・切り抜きUIの「先頭n作品」は企画ごとの枠の数で出す。
+
+### 変更したファイル
+
+`tools/generator-lab/core/layout.mjs`（`GRID`・`COVER_TILES`）、`tools/generator-lab/core/render.mjs`、`lib/generator/canvas-preview.ts`、`lib/generator/source.ts`（コメント）、`app/generator/hit-test.ts`、`app/generator/runtime.tsx`、`app/generator/[id]/CoverCropInspector.tsx`・`GeneratorWorkspace.tsx`・`Inspectors.tsx`・`ReimportDialog.tsx`、`app/generator/GeneratorPreview.tsx`、テスト2件。
+
+### 実行した確認
+
+- `npx tsc --noEmit --incremental false`・`npm run lint`・`npm run build`：成功。`npx vitest run`：36ファイル・477件成功（新規2件：Monthlyの先頭9作品の導出と9件未満、3×3の当たり判定と境目）。`node --test tools/generator-lab/test/*.mjs`：61件成功。
+- 描画コアを一時ページで直接呼び、番号付きの仮ジャケットで確認：Monthlyは1〜9が行ごとに並び、境目に白い下地が出ない（境目の画素0件）。Japanの斜め6枠は従来どおり。一時ページは削除済み。
+
+### 未確認事項
+
+- 実文書（実ジャケット）の編集画面での表示と、表紙の枠を押したときの作品選択・ラベル表示（実ブラウザでのアプリ画面は未確認。当たり判定はテストで確認）。

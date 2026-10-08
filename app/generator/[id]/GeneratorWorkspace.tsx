@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { canvasPreviewPage, COLLAGE_SLOT_LABELS, pageNumber as pageNumberOf, type CanvasPreviewPage } from "@/lib/generator/canvas-preview";
+import { canvasPreviewPage, COVER_SLOT_LABELS, pageNumber as pageNumberOf, type CanvasPreviewPage } from "@/lib/generator/canvas-preview";
 import type { GeneratorSnapshot } from "@/lib/generator/client-types";
 import type { GeneratorDocument, GeneratorItemSource, ItemContent } from "@/lib/generator/model";
 import type { ReimportDiff } from "@/lib/generator/reimport";
@@ -1419,7 +1419,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                       >
                         {pageItems.map((item, index) => (
                           <option key={item.id} value={index}>
-                            {previewPage.coverLayout === "collage" ? COLLAGE_SLOT_LABELS[index] : `メイン ${index + 1}`} · {item.content.fields.title} / {item.content.fields.artist}
+                            {previewPage.coverLayout === "collage" || previewPage.coverLayout === "grid" ? COVER_SLOT_LABELS[previewPage.coverLayout][index] : `メイン ${index + 1}`} · {item.content.fields.title} / {item.content.fields.artist}
                           </option>
                         ))}
                       </SelectInput>
@@ -1555,6 +1555,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
 
         {reorderOpen && (
           <StructureDialog
+            series={snapshot.document.series}
             state={{
               ...targetState(
                 "structure",

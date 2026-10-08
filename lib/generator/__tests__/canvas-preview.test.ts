@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canvasPreviewPage, COLLAGE_SLOT_COUNT, pageNumber } from "../canvas-preview";
+import { canvasPreviewPage, COVER_SLOT_LABELS, pageNumber } from "../canvas-preview";
 import { importDocument, importWeeklyDocument } from "../source";
 import type { ReleaseMasterAlbum } from "../../types";
 
@@ -13,7 +13,7 @@ const album = (overrides: Partial<ReleaseMasterAlbum> = {}): ReleaseMasterAlbum 
 describe("generator canvas preview pages", () => {
   it("numbers the Monthly cover 01 and keeps the first adopted image at 02", () => {
     const document = importDocument([album({ date: "2026-08-01" })], "monthly", "2026-08");
-    expect(canvasPreviewPage(document, 0)).toMatchObject({ kind: "cover", no: 1, week: null, coverLayout: "collage" });
+    expect(canvasPreviewPage(document, 0)).toMatchObject({ kind: "cover", no: 1, week: null, coverLayout: "grid" });
     expect(canvasPreviewPage(document, 1)).toMatchObject({ kind: "adopted", no: 2, week: null, coverLayout: null });
   });
 
@@ -39,7 +39,23 @@ describe("generator canvas preview pages", () => {
     const listed = document.pages.find(page => page.kind === "listed")!;
     listed.itemIds.reverse();
     expect(canvasPreviewPage(document, 0)!.slots[5].fields.title).toBe("L2");
-    expect(COLLAGE_SLOT_COUNT).toBe(6);
+    expect(cover.coverLayout).toBe("collage");
+    expect(COVER_SLOT_LABELS.collage).toHaveLength(6);
+  });
+
+  it("fills the Monthly 3×3 cover with the first nine works in posting order", () => {
+    const input = [
+      ...Array.from({ length: 7 }, (_, index) => album({ no: String(index + 1), title: `A${index + 1}`, date: `2026-09-0${index + 1}`, mjAdoption: "採用" })),
+      ...Array.from({ length: 4 }, (_, index) => album({ no: String(index + 8), title: `L${index + 1}`, date: `2026-09-0${index + 1}`, mjAdoption: "掲載" })),
+    ];
+    const document = importDocument(input, "monthly", "2026-09");
+    const cover = canvasPreviewPage(document, 0)!;
+    expect(cover.coverLayout).toBe("grid");
+    expect(cover.slots.map(slot => slot.fields.title)).toEqual(["A1", "A2", "A3", "A4", "A5", "A6", "A7", "L1", "L2"]);
+    expect(COVER_SLOT_LABELS.grid).toHaveLength(9);
+    // 9件に満たない月は、足りない枠を空けたまま（作品を繰り返さない）。
+    const few = importDocument(input.slice(0, 4), "monthly", "2026-09");
+    expect(canvasPreviewPage(few, 0)!.slots).toHaveLength(4);
   });
 
   it("numbers Weekly from cover 0 and derives cover jackets from feature order", () => {

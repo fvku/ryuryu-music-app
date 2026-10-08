@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CanvasPreviewPage } from "@/lib/generator/canvas-preview";
+import { COVER_SLOT_LABELS, type CanvasPreviewPage } from "@/lib/generator/canvas-preview";
 import { preparePage, useGeneratorRuntime, type GeneratorRuntime } from "../runtime";
 import { SecondaryButton } from "../ui";
 
@@ -13,12 +13,17 @@ export type CoverFocusChange = { x?: number | null; y?: number | null };
  * Weeklyは縦帯なので横だけ動く。コラージュは枠の外接矩形をcover-fitで覆うので、縦横どちらかだけが動く
  * （正方形のジャケットなら、横長の枠は縦に、縦長の枠は横に余る）。
  */
+function tilesOf(runtime: GeneratorRuntime, page: CanvasPreviewPage) {
+  return page.coverLayout === "collage" || page.coverLayout === "grid" ? runtime.layout.COVER_TILES[page.coverLayout] : null;
+}
+
 function cropWindow(runtime: GeneratorRuntime, page: CanvasPreviewPage, slotIndex: number, img: { width: number; height: number }, focusX: number, focusY: number) {
-  const box = page.coverLayout === "collage" ? runtime.layout.COLLAGE.boxOf(slotIndex) : runtime.layout.WEEKLY.COVER.bandCell(0);
+  const tiles = tilesOf(runtime, page);
+  const box = tiles ? tiles.boxOf(slotIndex) : runtime.layout.WEEKLY.COVER.bandCell(0);
   const scale = Math.max(box.w / img.width, box.h / img.height);
   const halfW = box.w / (img.width * scale) / 2, halfH = box.h / (img.height * scale) / 2;
   const clamp = (value: number, half: number) => Math.min(1 - half, Math.max(half, value));
-  return { box, scale, halfW, halfH, cx: clamp(focusX, halfW), cy: page.coverLayout === "collage" ? clamp(focusY, halfH) : .5 };
+  return { box, scale, halfW, halfH, cx: clamp(focusX, halfW), cy: tiles ? clamp(focusY, halfH) : .5 };
 }
 
 /** 表紙だけに効く位置調整。いまの切り抜き位置からスライダーを動かし始める。 */
@@ -33,7 +38,8 @@ export default function CoverCropInspector({ documentId, page, slotIndex, disabl
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [prepared, setPrepared] = useState<{ geometry: string; focusX: number; halfW: number; halfH: number } | null>(null);
   const slot = page.slots[slotIndex];
-  const collage = page.coverLayout === "collage";
+  // Monthlyの3×3もJapanの斜めの6枠も、枠ごとに形が決まる表紙として同じ扱いにする。
+  const collage = page.coverLayout === "collage" || page.coverLayout === "grid";
   const signature = JSON.stringify(slot);
   // 見える幅（スライダーの範囲）はジャケットと枠だけで決まる。位置を動かして描き直している間も
   // スライダーを無効にしない（無効にするとフォーカスが外れ、キーボードやドラッグが1段で止まる）。
@@ -62,7 +68,7 @@ export default function CoverCropInspector({ documentId, page, slotIndex, disabl
         return [(x - imgLeft) / (img.width * view.scale) * canvas.width, (y - imgTop) / (img.height * view.scale) * canvas.height];
       };
       const outline = collage
-        ? runtime.layout.COLLAGE.SLOTS[slotIndex].map(([x, y]) => toCanvas(x, y))
+        ? runtime.layout.COVER_TILES[page.coverLayout as "collage" | "grid"].SLOTS[slotIndex].map(([x, y]) => toCanvas(x, y))
         : [[view.box.x, view.box.y], [view.box.x + view.box.w, view.box.y], [view.box.x + view.box.w, view.box.y + view.box.h], [view.box.x, view.box.y + view.box.h]]
           .map(([x, y]) => toCanvas(x, y));
       context.fillStyle = "rgba(0,0,0,.55)";
@@ -121,7 +127,7 @@ export default function CoverCropInspector({ documentId, page, slotIndex, disabl
       <div className="space-y-3">
         <p className="text-[11px] leading-5" style={{ color: "var(--text-secondary)" }}>
           表紙の枠を押して作品を選べます。明るい範囲が表紙に表示される部分です。位置を動かして「保存」で確定します。
-          枠に入るのは採用→掲載の並びの先頭6作品で、入れ替えは「並び順」で行います。
+          枠に入るのは採用→掲載の並びの先頭{COVER_SLOT_LABELS[page.coverLayout as "collage" | "grid"].length}作品で、入れ替えは「並び順」で行います。
         </p>
         <canvas ref={canvasRef} width={320} height={320} className="mx-auto aspect-square w-full max-w-52 rounded-lg border" style={{ borderColor: "var(--border-subtle)" }} aria-label={`${slot.fields.title}の切り抜き範囲`} />
         {movableX && slider("x", `横位置 · ${manualX ? "手動" : "中央"}`, positionX, halfW, ["左", "右"])}

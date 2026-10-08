@@ -74,8 +74,12 @@ type LayoutModule = {
     COVER: { RANK_TO_BAND: number[]; bandCell(index: number): Cell };
     OTHERS: { BODY: { BOX: Cell }; TYPE: { body: { size: number } }; layoutFor(lineCount: number): { lead: number; baseline: number }; fits(lineCount: number): boolean };
   };
-  COLLAGE: { SLOTS: number[][][]; DRAW_ORDER: number[]; boxOf(index: number): Cell };
+  COLLAGE: CoverTiles;
+  GRID: CoverTiles;
+  COVER_TILES: { collage: CoverTiles; grid: CoverTiles };
 };
+/** Monthly／Japan表紙の枠（多角形）。Japanは斜めの6枠、Monthlyは3×3。 */
+type CoverTiles = { SLOTS: number[][][]; DRAW_ORDER: number[]; boxOf(index: number): Cell };
 type PagesModule = {
   toDrawData(slot: CanvasPreviewPage["slots"][number]): DrawData;
   toWeeklyDrawData(slot: CanvasPreviewPage["slots"][number]): WeeklyDrawData;
@@ -248,7 +252,7 @@ async function detectCoverFocusX(images: (HTMLImageElement | null)[]): Promise<(
 
 /** ジャケットを解決して、描画コアが受け取れる形のページにする。 */
 export async function preparePage(runtime: GeneratorRuntime, documentId: string, page: CanvasPreviewPage): Promise<LegacyPage> {
-  const weeklyCover = page.kind === "cover" && page.coverLayout !== "collage";
+  const weeklyCover = page.kind === "cover" && page.coverLayout === "weekly";
   if (weeklyCover && !runtime.coverFontReady()) throw new Error("Weekly表紙に必要な書体を読み込めません。");
   // Other Releasesは文字リストのみ。使わないジャケットを30件読み込まない。
   const sources = page.slots.map(slot => page.kind === "others" ? null :
@@ -260,7 +264,7 @@ export async function preparePage(runtime: GeneratorRuntime, documentId: string,
   const jackets = await Promise.all(sources.map(source => source ? loadImage(source).catch(() => null) : Promise.resolve(null)));
   // 表紙の帯だけ、人物の顔を中心に切り抜く（2026-09-14、2026#37の目視で指摘）。中央切り出しが既定の
   // フォールバックなので、検出できなかった作品だけ従来どおりの見た目になる（他の帯を巻き込まない）。
-  // Monthly／Japanのコラージュは中央が既定で、顔検出はしない（枠ごとに縦横とも切るため、横位置だけ寄せても足りない）。
+  // Monthly／Japanの表紙（3×3／斜めの6枠）は中央が既定で、顔検出はしない（枠ごとに縦横とも切るため、横位置だけ寄せても足りない）。
   const focusXs = weeklyCover
     ? await detectCoverFocusX(jackets.map((image, index) => page.slots[index].coverFocusX == null ? image : null))
     : jackets.map(() => undefined);

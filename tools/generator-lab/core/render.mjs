@@ -398,13 +398,14 @@ const Render = (() => {
   }
 
   /**
-   * Monthly／Japanの表紙（`cover`）。ジャケット6枚を斜めの6枠へ敷き詰める（Layout.COLLAGEのコメント参照）。
-   * 文字・ロゴ・オーバーレイは無い。背景は白（枠が足りないときに透けるのはここだけ）。
+   * Monthly／Japanの表紙（`cover`）。Japanはジャケット6枚を斜めの6枠へ（Layout.COLLAGE）、
+   * Monthlyは9枚を3×3へ（Layout.GRID）敷き詰める。文字・ロゴ・オーバーレイは無い。
+   * 背景は白（枠が足りないときに透けるのはここだけ）。
    *
-   * @param {object} cover { jackets: Array<{img, focusX, focusY}|null>（文書の先頭からの作品順） }
+   * @param {object} cover { layout: 'collage'|'grid'（省略時collage）, jackets: Array<{img, focusX, focusY}|null>（文書の先頭からの作品順） }
    */
   function drawCollageCover(ctx, cover) {
-    const C = L.COLLAGE;
+    const C = L.COVER_TILES[cover.layout || 'collage'];
     ctx.clearRect(0, 0, L.CANVAS, L.CANVAS);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, L.CANVAS, L.CANVAS);
@@ -480,9 +481,10 @@ const Render = (() => {
     if (page.kind === 'listed') return drawListed(ctx, page, bg);
     if (page.kind === 'feature') return drawWeeklyFeature(ctx, top, bg);
     if (page.kind === 'others') return drawWeeklyOthers(ctx, page.slots, bg);
-    // Monthly／Japanの表紙はコラージュ。`coverLayout`はcanvas-preview.tsが文書の企画から決める。
+    // Monthly（grid）／Japan（collage）の表紙。`coverLayout`はcanvas-preview.tsが文書の企画から決める。
     // 指定が無いページは従来どおりWeekly表紙として描く（旧ラボ・既存テストの呼び出しを変えないため）。
-    if (page.kind === 'cover' && page.coverLayout === 'collage') return drawCollageCover(ctx, {
+    if (page.kind === 'cover' && L.COVER_TILES[page.coverLayout]) return drawCollageCover(ctx, {
+      layout: page.coverLayout,
       jackets: page.slots.map(slot => slot.jacket && slot.jacket.img && { img: slot.jacket.img, focusX: slot.jacket.focusX, focusY: slot.jacket.focusY }),
     });
     if (page.kind === 'cover') return drawWeeklyCover(ctx, {
