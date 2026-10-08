@@ -76,11 +76,17 @@ const TextEngine = (() => {
     const track = (t.tracking || 0) * t.size;
     const spaceW = ctx.measureText(' ').width;
     const trimChars = (t.punct && t.punct.chars) || '';
+    const closeChars = (t.punct && t.punct.close) || '';
+    const openChars = (t.punct && t.punct.open) || '';
     const trim = (t.punct && t.punct.trim) || 0;
     for (const cl of clusters) {
       cl.glyphW = ctx.measureText(cl.text).width;
       cl.track = track;
-      cl.trim = (cl.text.length === 1 && trimChars.includes(cl.text)) ? trim : 0;
+      // 約物の詰め。cl.trimは送りから引く合計、cl.trimLeftはそのうち字形の左側で詰める量
+      // （描画時に字形をその分だけ左へずらす）。括弧類は全角幅の字形のときだけ詰める。
+      const single = cl.text.length === 1, fullWidth = cl.glyphW >= t.size * 0.9;
+      cl.trimLeft = single && fullWidth && openChars.includes(cl.text) ? trim : 0;
+      cl.trim = (single && (trimChars.includes(cl.text) || (fullWidth && closeChars.includes(cl.text))) ? trim : 0) + cl.trimLeft;
       const spaceKern = kernOf({ at: cl.at + cl.text.length, len: cl.len - cl.text.length }, t);
       cl.spaceW = cl.space ? spaceW + track + spaceKern : 0;
       delete cl.parts;
@@ -144,14 +150,16 @@ const TextEngine = (() => {
     ctx.textBaseline = 'alphabetic';
     let pen = x;
     for (const cl of clusters) {
+      // 開き括弧は左半分を詰めるので、字形をその分だけ左から描き始める。
+      const start = pen - (cl.trimLeft || 0);
       if (cl.parts) {
-        let p = pen;
+        let p = start;
         for (const part of cl.parts) { ctx.fillText(part.text, p, baseline); p += part.adv; }
       } else if (cl.track === 0) {
-        ctx.fillText(cl.text, pen, baseline);
+        ctx.fillText(cl.text, start, baseline);
       } else {
         // tracking がある場合は1文字ずつ送る（単語内のカーニングは犠牲になるが Figma と揃う）
-        let p = pen;
+        let p = start;
         for (const ch of cl.text) { ctx.fillText(ch, p, baseline); p += ctx.measureText(ch).width + cl.track; }
       }
       pen += cl.adv + (extraPerGap || 0);
@@ -228,7 +236,7 @@ const TextEngine = (() => {
       ctx.font = fontString(spec, spec.renderWeight);
       cl.glyphW = ctx.measureText(cl.text).width;
       cl.track = (spec.tracking || 0) * spec.size;
-      cl.trim = 0;
+      cl.trim = 0; cl.trimLeft = 0;
       const spaceKern = kernOf({ at: cl.at + cl.text.length, len: cl.len - cl.text.length }, spec);
       cl.spaceW = cl.space ? ctx.measureText(' ').width + cl.track + spaceKern : 0;
       delete cl.parts;
