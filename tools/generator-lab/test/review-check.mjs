@@ -87,3 +87,16 @@ test('editor lines and actual body rendering share line boundaries and leading',
     assert.equal(actual, text.slice(line.start, line.end));
   });
 });
+
+test('body brackets are set half-width: closing trims the right half, opening trims the left half', () => {
+  const drawn = [];
+  const draw = { ...ctx, fillText: (text, x) => drawn.push([text, x]) };
+  const lines = TextEngine.drawParagraph(draw, '「あ」、『い』（う）', Layout.TYPE.body, { x: 0, w: 1000, baseline: 0, lead: 0 });
+  // 括弧・読点はどれも全角28の半分14を詰める。ひらがなは28のまま。
+  assert.deepEqual(lines[0].clusters.map(c => c.adv), [14, 28, 14, 14, 14, 28, 14, 14, 28, 14]);
+  // 開き括弧は字形を左へ14ずらして描くので、行頭の「は枠の左端より14左から描かれ、インクが左端に揃う。
+  assert.deepEqual(drawn.slice(0, 4), [['「', -14], ['あ', 14], ['」', 42], ['、', 56]]);
+  // 幅の狭い字形（全角で組まれない“など）は詰めない。
+  const narrow = { measureText: text => ({ width: text === '“' ? 10 : text.length * 28 }) };
+  assert.equal(TextEngine.layoutParagraph(narrow, '“あ', Layout.TYPE.body, 1000)[0].clusters[0].adv, 10);
+});
