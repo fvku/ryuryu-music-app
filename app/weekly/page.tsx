@@ -477,7 +477,7 @@ export default function WeeklyPage() {
         </>}
       >
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-          Release Master の <b style={{ color: "var(--text-primary)" }}>WEEK列</b> に「採用」「掲載」「不採用」を入れていきます。下の一覧は確認用です（ここでは編集できません）。
+          Release Master の <b style={{ color: "var(--text-primary)" }}>WEEK列</b> に「採用」「掲載」「不採用」を入れていきます。下の一覧は確認用です（開いて確認できます。ここでは編集できません）。
         </p>
         <div className="flex flex-wrap gap-2 items-center">
           {sheetUrl && (
@@ -496,26 +496,31 @@ export default function WeeklyPage() {
           </Note>
         )}
         {rows && rows.length > 0 && (
-          <div className="flex flex-col rounded-xl border divide-y" style={{ borderColor: "var(--border-subtle)" }}>
-            {rows.map((r) => (
-              <div key={r.rowNum} className="flex items-center gap-3 px-3 py-2" style={{ borderColor: "var(--border-subtle)" }}>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm" style={{ color: "var(--text-primary)" }}>{r.title}</span>
-                  <span className="block truncate text-xs" style={{ color: "var(--text-secondary)" }}>
-                    {r.artist}・{r.waboku || "洋邦未入力"}{r.time ? `・${r.time}` : ""}
+          <details className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            <summary className="cursor-pointer select-none">
+              アルバム一覧（{rows.length}件{total - decided > 0 ? `・未決定${total - decided}件` : ""}）
+            </summary>
+            <div className="mt-2 flex flex-col rounded-xl border divide-y" style={{ borderColor: "var(--border-subtle)" }}>
+              {rows.map((r) => (
+                <div key={r.rowNum} className="flex items-center gap-3 px-3 py-2" style={{ borderColor: "var(--border-subtle)" }}>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm" style={{ color: "var(--text-primary)" }}>{r.title}</span>
+                    <span className="block truncate text-xs" style={{ color: "var(--text-secondary)" }}>
+                      {r.artist}・{r.waboku || "洋邦未入力"}{r.time ? `・${r.time}` : ""}
+                    </span>
+                    {r.playlists && <span className="block truncate text-[11px]" style={{ color: ACCENT }}>{r.playlists}</span>}
                   </span>
-                  {r.playlists && <span className="block truncate text-[11px]" style={{ color: ACCENT }}>{r.playlists}</span>}
-                </span>
-                <span className="flex flex-col items-end gap-1 flex-shrink-0 text-xs">
-                  <span style={{ color: "var(--text-secondary)" }}>{formatListeners(r.listeners)}</span>
-                  {r.week
-                    ? <Badge color={r.week === "採用" ? OK : r.week === "掲載" ? ACCENT : "var(--text-secondary)"}>{r.week}</Badge>
-                    : <Badge color={WARN}>未決定</Badge>}
-                  {!r.spotifyUrl && <Badge>URLなし</Badge>}
-                </span>
-              </div>
-            ))}
-          </div>
+                  <span className="flex flex-col items-end gap-1 flex-shrink-0 text-xs">
+                    <span style={{ color: "var(--text-secondary)" }}>{formatListeners(r.listeners)}</span>
+                    {r.week
+                      ? <Badge color={r.week === "採用" ? OK : r.week === "掲載" ? ACCENT : "var(--text-secondary)"}>{r.week}</Badge>
+                      : <Badge color={WARN}>未決定</Badge>}
+                    {!r.spotifyUrl && <Badge>URLなし</Badge>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
       </StepCard>
 
