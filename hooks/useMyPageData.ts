@@ -98,6 +98,14 @@ export function useMyPageData() {
         } else if (mjMonthsLocal.length > 0) {
           setMjMonthFilter(mjMonthsLocal[0] as string);
         }
+
+        // お知らせ（M/J担当の未執筆など）から来たときは URL の指定を優先する。
+        // 例: /mypage?tab=mj&mjType=japan&assigned=1 → JAPAN の自分の担当を全月で表示
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("tab") === "mj") setTab("mj");
+        const mjTypeParam = params.get("mjType");
+        if (mjTypeParam === "monthly" || mjTypeParam === "japan") setMjType(mjTypeParam);
+        if (params.get("assigned") === "1") { setMjAssignedOnly(true); setMjMonthFilter("すべて"); }
         setFiltersInitialized(true);
 
         setForYou(forYouData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
