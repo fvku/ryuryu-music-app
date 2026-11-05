@@ -276,9 +276,32 @@ export default function WeeklyPage() {
         />
       </StepCard>
 
-      {/* 2. 洋楽 */}
+      {/* 2. 洋邦混在のプレイリスト */}
       <StepCard
         no={2}
+        title="洋楽・邦楽を取り込む（New Music Friday Japan）"
+        when="金曜0時以降（プレイリストは毎週金曜に更新されます）"
+        why={<>
+          <p>Spotify の公式プレイリスト「New Music Friday Japan」は、その週に日本で配信された新作を洋楽・邦楽まとめて載せています。AOTY に載らない洋楽や、水曜以外に出た邦楽を拾うのに使います。</p>
+          <p>作品ごとに洋楽か邦楽かを判定します。シートに登録したことのあるアーティストはその値を使い、初めてのアーティストは日本語の表記・Spotify のジャンル・レーベルから判断します。違っていたら「洋楽 ⇄」「邦楽 ⇄」のボタンで切り替えてください。</p>
+          <p>洋楽はオリジナルアルバムだけ、邦楽はEP（4曲以上）も候補にします。シートにすでにある作品（手順1で入れたものを含む）は「登録済み」に回し、追加しません。</p>
+        </>}
+      >
+        <PlaylistImport
+          key={`mixed-${friday}`}
+          friday={friday}
+          mode="mixed"
+          settingKey={MIXED_PLAYLIST_KEY}
+          playlistUrl={settings[MIXED_PLAYLIST_KEY] || DEFAULT_MIXED_PLAYLIST}
+          loadLabel="New Music Friday Japan を読み込む"
+          singlesLabel="シングル（1〜3曲）"
+          onAdded={loadStatus}
+        />
+      </StepCard>
+
+      {/* 3. 洋楽（AOTY） */}
+      <StepCard
+        no={3}
         title="洋楽を取り込む（AOTY）"
         when="木曜22時ごろ〜（AOTYに金曜リリースが出そろってから）"
         done={westernCount > 0 ? `${westernCount}件登録済み` : undefined}
@@ -286,6 +309,7 @@ export default function WeeklyPage() {
           <p>AOTY（Album of the Year）の Upcoming は、その週に出る注目作がまとまっている一覧です。洋楽の候補はここから選んでいます。</p>
           <p>AOTY はプログラムからの自動取得を拒否しているため、人がブラウザでコピーしたものを貼り付ける形にしています。</p>
           <p>オリジナルアルバムだけが対象です。EP・デラックス版・リイシュー・ライブ盤などは自動で見分けて外します（外れていたら手でチェックを入れ直せます）。</p>
+          <p>手順2（New Music Friday Japan）で入れた作品は「登録済み」に回ります。作品名やアーティスト名の表記が違っていても、前後7日以内で名義の一部か作品名が一致すれば同じ作品とみなします。</p>
         </>}
       >
         <ol className="list-decimal pl-5 flex flex-col gap-1 text-sm" style={{ color: "var(--text-secondary)" }}>
@@ -325,29 +349,6 @@ export default function WeeklyPage() {
             adding={westernBusy === "add"}
           />
         )}
-      </StepCard>
-
-      {/* 3. 洋邦混在のプレイリスト */}
-      <StepCard
-        no={3}
-        title="洋楽・邦楽を取り込む（New Music Friday Japan）"
-        when="金曜0時以降（プレイリストは毎週金曜に更新されます）"
-        why={<>
-          <p>Spotify の公式プレイリスト「New Music Friday Japan」は、その週に日本で配信された新作を洋楽・邦楽まとめて載せています。AOTY に載らない洋楽や、水曜以外に出た邦楽を拾うのに使います。</p>
-          <p>作品ごとに洋楽か邦楽かを判定します。シートに登録したことのあるアーティストはその値を使い、初めてのアーティストは日本語の表記・Spotify のジャンル・レーベルから判断します。違っていたら「洋楽 ⇄」「邦楽 ⇄」のボタンで切り替えてください。</p>
-          <p>洋楽はオリジナルアルバムだけ、邦楽はEP（4曲以上）も候補にします。シートにすでにある作品（手順1・2で入れたものを含む）は「登録済み」に回し、追加しません。</p>
-        </>}
-      >
-        <PlaylistImport
-          key={`mixed-${friday}`}
-          friday={friday}
-          mode="mixed"
-          settingKey={MIXED_PLAYLIST_KEY}
-          playlistUrl={settings[MIXED_PLAYLIST_KEY] || DEFAULT_MIXED_PLAYLIST}
-          loadLabel="New Music Friday Japan を読み込む"
-          singlesLabel="シングル（1〜3曲）"
-          onAdded={loadStatus}
-        />
       </StepCard>
 
       {/* 4. 情報の更新 */}

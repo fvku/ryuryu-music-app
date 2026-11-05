@@ -20,6 +20,7 @@ import { fetchEmbedPlaylist } from "@/lib/ops/sync-playlist-tags";
 import { findListenerColumn } from "@/lib/ops/fill-listeners";
 import { excludeReasonFor, type AotyEntry } from "@/lib/weekly/aoty-parse";
 import { isInWeek, normalizeSheetDate, toSheetDate, type WeekWindow } from "@/lib/weekly/week";
+import { findNearbyDuplicate, type ExistingRelease } from "@/lib/weekly/duplicates";
 import { classifyWaboku, titleAndExclusion, type Waboku } from "@/lib/weekly/waboku";
 
 const SHEET = "'Release Master'";
@@ -98,7 +99,7 @@ async function readExistingKeys() {
   const { dataRows, col } = await readSheet();
   const keys = new Map<string, number>();
   const albumIds = new Map<string, number>();
-  const artists = new Map<string, { date: string; rowNum: number }[]>();
+  const rows: ExistingRelease[] = [];
   /** アーティスト → 洋邦。下の行（新しい行）ほど優先 */
   const wabokuByArtist = new Map<string, Waboku>();
   dataRows.forEach((row, i) => {
@@ -108,38 +109,15 @@ async function readExistingKeys() {
     const waboku = (row[getCol(col, "GENRE")] ?? "").trim();
     if (artist && (waboku === "洋楽" || waboku === "邦楽")) wabokuByArtist.set(normArtistName(artist), waboku);
     const date = normalizeSheetDate(row[getCol(col, "DATE")] ?? "");
-    if (artist && date) {
-      const key = normArtistName(artist);
-      artists.set(key, [...(artists.get(key) ?? []), { date, rowNum: i + 2 }]);
-    }
+    if (title && artist && date) rows.push({ rowNum: i + 2, date, title, artist });
     const albumId = parseAlbumId(row[col[SHEET_COL.SPOTIFY_URL] ?? -1] ?? "");
     if (albumId) albumIds.set(albumId, i + 2);
   });
-  return { keys, albumIds, artists, wabokuByArtist };
+  return { keys, albumIds, rows, wabokuByArtist };
 }
 
 function normArtistName(s: string) {
   return (s ?? "").normalize("NFKC").trim().toLowerCase();
-}
-
-/**
- * 同じアーティストの行が前後7日以内にあれば、その行番号を返す。
- * 邦楽は作品名がローマ字表記と日本語表記で揺れる（"ao wo komete" と「青を込めて」）ため、
- * 作品名の照合だけでは重複を見落とす
- */
-function sameArtistNearby(
-  artists: Map<string, { date: string; rowNum: number }[]>,
-  names: string[],
-  isoDate: string,
-): number | null {
-  const target = Date.parse(`${isoDate}T00:00:00Z`);
-  for (const name of [names.join(", "), ...names]) {
-    for (const hit of artists.get(normArtistName(name)) ?? []) {
-      const diff = Math.abs(Date.parse(`${hit.date.replace(/\//g, "-")}T00:00:00Z`) - target);
-      if (diff <= 7 * 24 * 60 * 60 * 1000) return hit.rowNum;
-    }
-  }
-  return null;
 }
 
 // ── 候補 ──
@@ -177,7 +155,7 @@ export interface Candidate {
 
 /** 洋楽：AOTY の解析結果を Release Master と突き合わせる */
 export async function westernCandidates(entries: AotyEntry[], window: WeekWindow): Promise<Candidate[]> {
-  const { keys } = await readExistingKeys();
+  const { keys, rows } = await readExistingKeys();
   return entries.map((e, i) => ({
     id: `aoty-${i}`,
     source: "aoty",
@@ -187,7 +165,9 @@ export async function westernCandidates(entries: AotyEntry[], window: WeekWindow
     waboku: "洋楽",
     type: e.type,
     excludeReason: e.excludeReason,
-    existingRow: keys.get(releaseKey(e.title, e.artist)) ?? null,
+    // NMF から先に入れた行と表記が揃わないことがあるので、ゆるい照合も行う
+    existingRow: keys.get(releaseKey(e.title, e.artist))
+      ?? findNearbyDuplicate(rows, { date: e.date, title: e.title, artistNames: [e.artist] }),
     inWeek: isInWeek(toSheetDate(e.date), window),
   }));
 }
@@ -296,7 +276,7 @@ export async function playlistCandidates(
     }
   }
 
-  const { keys, albumIds, artists, wabokuByArtist } = await readExistingKeys();
+  const { keys, albumIds, rows, wabokuByArtist } = await readExistingKeys();
   const candidates: Candidate[] = [];
   for (const album of albums) {
     let totalMs = album.tracks.items.reduce((sum, t) => sum + (t.duration_ms ?? 0), 0);
@@ -345,7 +325,7 @@ export async function playlistCandidates(
       type,
       excludeReason,
       existingRow: albumIds.get(album.id) ?? keys.get(releaseKey(title, artist))
-        ?? sameArtistNearby(artists, artistNames, date),
+        ?? findNearbyDuplicate(rows, { date, title: album.name, artistNames }),
       inWeek: isInWeek(toSheetDate(date), window),
       spotifyUrl: album.external_urls.spotify,
       coverUrl: album.images?.[0]?.url ?? "",
