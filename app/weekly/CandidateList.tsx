@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, Note, OK, WARN } from "./parts";
+import { ACCENT, Badge, Button, Note, OK, WARN } from "./parts";
 
 export interface Candidate {
   id: string;
@@ -18,6 +18,10 @@ export interface Candidate {
   coverUrl?: string;
   trackCount?: number;
   totalDurationMs?: number;
+  /** 洋邦混在のプレイリスト由来の候補だけが持つ（lib/ops/weekly.ts の Candidate と同じ） */
+  albumName?: string;
+  baseExcludeReason?: string | null;
+  wabokuReason?: string;
 }
 
 /** 最初から見せる候補（新規・今週・シングル以外）。除外候補も理由つきで見せる */
@@ -36,7 +40,29 @@ function shortDate(iso: string) {
   return `${Number(m)}/${Number(d)}（${day}）`;
 }
 
-function Row({ c, checked, onToggle }: { c: Candidate; checked: boolean; onToggle?: () => void }) {
+const JAPAN = "#f472b6";
+
+/** 洋邦の判定結果。押すと切り替わる（登録済みの作品は切り替えない） */
+function WabokuButton({ c, onToggle }: { c: Candidate; onToggle?: () => void }) {
+  const color = c.waboku === "邦楽" ? JAPAN : ACCENT;
+  const style = { color, borderColor: color };
+  if (!onToggle) return <span className="px-1.5 py-0.5 rounded border text-[11px]" style={style}>{c.waboku}</span>;
+  return (
+    <button
+      type="button"
+      title={c.wabokuReason ? `判定：${c.wabokuReason}（押すと切り替え）` : "押すと切り替え"}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggle(); }}
+      className="px-1.5 py-0.5 rounded border text-[11px]"
+      style={style}
+    >
+      {c.waboku} ⇄
+    </button>
+  );
+}
+
+function Row({ c, checked, onToggle, onToggleWaboku }: {
+  c: Candidate; checked: boolean; onToggle?: () => void; onToggleWaboku?: () => void;
+}) {
   return (
     <label
       className="flex items-center gap-3 py-2 px-2 rounded-lg"
@@ -55,7 +81,8 @@ function Row({ c, checked, onToggle }: { c: Candidate; checked: boolean; onToggl
       </span>
       <span className="flex flex-col items-end gap-1 flex-shrink-0 text-xs" style={{ color: "var(--text-secondary)" }}>
         <span>{shortDate(c.date)}</span>
-        <span className="flex gap-1">
+        <span className="flex flex-wrap justify-end gap-1">
+          {c.wabokuReason !== undefined && <WabokuButton c={c} onToggle={c.existingRow ? undefined : onToggleWaboku} />}
           {c.type && <Badge>{c.type}{c.trackCount ? `・${c.trackCount}曲` : ""}</Badge>}
           {c.existingRow && <Badge color={OK}>登録済み（行{c.existingRow}）</Badge>}
           {!c.existingRow && c.excludeReason && <Badge color={WARN}>{c.excludeReason}</Badge>}
@@ -66,8 +93,9 @@ function Row({ c, checked, onToggle }: { c: Candidate; checked: boolean; onToggl
   );
 }
 
-function Folded({ label, items, selected, onToggle }: {
+function Folded({ label, items, selected, onToggle, onToggleWaboku }: {
   label: string; items: Candidate[]; selected: Set<string>; onToggle: (id: string) => void;
+  onToggleWaboku?: (c: Candidate) => void;
 }) {
   const [open, setOpen] = useState(false);
   if (items.length === 0) return null;
@@ -79,7 +107,8 @@ function Folded({ label, items, selected, onToggle }: {
       {open && (
         <div className="mt-1 flex flex-col">
           {items.map((c) => (
-            <Row key={c.id} c={c} checked={selected.has(c.id)} onToggle={c.existingRow ? undefined : () => onToggle(c.id)} />
+            <Row key={c.id} c={c} checked={selected.has(c.id)} onToggle={c.existingRow ? undefined : () => onToggle(c.id)}
+              onToggleWaboku={onToggleWaboku && (() => onToggleWaboku(c))} />
           ))}
         </div>
       )}
@@ -88,11 +117,13 @@ function Folded({ label, items, selected, onToggle }: {
 }
 
 export function CandidateList({
-  candidates, selected, onToggle, onAdd, adding, singlesLabel = "シングル",
+  candidates, selected, onToggle, onToggleWaboku, onAdd, adding, singlesLabel = "シングル",
 }: {
   candidates: Candidate[];
   selected: Set<string>;
   onToggle: (id: string) => void;
+  /** 渡すと各行に洋邦の切り替えボタンが出る（洋邦混在のプレイリスト用） */
+  onToggleWaboku?: (c: Candidate) => void;
   onAdd: () => void;
   adding: boolean;
   singlesLabel?: string;
@@ -113,14 +144,17 @@ export function CandidateList({
             チェックが入っている作品が追加されます。黄色の印は「オリジナルアルバムではなさそう」と判定したもので、最初はチェックを外してあります。判定が違っていたらチェックを入れ直してください。
           </p>
           <div className="flex flex-col rounded-xl border p-1 max-h-[28rem] overflow-y-auto" style={{ borderColor: "var(--border-subtle)" }}>
-            {primary.map((c) => <Row key={c.id} c={c} checked={selected.has(c.id)} onToggle={() => onToggle(c.id)} />)}
+            {primary.map((c) => (
+              <Row key={c.id} c={c} checked={selected.has(c.id)} onToggle={() => onToggle(c.id)}
+                onToggleWaboku={onToggleWaboku && (() => onToggleWaboku(c))} />
+            ))}
           </div>
         </>
       )}
       <div className="flex flex-col gap-1">
         <Folded label="登録済み" items={existing} selected={selected} onToggle={onToggle} />
-        <Folded label="今週以外のリリース" items={otherWeeks} selected={selected} onToggle={onToggle} />
-        <Folded label={singlesLabel} items={singles} selected={selected} onToggle={onToggle} />
+        <Folded label="今週以外のリリース" items={otherWeeks} selected={selected} onToggle={onToggle} onToggleWaboku={onToggleWaboku} />
+        <Folded label={singlesLabel} items={singles} selected={selected} onToggle={onToggle} onToggleWaboku={onToggleWaboku} />
       </div>
       <div>
         <Button onClick={onAdd} disabled={adding || count === 0}>

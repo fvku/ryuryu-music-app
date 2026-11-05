@@ -2,7 +2,8 @@
  * 週次リリース作業（/weekly）のコアロジック。
  *
  *   - 今週の行の状況（Spotify URL・Time・リスナー・収録タグ・WEEK）の読み出し
- *   - 洋楽（AOTYの貼り付け）・邦楽（New Music Wednesday）の候補と Release Master の突き合わせ
+ *   - 洋楽（AOTYの貼り付け）・邦楽（New Music Wednesday）・洋邦混在（New Music Friday Japan）の候補と
+ *     Release Master の突き合わせ
  *   - 候補の一括追加
  *
  * 「今週」は土曜〜金曜（lib/weekly/week.ts）。
@@ -19,6 +20,7 @@ import { fetchEmbedPlaylist } from "@/lib/ops/sync-playlist-tags";
 import { findListenerColumn } from "@/lib/ops/fill-listeners";
 import { excludeReasonFor, type AotyEntry } from "@/lib/weekly/aoty-parse";
 import { isInWeek, normalizeSheetDate, toSheetDate, type WeekWindow } from "@/lib/weekly/week";
+import { classifyWaboku, titleAndExclusion, type Waboku } from "@/lib/weekly/waboku";
 
 const SHEET = "'Release Master'";
 
@@ -97,10 +99,14 @@ async function readExistingKeys() {
   const keys = new Map<string, number>();
   const albumIds = new Map<string, number>();
   const artists = new Map<string, { date: string; rowNum: number }[]>();
+  /** アーティスト → 洋邦。下の行（新しい行）ほど優先 */
+  const wabokuByArtist = new Map<string, Waboku>();
   dataRows.forEach((row, i) => {
     const title = (row[getCol(col, "TITLE")] ?? "").trim();
     const artist = (row[getCol(col, "ARTIST")] ?? "").trim();
     if (title && artist) keys.set(releaseKey(title, artist), i + 2);
+    const waboku = (row[getCol(col, "GENRE")] ?? "").trim();
+    if (artist && (waboku === "洋楽" || waboku === "邦楽")) wabokuByArtist.set(normArtistName(artist), waboku);
     const date = normalizeSheetDate(row[getCol(col, "DATE")] ?? "");
     if (artist && date) {
       const key = normArtistName(artist);
@@ -109,7 +115,7 @@ async function readExistingKeys() {
     const albumId = parseAlbumId(row[col[SHEET_COL.SPOTIFY_URL] ?? -1] ?? "");
     if (albumId) albumIds.set(albumId, i + 2);
   });
-  return { keys, albumIds, artists };
+  return { keys, albumIds, artists, wabokuByArtist };
 }
 
 function normArtistName(s: string) {
@@ -160,6 +166,13 @@ export interface Candidate {
   coverUrl?: string;
   trackCount?: number;
   totalDurationMs?: number;
+  // 洋邦混在のプレイリスト由来の候補だけが持つ（画面で洋邦を切り替えるときに作品名・除外理由を作り直す）
+  /** "[EP] " を付ける前の作品名 */
+  albumName?: string;
+  /** 洋邦に関係なく対象外になる理由 */
+  baseExcludeReason?: string | null;
+  /** 洋邦の判定の根拠 */
+  wabokuReason?: string;
 }
 
 /** 洋楽：AOTY の解析結果を Release Master と突き合わせる */
@@ -185,7 +198,8 @@ interface SpotifyAlbumFull {
   album_type: string;
   total_tracks: number;
   release_date: string;
-  artists: { name: string }[];
+  label?: string;
+  artists: { id: string; name: string }[];
   images: { url: string }[];
   external_urls: { spotify: string };
   tracks: { items: { duration_ms: number; name: string }[]; next: string | null };
@@ -226,13 +240,21 @@ function releaseDateIso(value: string): string {
 }
 
 /**
- * 邦楽：New Music Wednesday の収録曲からアルバム・EPの候補を作る。
+ * Spotify のプレイリストの収録曲から、アルバム・EPの候補を作る。
+ *
+ *   japan  邦楽だけのプレイリスト（New Music Wednesday）。すべて邦楽として扱う
+ *   mixed  洋楽・邦楽が混ざったプレイリスト（New Music Friday Japan）。
+ *          作品ごとに洋邦を判定し（lib/weekly/waboku.ts）、洋楽はアルバムだけ、邦楽はEPも候補にする
  *
  * 種別の判定は既存の追加ボタン（/api/sheets/add-album）と同じ。
  * Spotify の album_type が album ならアルバム、single でも4曲以上ならEP、
  * それ未満はシングルとして対象外にする。
  */
-export async function japaneseCandidates(playlistUrl: string, window: WeekWindow): Promise<{ playlistName: string; candidates: Candidate[] }> {
+export async function playlistCandidates(
+  playlistUrl: string,
+  window: WeekWindow,
+  mode: "japan" | "mixed",
+): Promise<{ playlistName: string; candidates: Candidate[] }> {
   const playlistId = parsePlaylistId(playlistUrl);
   if (!playlistId) throw new Error("プレイリストのURLが設定されていません");
 
@@ -251,7 +273,7 @@ export async function japaneseCandidates(playlistUrl: string, window: WeekWindow
     await sleep(150);
   }
 
-  // アルバムの詳細（曲数・総尺・カバー）
+  // アルバムの詳細（曲数・総尺・カバー・レーベル）
   const albums: SpotifyAlbumFull[] = [];
   for (let i = 0; i < albumOrder.length; i += 20) {
     const data = await fetchJson(`https://api.spotify.com/v1/albums?ids=${albumOrder.slice(i, i + 20).join(",")}&market=JP`, token);
@@ -259,7 +281,22 @@ export async function japaneseCandidates(playlistUrl: string, window: WeekWindow
     await sleep(150);
   }
 
-  const { keys, albumIds, artists } = await readExistingKeys();
+  // 洋邦の判定に使うメイン名義のジャンル。取れなくても判定は続ける（ジャンル以外の手がかりで決まる）
+  const genresByArtist = new Map<string, string[]>();
+  if (mode === "mixed") {
+    const artistIds = [...new Set(albums.map((a) => a.artists[0]?.id).filter((id): id is string => !!id))];
+    for (let i = 0; i < artistIds.length; i += 50) {
+      try {
+        const data = await fetchJson(`https://api.spotify.com/v1/artists?ids=${artistIds.slice(i, i + 50).join(",")}`, token);
+        for (const artist of data.artists ?? []) if (artist?.id) genresByArtist.set(artist.id, artist.genres ?? []);
+      } catch (e) {
+        console.warn("artist genres unavailable:", e);
+      }
+      await sleep(150);
+    }
+  }
+
+  const { keys, albumIds, artists, wabokuByArtist } = await readExistingKeys();
   const candidates: Candidate[] = [];
   for (const album of albums) {
     let totalMs = album.tracks.items.reduce((sum, t) => sum + (t.duration_ms ?? 0), 0);
@@ -278,10 +315,25 @@ export async function japaneseCandidates(playlistUrl: string, window: WeekWindow
       : isEp ? "EP"
       : album.album_type === "compilation" ? "コンピレーション"
       : "シングル";
-    const artist = album.artists.map((a) => a.name).join(", ");
-    const title = isEp ? `[EP] ${album.name}` : album.name;
+    const artistNames = album.artists.map((a) => a.name);
+    const artist = artistNames.join(", ");
     const date = releaseDateIso(album.release_date);
     const reissuedFrom = reissueYear(album);
+    const baseExcludeReason = type === "シングル" ? "シングル"
+      : type === "コンピレーション" ? "コンピレーション"
+      : reissuedFrom ? `リイシュー（℗${reissuedFrom}）`
+      : excludeReasonFor(album.name, "");
+
+    const judged = mode === "japan"
+      ? { waboku: "邦楽" as const, reason: "" }
+      : classifyWaboku({
+        artistNames,
+        title: album.name,
+        genres: genresByArtist.get(album.artists[0]?.id ?? "") ?? [],
+        label: album.label ?? "",
+        history: [artist, ...artistNames].map((n) => wabokuByArtist.get(normArtistName(n))).find(Boolean) ?? null,
+      });
+    const { title, excludeReason } = titleAndExclusion(album.name, type, baseExcludeReason, judged.waboku);
 
     candidates.push({
       id: `sp-${album.id}`,
@@ -289,19 +341,17 @@ export async function japaneseCandidates(playlistUrl: string, window: WeekWindow
       date,
       title,
       artist,
-      waboku: "邦楽",
+      waboku: judged.waboku,
       type,
-      excludeReason: type === "シングル" ? "シングル"
-        : type === "コンピレーション" ? "コンピレーション"
-        : reissuedFrom ? `リイシュー（℗${reissuedFrom}）`
-        : excludeReasonFor(album.name, ""),
+      excludeReason,
       existingRow: albumIds.get(album.id) ?? keys.get(releaseKey(title, artist))
-        ?? sameArtistNearby(artists, album.artists.map((a) => a.name), date),
+        ?? sameArtistNearby(artists, artistNames, date),
       inWeek: isInWeek(toSheetDate(date), window),
       spotifyUrl: album.external_urls.spotify,
       coverUrl: album.images?.[0]?.url ?? "",
       trackCount: album.total_tracks,
       totalDurationMs: totalMs,
+      ...(mode === "mixed" ? { albumName: album.name, baseExcludeReason, wabokuReason: judged.reason } : {}),
     });
   }
 

@@ -129,8 +129,9 @@ Release Master の `memo`（旧playlist）列に「そのアルバムがどの�
 
 1. 邦楽：New Music Wednesday（既定 `37i9dQZF1DWYBDycFJuxRt`。`settings` シートの `weekly_japan_playlist` で変更可）を埋め込み経由で読み、アルバムと4曲以上のEPだけを候補にする。インスト・ライブ・別バージョンを除いて4曲未満ならシングル扱い。℗の年が配信日より2年以上前ならリイシュー候補。同じアーティストの行が前後7日にあれば登録済み扱い（ローマ字／日本語表記の揺れ対策）
 2. 洋楽：AOTY はサーバーからの取得を Cloudflare が403で弾くため、人がコピーしたページのテキストを貼る（`lib/weekly/aoty-parse.ts`）。日付行（`Oct 2 • LP`）の直前2行をアーティスト名・作品名として読む。整形済みのタブ区切りも可。オリジナルアルバムだけが対象で、EP・デラックス版・リイシュー・ライブ盤などは除外候補にする
-3. 情報の更新：今週の行だけを対象に Spotify URL → Time → 月間リスナー数 → 収録タグ を順に実行（既存の ops に `dateRange` オプションを追加して流用）
-4. 振り分け（WEEK列）はシートで行う。5. 画像はジェネレーター
+3. 洋邦混在：New Music Friday Japan（既定 `37i9dQZF1DXc57cuGAMEkA`。`settings` シートの `weekly_mixed_playlist` で変更可。2026-11-06〜）。読み込みは1と同じ処理（`playlistCandidates(url, window, "mixed")`）で、作品ごとに洋邦を判定する（`lib/weekly/waboku.ts`）。判定は Release Master の同じアーティストの過去の洋邦 → かな表記（共演名義を含む）→ メイン名義のSpotifyジャンル（j-pop / anime / japanese ... ）→ レーベル（Sony Music Labels / WM Japan ...）→ 名義の漢字 → それ以外は洋楽。洋楽はアルバムのみ（EPは「洋楽のEP」でチェックを外す）、邦楽はEPも候補。画面の「洋楽 ⇄」ボタンで切り替えると `[EP]` の付け外しと除外理由も作り直す
+4. 情報の更新：今週の行だけを対象に Spotify URL → Time → 月間リスナー数 → 収録タグ を順に実行（既存の ops に `dateRange` オプションを追加して流用）
+5. 振り分け（WEEK列）はシートで行う。6. 画像はジェネレーター
 
 - 行の追加は重複を書き込み直前にも再確認する。A列（No.）の数式は2407行目で途切れているため、空なら `=ROW()-1` を入れる（No.が空の行はアプリ・ジェネレーターに出ない）。`/api/sheets/add-album` も同様
 - 洋楽の Spotify URL 取得はアルバム形式の結果だけを採用する（配信前は同名の先行シングルが先頭に来るため）

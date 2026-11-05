@@ -13,8 +13,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { shiftWeek, todayInTokyo, upcomingFriday, weekLabel, weekWindow } from "@/lib/weekly/week";
 import { MismatchQueueModal, type RefetchMismatch } from "@/components/admin/MismatchQueueModal";
-import { CandidateList, isDefaultSelected, type Candidate } from "./CandidateList";
+import { CandidateList, type Candidate } from "./CandidateList";
 import { ACCENT, Badge, Button, DANGER, Note, OK, StepCard, WARN, formatListeners } from "./parts";
+import { PlaylistImport } from "./PlaylistImport";
+import { addPicked, api, useCandidates, type Message } from "./use-candidates";
 
 const AOTY_PAGES = [
   "https://www.albumoftheyear.org/upcoming/",
@@ -22,6 +24,9 @@ const AOTY_PAGES = [
 ];
 const DEFAULT_JAPAN_PLAYLIST = "https://open.spotify.com/playlist/37i9dQZF1DWYBDycFJuxRt";
 const JAPAN_PLAYLIST_KEY = "weekly_japan_playlist";
+/** New Music Friday Japan（洋楽・邦楽が混ざっている） */
+const DEFAULT_MIXED_PLAYLIST = "https://open.spotify.com/playlist/37i9dQZF1DXc57cuGAMEkA";
+const MIXED_PLAYLIST_KEY = "weekly_mixed_playlist";
 
 type Viewer = { email: string; isMember: boolean; googleVerified: boolean; isAdmin: boolean };
 
@@ -39,39 +44,6 @@ const REFRESH_STEPS: { key: RefreshStep; label: string }[] = [
 ];
 type StepState = { status: "idle" | "running" | "done" | "error"; summary?: string };
 
-async function api<T>(action: string, payload: Record<string, unknown>): Promise<T> {
-  const res = await fetch("/api/admin/weekly", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, ...payload }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `エラーが発生しました (${res.status})`);
-  return data as T;
-}
-
-function toRelease(c: Candidate) {
-  return {
-    date: c.date, title: c.title, artist: c.artist, waboku: c.waboku,
-    spotifyUrl: c.spotifyUrl, coverUrl: c.coverUrl, trackCount: c.trackCount, totalDurationMs: c.totalDurationMs,
-  };
-}
-
-function useCandidates() {
-  const [candidates, setCandidates] = useState<Candidate[] | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const load = (list: Candidate[]) => {
-    setCandidates(list);
-    setSelected(new Set(list.filter(isDefaultSelected).map((c) => c.id)));
-  };
-  const toggle = (id: string) => setSelected((prev) => {
-    const next = new Set(prev);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next;
-  });
-  return { candidates, selected, load, toggle, reset: () => { setCandidates(null); setSelected(new Set()); } };
-}
-
 export default function WeeklyPage() {
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [friday, setFriday] = useState(() => upcomingFriday(todayInTokyo()));
@@ -86,16 +58,10 @@ export default function WeeklyPage() {
   const [aotyText, setAotyText] = useState("");
   const western = useCandidates();
   const [westernBusy, setWesternBusy] = useState<"parse" | "add" | null>(null);
-  const [westernMessage, setWesternMessage] = useState<{ tone: "ok" | "warn" | "error"; text: string } | null>(null);
+  const [westernMessage, setWesternMessage] = useState<Message | null>(null);
 
-  // 2. 邦楽
-  const [japanPlaylist, setJapanPlaylist] = useState(DEFAULT_JAPAN_PLAYLIST);
-  const [editingPlaylist, setEditingPlaylist] = useState(false);
-  const [playlistDraft, setPlaylistDraft] = useState("");
-  const japan = useCandidates();
-  const [japanName, setJapanName] = useState("");
-  const [japanBusy, setJapanBusy] = useState<"load" | "add" | null>(null);
-  const [japanMessage, setJapanMessage] = useState<{ tone: "ok" | "warn" | "error"; text: string } | null>(null);
+  // 邦楽（New Music Wednesday）・洋邦混在（New Music Friday Japan）のプレイリストURL
+  const [settings, setSettings] = useState<Record<string, string>>({});
 
   // 3. 情報の更新
   const [refreshing, setRefreshing] = useState(false);
@@ -113,7 +79,7 @@ export default function WeeklyPage() {
       .catch(() => setViewer({ email: "", isMember: false, googleVerified: false, isAdmin: false }));
     fetch("/api/admin/settings")
       .then((r) => r.json())
-      .then((s: Record<string, string>) => { if (s[JAPAN_PLAYLIST_KEY]) setJapanPlaylist(s[JAPAN_PLAYLIST_KEY]); })
+      .then((s: Record<string, string>) => setSettings(s ?? {}))
       .catch(() => {});
   }, []);
 
@@ -141,8 +107,8 @@ export default function WeeklyPage() {
   function changeWeek(weeks: number) {
     setFriday(shiftWeek(friday, weeks));
     setRows(null);
-    western.reset(); japan.reset();
-    setWesternMessage(null); setJapanMessage(null);
+    western.reset();
+    setWesternMessage(null);
     setMismatches([]); setPendingListeners([]);
     setStepStates({ spotify: { status: "idle" }, time: { status: "idle" }, listeners: { status: "idle" }, playlists: { status: "idle" } });
   }
@@ -170,52 +136,20 @@ export default function WeeklyPage() {
     western.load(western.candidates.map((c) => ({ ...c, title: c.artist, artist: c.title })));
   }
 
-  async function addCandidates(kind: "western" | "japan") {
-    const state = kind === "western" ? western : japan;
-    const setBusy = kind === "western" ? setWesternBusy : setJapanBusy;
-    const setMessage = kind === "western" ? setWesternMessage : setJapanMessage;
-    const picked = (state.candidates ?? []).filter((c) => state.selected.has(c.id));
+  async function addWestern() {
+    const picked = (western.candidates ?? []).filter((c) => western.selected.has(c.id));
     if (picked.length === 0) return;
-    setBusy("add"); setMessage(null);
+    setWesternBusy("add"); setWesternMessage(null);
     try {
-      const result = await api<{ added: { rowNum: number }[]; skipped: { title: string; existingRow: number }[] }>(
-        "add", { friday, releases: picked.map(toRelease) },
-      );
-      const skippedText = result.skipped.length > 0 ? `（${result.skipped.length}件は他の人が先に追加していたので飛ばしました）` : "";
-      setMessage({ tone: "ok", text: `${result.added.length}件を追加しました${skippedText}。` });
-      state.reset();
-      if (kind === "western") setAotyText("");
+      setWesternMessage(await addPicked(friday, picked));
+      western.reset();
+      setAotyText("");
       await loadStatus();
     } catch (e) {
-      setMessage({ tone: "error", text: e instanceof Error ? e.message : String(e) });
+      setWesternMessage({ tone: "error", text: e instanceof Error ? e.message : String(e) });
     } finally {
-      setBusy(null);
+      setWesternBusy(null);
     }
-  }
-
-  async function loadJapan() {
-    setJapanBusy("load"); setJapanMessage(null);
-    try {
-      const data = await api<{ playlistName: string; candidates: Candidate[] }>("japan-preview", { friday, playlistUrl: japanPlaylist });
-      setJapanName(data.playlistName);
-      japan.load(data.candidates);
-    } catch (e) {
-      setJapanMessage({ tone: "error", text: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setJapanBusy(null);
-    }
-  }
-
-  async function savePlaylist() {
-    const value = playlistDraft.trim();
-    if (!value) return;
-    const res = await fetch("/api/admin/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: JAPAN_PLAYLIST_KEY, value }),
-    });
-    if (res.ok) { setJapanPlaylist(value); setEditingPlaylist(false); japan.reset(); }
-    else setJapanMessage({ tone: "error", text: "プレイリストURLを保存できませんでした" });
   }
 
   async function runRefresh() {
@@ -330,37 +264,16 @@ export default function WeeklyPage() {
           <p>追加するときに Spotify URL・カバー画像・曲数と再生時間も一緒に入ります。</p>
         </>}
       >
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={loadJapan} disabled={japanBusy !== null}>
-            {japanBusy === "load" ? "読み込み中...（10秒ほど）" : "New Music Wednesday を読み込む"}
-          </Button>
-          <button type="button" onClick={() => { setPlaylistDraft(japanPlaylist); setEditingPlaylist(!editingPlaylist); }}
-            className="text-xs underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>
-            読み込むプレイリストを変える
-          </button>
-        </div>
-        {editingPlaylist && (
-          <div className="flex flex-wrap gap-2">
-            <input value={playlistDraft} onChange={(e) => setPlaylistDraft(e.target.value)}
-              className="flex-1 min-w-0 rounded-xl border px-3 py-2 text-xs"
-              style={{ backgroundColor: "#12121a", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }} />
-            <Button variant="secondary" onClick={savePlaylist}>保存</Button>
-          </div>
-        )}
-        {japanMessage && <Note tone={japanMessage.tone}>{japanMessage.text}</Note>}
-        {japan.candidates && (
-          <>
-            {japanName && <p className="text-xs" style={{ color: "var(--text-secondary)" }}>「{japanName}」から {japan.candidates.length}作品を確認しました</p>}
-            <CandidateList
-              candidates={japan.candidates}
-              selected={japan.selected}
-              onToggle={japan.toggle}
-              onAdd={() => addCandidates("japan")}
-              adding={japanBusy === "add"}
-              singlesLabel="シングル（1〜3曲）"
-            />
-          </>
-        )}
+        <PlaylistImport
+          key={`japan-${friday}`}
+          friday={friday}
+          mode="japan"
+          settingKey={JAPAN_PLAYLIST_KEY}
+          playlistUrl={settings[JAPAN_PLAYLIST_KEY] || DEFAULT_JAPAN_PLAYLIST}
+          loadLabel="New Music Wednesday を読み込む"
+          singlesLabel="シングル（1〜3曲）"
+          onAdded={loadStatus}
+        />
       </StepCard>
 
       {/* 2. 洋楽 */}
@@ -408,15 +321,38 @@ export default function WeeklyPage() {
             candidates={western.candidates}
             selected={western.selected}
             onToggle={western.toggle}
-            onAdd={() => addCandidates("western")}
+            onAdd={addWestern}
             adding={westernBusy === "add"}
           />
         )}
       </StepCard>
 
-      {/* 3. 情報の更新 */}
+      {/* 3. 洋邦混在のプレイリスト */}
       <StepCard
         no={3}
+        title="洋楽・邦楽を取り込む（New Music Friday Japan）"
+        when="金曜0時以降（プレイリストは毎週金曜に更新されます）"
+        why={<>
+          <p>Spotify の公式プレイリスト「New Music Friday Japan」は、その週に日本で配信された新作を洋楽・邦楽まとめて載せています。AOTY に載らない洋楽や、水曜以外に出た邦楽を拾うのに使います。</p>
+          <p>作品ごとに洋楽か邦楽かを判定します。シートに登録したことのあるアーティストはその値を使い、初めてのアーティストは日本語の表記・Spotify のジャンル・レーベルから判断します。違っていたら「洋楽 ⇄」「邦楽 ⇄」のボタンで切り替えてください。</p>
+          <p>洋楽はオリジナルアルバムだけ、邦楽はEP（4曲以上）も候補にします。シートにすでにある作品（手順1・2で入れたものを含む）は「登録済み」に回し、追加しません。</p>
+        </>}
+      >
+        <PlaylistImport
+          key={`mixed-${friday}`}
+          friday={friday}
+          mode="mixed"
+          settingKey={MIXED_PLAYLIST_KEY}
+          playlistUrl={settings[MIXED_PLAYLIST_KEY] || DEFAULT_MIXED_PLAYLIST}
+          loadLabel="New Music Friday Japan を読み込む"
+          singlesLabel="シングル（1〜3曲）"
+          onAdded={loadStatus}
+        />
+      </StepCard>
+
+      {/* 4. 情報の更新 */}
+      <StepCard
+        no={4}
         title="Spotify URL, 曲数時間, 月間リスナー数, プレイリスト収録タグ取得"
         when="金曜0時〜夕方。数時間おきに何度でも"
         done={total > 0 && withUrl === total && withListeners === total ? true : total > 0 ? `URL ${withUrl}/${total}` : undefined}
@@ -431,7 +367,7 @@ export default function WeeklyPage() {
           <Button onClick={runRefresh} disabled={refreshing || total === 0}>
             {refreshing ? "更新中...（1〜3分かかります）" : "今週の情報を更新する"}
           </Button>
-          {total === 0 && rows && <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>先に手順1・2で作品を登録してください。</p>}
+          {total === 0 && rows && <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>先に手順1〜3で作品を登録してください。</p>}
         </div>
         {REFRESH_STEPS.some(({ key }) => stepStates[key].status !== "idle") && (
           <ul className="flex flex-col gap-1.5 text-xs">
@@ -465,9 +401,9 @@ export default function WeeklyPage() {
         )}
       </StepCard>
 
-      {/* 4. 振り分け */}
+      {/* 5. 振り分け */}
       <StepCard
-        no={4}
+        no={5}
         title="採用・掲載を振り分ける（シート）"
         when="金曜の夕方まで"
         done={total > 0 && decided === total ? true : total > 0 ? `${decided}/${total}件 決定` : undefined}
@@ -524,9 +460,9 @@ export default function WeeklyPage() {
         )}
       </StepCard>
 
-      {/* 5. 画像 */}
+      {/* 6. 画像 */}
       <StepCard
-        no={5}
+        no={6}
         title="投稿画像を作る"
         when="振り分けが終わったら（19時の投稿まで）"
         why={<p>ジェネレーターは WEEK列の「採用」をメインの5枚、「掲載」を Other Releases として読み込みます。振り分けを後から直した場合は、ジェネレーターの「Release Masterから再取得」で反映できます。</p>}
