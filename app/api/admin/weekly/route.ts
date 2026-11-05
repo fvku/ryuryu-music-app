@@ -3,7 +3,7 @@ import { guardAdmin } from "@/lib/admin-auth";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 import { parseAotyText } from "@/lib/weekly/aoty-parse";
 import { isFriday, weekWindow } from "@/lib/weekly/week";
-import { addReleases, japaneseCandidates, readWeekRows, releaseMasterUrl, westernCandidates, type NewRelease } from "@/lib/ops/weekly";
+import { addReleases, playlistCandidates, readWeekRows, releaseMasterUrl, westernCandidates, type NewRelease } from "@/lib/ops/weekly";
 import { refetchSpotifyUrls } from "@/lib/ops/refetch-spotify";
 import { fillTimeTracks } from "@/lib/ops/fill-time-tracks";
 import { fillListeners } from "@/lib/ops/fill-listeners";
@@ -18,13 +18,16 @@ export const maxDuration = 300;
  * action:
  *   status          今週の行の一覧
  *   western-preview AOTYの貼り付けテキストを解析して候補を返す（書き込まない）
- *   japan-preview   New Music Wednesday から邦楽の候補を返す（書き込まない）
+ *   playlist-preview Spotify のプレイリストから候補を返す（書き込まない）
+ *                   mode=japan: 邦楽のみ（New Music Wednesday）／mode=mixed: 洋邦混在（New Music Friday Japan）
  *   add             選んだ候補を Release Master に追加する
  *   refresh         今週の行について、Spotify URL / Time / リスナー / 収録タグ のどれか1段を実行する
  */
 type Body =
   | { action: "status"; friday: string }
   | { action: "western-preview"; friday: string; text: string }
+  | { action: "playlist-preview"; friday: string; playlistUrl: string; mode: "japan" | "mixed" }
+  /** 旧名。デプロイ前に開いていた画面からの呼び出し用 */
   | { action: "japan-preview"; friday: string; playlistUrl: string }
   | { action: "add"; friday: string; releases: NewRelease[] }
   | { action: "refresh"; friday: string; step: "spotify" | "time" | "listeners" | "playlists" };
@@ -62,8 +65,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ candidates: await westernCandidates(entries, window), skipped });
       }
 
+      case "playlist-preview":
+        return NextResponse.json(await playlistCandidates(body.playlistUrl ?? "", window, body.mode === "mixed" ? "mixed" : "japan"));
+
       case "japan-preview":
-        return NextResponse.json(await japaneseCandidates(body.playlistUrl ?? "", window));
+        return NextResponse.json(await playlistCandidates(body.playlistUrl ?? "", window, "japan"));
 
       case "add": {
         const result = await addReleases(Array.isArray(body.releases) ? body.releases : []);
