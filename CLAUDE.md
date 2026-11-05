@@ -128,11 +128,12 @@ Release Master の `memo`（旧playlist）列に「そのアルバムがどの�
 金曜19時のWeekly投稿の準備を、メンバーの誰でもできるように1ページにまとめたもの（2026-09-28〜）。入口はマイページ上部の「投稿作業」カード（タップで Weekly作業・投稿画像ジェネレーター・管理者ページへのメニューが開く。`components/mypage/ProfileHeader.tsx`）。フッターのリンクは2026-09-28に廃止。週は土曜〜金曜（`lib/weekly/week.ts`。ジェネレーターと同じ定義）。API は `/api/admin/weekly`（`guardAdmin` で認可、`action` で分岐）。
 
 1. 邦楽：New Music Wednesday（既定 `37i9dQZF1DWYBDycFJuxRt`。`settings` シートの `weekly_japan_playlist` で変更可）を埋め込み経由で読み、アルバムと4曲以上のEPだけを候補にする。インスト・ライブ・別バージョンを除いて4曲未満ならシングル扱い。℗の年が配信日より2年以上前ならリイシュー候補。同じアーティストの行が前後7日にあれば登録済み扱い（ローマ字／日本語表記の揺れ対策）
-2. 洋楽：AOTY はサーバーからの取得を Cloudflare が403で弾くため、人がコピーしたページのテキストを貼る（`lib/weekly/aoty-parse.ts`）。日付行（`Oct 2 • LP`）の直前2行をアーティスト名・作品名として読む。整形済みのタブ区切りも可。オリジナルアルバムだけが対象で、EP・デラックス版・リイシュー・ライブ盤などは除外候補にする
-3. 洋邦混在：New Music Friday Japan（既定 `37i9dQZF1DXc57cuGAMEkA`。`settings` シートの `weekly_mixed_playlist` で変更可。2026-11-06〜）。読み込みは1と同じ処理（`playlistCandidates(url, window, "mixed")`）で、作品ごとに洋邦を判定する（`lib/weekly/waboku.ts`）。判定は Release Master の同じアーティストの過去の洋邦 → かな表記（共演名義を含む）→ メイン名義のSpotifyジャンル（j-pop / anime / japanese ... ）→ レーベル（Sony Music Labels / WM Japan ...）→ 名義の漢字 → それ以外は洋楽。洋楽はアルバムのみ（EPは「洋楽のEP」でチェックを外す）、邦楽はEPも候補。画面の「洋楽 ⇄」ボタンで切り替えると `[EP]` の付け外しと除外理由も作り直す
+2. 洋邦混在：New Music Friday Japan（既定 `37i9dQZF1DXc57cuGAMEkA`。`settings` シートの `weekly_mixed_playlist` で変更可。2026-11-06〜）。読み込みは1と同じ処理（`playlistCandidates(url, window, "mixed")`）で、作品ごとに洋邦を判定する（`lib/weekly/waboku.ts`）。判定は Release Master の同じアーティストの過去の洋邦 → かな表記（共演名義を含む）→ メイン名義のSpotifyジャンル（j-pop / anime / japanese ... ）→ レーベル（Sony Music Labels / WM Japan ...）→ 名義の漢字 → それ以外は洋楽。洋楽はアルバムのみ（EPは「洋楽のEP」でチェックを外す）、邦楽はEPも候補。画面の「洋楽 ⇄」ボタンで切り替えると `[EP]` の付け外しと除外理由も作り直す
+3. 洋楽：AOTY はサーバーからの取得を Cloudflare が403で弾くため、人がコピーしたページのテキストを貼る（`lib/weekly/aoty-parse.ts`）。日付行（`Oct 2 • LP`）の直前2行をアーティスト名・作品名として読む。整形済みのタブ区切りも可。オリジナルアルバムだけが対象で、EP・デラックス版・リイシュー・ライブ盤などは除外候補にする
 4. 情報の更新：今週の行だけを対象に Spotify URL → Time → 月間リスナー数 → 収録タグ を順に実行（既存の ops に `dateRange` オプションを追加して流用）
 5. 振り分け（WEEK列）はシートで行う。6. 画像はジェネレーター
 
+- 重複の判定（候補を「登録済み」に回す）は Spotify アルバムID → 作品名＋アーティスト名の一致 → `findNearbyDuplicate`（`lib/weekly/duplicates.ts`）。最後のものは配信日が前後7日以内の行に限り、名義を `,` `&` `feat.` などで分けたどれかの一致か、作品名（記号除く・6文字以上）の包含で同じ作品とみなす。AOTY とNMFで表記が揃わない（「久石譲 & …」と「Joe Hisaishi, …」）ため。2026-11-06 に手順を NMW → NMF → AOTY の順へ並べ替え、AOTY にもこの照合をかけた
 - 行の追加は重複を書き込み直前にも再確認する。A列（No.）の数式は2407行目で途切れているため、空なら `=ROW()-1` を入れる（No.が空の行はアプリ・ジェネレーターに出ない）。`/api/sheets/add-album` も同様
 - 洋楽の Spotify URL 取得はアルバム形式の結果だけを採用する（配信前は同名の先行シングルが先頭に来るため）
 - 月間リスナー数はアーティストページのHTMLから読む。短いUA（`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`）でないとサーバー描画されず数値が入っていない。書き込み先は「リスナー / Google Script 作動」列（旧GASと同じ）。アーティストはアルバムのクレジットから特定し、URLが無い行だけ名前の完全一致で探す。特定できなければセルに何も書かない
