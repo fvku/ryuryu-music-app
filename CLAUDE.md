@@ -20,6 +20,7 @@
   - `recommendations` シート: A=id, B=recommenderId, C=albumNo, D=albumTitle, E=artistName, F=coverUrl, G=message, H=createdAt, I=mentionedEmails(カンマ区切り), J=albumUid
   - `bookmarks` シート: A=memberName(email), B=albumTitle, C=artistName, D=savedAt, E=albumUid
   - `playlists` シート: A=playlistId, B=label, C=enabled, D=addedAt（プレイリスト収録タグの取得対象。管理画面から追加・削除）
+  - `push_subscriptions` / `notifications` / `notification_prefs` シート: 通知（下の「通知（Web Push・ベル）」を参照。初回アクセスで自動作成）
   - `playlist_archive` シート: A=playlistId, B=label, C=kind, D=key, E=name, F=months, G=firstSeenAt, H=lastSeenAt（プレイリスト収録の観測履歴。`lib/ops/playlist-archive.ts` が自動更新するので手で触らない）
   - アルバム紐付けは **albumUid（Release MasterのUID）優先、title+artistフォールバック**（2026-07-18〜）。albumUidが空の行は移行前の孤児データか手動追加行 → `scripts/backfill-album-uids.ts` の再実行で埋められる（冪等）
 - **Release Master**: `RELEASE_MASTER_SPREADSHEET_ID`
@@ -42,6 +43,7 @@
 - `lib/playlist-sources.ts` — プレイリスト収録タグの取得対象（`playlists` シートのCRUD）
 - `lib/ops/playlist-archive.ts` — プレイリスト収録の観測履歴（100曲の窓から外れた分を後から拾うための蓄積）
 - `lib/spotify.ts` — Spotify API クライアント
+- `lib/release-master-albums.ts` — Release Master の作品一覧の読み込み（`/api/release-master` と通知のアラートで共用）
 - `app/weekly/page.tsx` — 今週のリリース作業（Weekly投稿の準備を1ページで案内。コアは `lib/ops/weekly.ts`・`lib/weekly/`）
 - `lib/ops/fill-listeners.ts` — Spotify月間リスナー数の取得（旧GAS `fetchMonthlyListeners` の移植）
 - `app/page.tsx` — ホーム（アルバム一覧、フィルター）
@@ -137,6 +139,21 @@ Release Master の `memo`（旧playlist）列に「そのアルバムがどの�
 - 行の追加は重複を書き込み直前にも再確認する。A列（No.）の数式は2407行目で途切れているため、空なら `=ROW()-1` を入れる（No.が空の行はアプリ・ジェネレーターに出ない）。`/api/sheets/add-album` も同様
 - 洋楽の Spotify URL 取得はアルバム形式の結果だけを採用する（配信前は同名の先行シングルが先頭に来るため）
 - 月間リスナー数はアーティストページのHTMLから読む。短いUA（`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`）でないとサーバー描画されず数値が入っていない。書き込み先は「リスナー / Google Script 作動」列（旧GASと同じ）。アーティストはアルバムのクレジットから特定し、URLが無い行だけ名前の完全一致で探す。特定できなければセルに何も書かない
+
+## 通知（Web Push・ベル）
+
+2026-10-26〜。何を・いつ送るかは未定で、仕組みだけある状態。
+
+- 種類の一覧は `lib/notifications/kinds.ts`。2系統ある
+  - **message**: 送った時点の内容を `notifications` シート（A=id, B=email, C=kind, D=title, E=body, F=url, G=createdAt, H=readAt）に残す。既読あり。送るときは `notifyMember(email, {kind, title, body, url})`（`lib/notifications/send.ts`）を呼ぶ。Cron・書き込み処理など、どこから送るときもこれ1本
+  - **alert**: 今の作業状況から毎回計算する「やること」。保存しない・既読なし・作業が終われば消える。`lib/notifications/rules/` に1種類1ファイルで書き、`rules/index.ts` に足す
+- 種類を足すと設定画面（`components/settings/NotificationSettings.tsx`）にON/OFFが自動で並ぶ。設定は `notification_prefs` シート（A=email, B=kind, C=inApp, D=push, E=updatedAt）、行が無ければ kinds.ts の既定値
+- 端末の登録は `push_subscriptions` シート（A=email, B=endpoint, C=p256dh, D=auth, E=userAgent, F=createdAt, G=lastSentAt）。送信で 404/410 が返った端末は自動で消える
+- プッシュの鍵は `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`（Vercelの環境変数）。未設定でもベル一覧には残る
+- `public/sw.js` は通知専用。**fetch を扱わない（キャッシュしない）**。キャッシュを持たせると新しいデプロイが届かなくなり `UpdateBanner` の前提が崩れる。`middleware.ts` の対象から `sw.js` と `manifest.webmanifest` を外している（ログイン前でもブラウザが取りに来るため）
+- iPhone はホーム画面に追加したアプリ（`app/manifest.ts` の `display: standalone`）からしか Web Push を受け取れない（iOS 16.4〜）
+- ベルは `components/NotificationBell.tsx`、一覧APIは `/api/notifications`（alert → message の順）。前面復帰とプッシュ受信（Service Worker からの postMessage）で読み直す
+- 今ある種類: `test`（設定画面のテスト送信）、`mj_unwritten`（M/J担当の未執筆。ベル一覧のみ。判定はマイページの M/J タブのバッジと同じ）
 
 ## フィルター状態の永続化（localStorage）
 
