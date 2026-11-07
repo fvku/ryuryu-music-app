@@ -7,6 +7,8 @@ import { bodyIndexAt, hitTest, selectionRects, type FieldKey, type Rect } from "
 import { pngFileName } from "./bulk-export";
 import { drawPageInto, preparePage, useGeneratorRuntime, waveWarnings, type GeneratorRuntime, type LegacyPage } from "./runtime";
 import { PrimaryButton, SecondaryButton } from "./ui";
+import { useMusic } from "./music-store";
+import { buildVideo, downloadFile, planVideo, progressText, VideoAborted, VideoNotReady, videoSupportProblem } from "./video-export";
 
 export type PreviewSelection = { slotIndex: number; key: FieldKey; start: number; end: number };
 
@@ -32,6 +34,7 @@ export default function GeneratorPreview({
   selection,
   canExport,
   blockedReasons,
+  onOpenMusic,
 }: {
   document: GeneratorDocument;
   page: CanvasPreviewPage;
@@ -41,6 +44,8 @@ export default function GeneratorPreview({
   selection: PreviewSelection | null;
   canExport: boolean;
   blockedReasons: string[];
+  /** 音楽が未設定のまま「動画を書き出す」を押したときに、右パネルの音楽タブを開く。 */
+  onOpenMusic?(): void;
 }) {
   const { runtime, error, stalled, retry } = useGeneratorRuntime();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -49,6 +54,14 @@ export default function GeneratorPreview({
   const [exporting, setExporting] = useState(false);
   const [preparedSignature, setPreparedSignature] = useState<string | null>(null);
   const [rects, setRects] = useState<Rect[]>([]);
+  // 動画は作品の画像（採用・掲載）だけ。曲と範囲は右パネルの「音楽」タブで決める。
+  const music = useMusic();
+  const musicStatus = music?.status(page) ?? null;
+  // 作った動画は、同じ画像・同じ音楽設定の間だけ「アプリで送る」に使う。
+  // 共有シートはボタンを押した直後でないと開けない（Safari）ため、変換の後にもう一度押してもらう。
+  const [video, setVideo] = useState<{ key: string; file: File } | null>(null);
+  const videoAbortRef = useRef(false);
+  const [videoRunning, setVideoRunning] = useState(false);
   const dragRef = useRef<{ anchor: number; slotIndex: number } | null>(null);
   const signature = JSON.stringify(page);
   const selectionKey = selection ? `${selection.slotIndex}:${selection.key}:${selection.start}:${selection.end}` : "";
@@ -162,6 +175,58 @@ export default function GeneratorPreview({
     } finally { setExporting(false); }
   }
 
+  const videoKey = musicStatus && music
+    ? `${signature}\u0000${musicStatus.itemId}\u0000${JSON.stringify(music.preference(musicStatus.itemId))}\u0000${music.state.audio[musicStatus.itemId]?.name ?? ""}`
+    : "";
+  const sharableVideo = video && video.key === videoKey && typeof navigator !== "undefined" && navigator.canShare?.({ files: [video.file] }) ? video.file : null;
+
+  async function exportVideo() {
+    const prepared = preparedRef.current;
+    if (!music || !musicStatus || !runtime || !prepared || exporting || preparedSignature !== signature) return;
+    if (!musicStatus.ready) {
+      setStatus(`動画にするには音楽の設定が要ります（${musicStatus.reason}）。右の「音楽」タブで設定してください。`);
+      onOpenMusic?.();
+      return;
+    }
+    const key = videoKey;
+    setExporting(true);
+    setVideoRunning(true);
+    videoAbortRef.current = false;
+    try {
+      const problem = await videoSupportProblem();
+      if (problem) { setStatus(problem); return; }
+      const plan = planVideo(music, page, pngFileName(value, page.no));
+      const { canvas } = await runtime.exporter.renderTiled(prepared, runtime.images, {
+        size: value.theme.outputSize,
+        onProgress: (current, total) => setStatus(`画像を描いています… ${current}/${total}`),
+      });
+      let built;
+      try {
+        built = await buildVideo({ plan, image: canvas, onProgress: progress => setStatus(progressText(progress)), shouldAbort: () => videoAbortRef.current });
+      } finally { runtime.exporter.releaseCanvas(canvas); }
+      downloadFile(built.file, built.file.name);
+      setVideo({ key, file: built.file });
+      setStatus(`${built.file.name}（${built.seconds}秒${built.trimmed ? "・曲の終わりで短くなりました" : ""}）を書き出しました。`);
+    } catch (error) {
+      if (error instanceof VideoAborted) setStatus("動画の書き出しを中止しました。");
+      else setStatus(error instanceof VideoNotReady ? error.message : `動画を書き出せませんでした: ${(error as Error).message}`);
+      if (error instanceof VideoNotReady) onOpenMusic?.();
+    } finally {
+      setExporting(false);
+      setVideoRunning(false);
+    }
+  }
+
+  async function shareVideo() {
+    if (!sharableVideo) return;
+    try {
+      await navigator.share({ files: [sharableVideo], title: sharableVideo.name });
+      setStatus(`${sharableVideo.name} をアプリへ送りました。`);
+    } catch (error) {
+      if ((error as Error).name !== "AbortError") setStatus(`アプリへ送れませんでした: ${(error as Error).message}`);
+    }
+  }
+
   // 画像が壊れる理由（はみ出し・行送り不成立・対象月の波が無い）だけで止める。
   // 未保存は止めない（2026-09-13、利用者の指示）。ただし何を書き出すのかは明示する。
   const blocked = warnings.length > 0;
@@ -227,13 +292,28 @@ export default function GeneratorPreview({
         <PrimaryButton disabled={exporting || !runtime || blocked || preparedSignature !== signature} onClick={() => void exportPng(false)}>PNGを書き出す</PrimaryButton>
         {/* 中身はOSの共有シート（LINE・Instagramなど）。非対応のブラウザでは書き出しになる。 */}
         <SecondaryButton disabled={exporting || !runtime || blocked || preparedSignature !== signature} onClick={() => void exportPng(true)}>アプリで送る</SecondaryButton>
+        {musicStatus && (videoRunning ? (
+          <SecondaryButton onClick={() => { videoAbortRef.current = true; }}>動画の書き出しを中止</SecondaryButton>
+        ) : (
+          <SecondaryButton
+            disabled={exporting || !runtime || blocked || preparedSignature !== signature}
+            title={musicStatus.ready ? "右の「音楽」タブの曲と範囲で、この画像の動画（MP4・1080px）を書き出します。" : `${musicStatus.reason}。右の「音楽」タブで設定します。`}
+            onClick={() => void exportVideo()}
+          >
+            動画を書き出す{!musicStatus.ready && <span className="text-[11px] text-amber-300">（音楽未設定）</span>}
+          </SecondaryButton>
+        ))}
+        {/* 書き出した動画をOSの共有シートへ。画像か音楽の設定を変えたら消える（古い動画を送らないため）。 */}
+        {sharableVideo && !videoRunning && (
+          <SecondaryButton disabled={exporting} onClick={() => void shareVideo()}>動画をアプリで送る</SecondaryButton>
+        )}
         <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{value.theme.outputSize}px</span>
         {blocked && (
           <details
             className="min-w-0 basis-full rounded-xl border px-3 py-1.5 text-[11px] xl:basis-auto"
             style={{ borderColor: "rgba(244,63,94,.35)", backgroundColor: "rgba(244,63,94,.08)", color: "#fda4af" }}
           >
-            <summary className="cursor-pointer font-semibold">⚠ PNGを書き出せない理由（{blockedCount}件）</summary>
+            <summary className="cursor-pointer font-semibold">⚠ {musicStatus ? "PNG・動画" : "PNG"}を書き出せない理由（{blockedCount}件）</summary>
             <ul className="mt-1.5 space-y-1 pb-1">
               {warnings.map(warning => <li key={warning}>{warning}</li>)}
             </ul>

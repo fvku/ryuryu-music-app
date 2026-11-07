@@ -219,6 +219,11 @@ export type BulkExportDeps<Prepared> = {
   toBlob(canvas: HTMLCanvasElement): Promise<Blob>;
   /** 2400px のキャンバスを持ち続けると落ちるので、1枚ごとに必ず解放する。 */
   release(canvas: HTMLCanvasElement): void;
+  /**
+   * 描いた1枚をZIPの中身にする。省略時はPNG（`toBlob` と `pngFileName`）。
+   * 動画つきの書き出しは、採用・掲載をここでMP4にする。キャンバスはこの後に解放される。
+   */
+  entry?(prepared: Prepared, canvas: HTMLCanvasElement): Promise<ArchiveEntry>;
 };
 
 export type BulkProgress = { phase: "check" | "render"; done: number; total: number };
@@ -263,7 +268,9 @@ export async function buildArchiveEntries<Prepared>({
     if (shouldAbort()) throw new BulkExportAborted();
     const canvas = await deps.render(ready);
     try {
-      entries.push({ name: pngFileName(value, deps.numberOf(ready)), blob: await deps.toBlob(canvas) });
+      entries.push(deps.entry
+        ? await deps.entry(ready, canvas)
+        : { name: pngFileName(value, deps.numberOf(ready)), blob: await deps.toBlob(canvas) });
     } finally {
       deps.release(canvas);
     }

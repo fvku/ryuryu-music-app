@@ -14,6 +14,8 @@ const ids = [
   "66666666-6666-4666-8666-666666666666",
 ];
 
+const coverPageId = "77777777-7777-4777-8777-777777777777";
+
 const text: Fields = {
   title: "Blue Rondo",
   artist: "The Quartet",
@@ -40,6 +42,17 @@ const items: GeneratorItem[] = [0, 1, 2].map(index => ({
   },
 }));
 
+// 動画書き出しの確認用：掲載ページの2作品をRelease Masterの実在行（Start Timeあり）に向ける。
+const realAlbums = [
+  { uid: "j67f445n", no: "2753", title: "Wonder Tree", artist: "高井息吹", trackNo: "2", track: "Tick it, Tock it, Turn it True" },
+  { uid: "8ls8in7c", no: "2771", title: "ONDO", artist: "Lucky Kilimanjaro", trackNo: "6", track: "フラワー" },
+];
+realAlbums.forEach((album, index) => {
+  const item = items[index + 1], fields = { ...item.content.fields, title: album.title, artist: album.artist, trackNo: album.trackNo, track: album.track };
+  item.source = { ...item.source, kind: "release-master", uid: album.uid, no: album.no, fields };
+  item.content = { ...item.content, fields };
+});
+
 const document: GeneratorDocument = {
   schemaVersion: 1,
   id: ids[5],
@@ -48,6 +61,8 @@ const document: GeneratorDocument = {
   rendererVersion: "monthly-japan-v1",
   items,
   pages: [
+    // 動画つきZIP（表紙はPNG）の確認用に表紙を入れた（2026-11-07）。
+    { id: coverPageId, kind: "cover", itemIds: [], bgColor: null },
     { id: ids[3], kind: "adopted", itemIds: [ids[0]], bgColor: "#2f4858" },
     { id: ids[4], kind: "listed", itemIds: [ids[1], ids[2]], bgColor: "#4a3f6b" },
   ],
@@ -59,7 +74,7 @@ const snapshot: GeneratorSnapshot = {
   version: 7,
   themeVersion: 2,
   structureVersion: 1,
-  pageVersions: { [ids[3]]: 3, [ids[4]]: 2 },
+  pageVersions: { [coverPageId]: 1, [ids[3]]: 3, [ids[4]]: 2 },
   itemVersions: { [ids[0]]: 5, [ids[1]]: 2, [ids[2]]: 1 },
   updatedAt: "2026-09-06T02:00:00.000Z",
   updatedBy: "kohei.fuku0926@gmail.com",
