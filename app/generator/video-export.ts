@@ -12,7 +12,7 @@ import type { MusicApi } from "./music-store";
  * 画像1枚＋おすすめ曲を、ブラウザの中だけでMP4（H.264／AAC）にする。
  *
  * - 画像はジェネレーターの描画（1200／2400px）を1080pxへ縮小した静止画。30fpsで同じ絵を並べる。
- * - 音声は元のファイルを元のサンプリング周波数のまま読み、区間とフェードを掛けて AAC 256kbps にする。
+ * - 音声は元のファイルを元のサンプリング周波数のまま読み、区間とフェードを掛けて AAC 320kbps にする（2026-11-08に256から変更。利用者の指示）。
  *   非可逆の圧縮はこの1回だけ（試聴用の再生とは別に読み直す。試聴用は端末の出力に合わせて周波数が変わるため）。
  * - 変換は WebCodecs（VideoEncoder／AudioEncoder）、MP4への格納は mediabunny。サーバーには何も送らない。
  */
@@ -137,7 +137,7 @@ export function videoSupportProblem(): Promise<string | null> {
 const AUDIO_QUALITY = { bitrate: VIDEO_AUDIO_BITRATE, bitrateMode: "constant" } as const;
 
 let rates: Promise<number[]> | null = null;
-/** AAC 256kbps・ステレオで作れるサンプリング周波数。 */
+/** AAC 320kbps・ステレオで作れるサンプリング周波数。 */
 function audioRates(): Promise<number[]> {
   return rates ??= (async () => {
     const { canEncodeAudio, Quality } = await import("mediabunny");

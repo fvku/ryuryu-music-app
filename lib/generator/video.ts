@@ -13,10 +13,14 @@ export const VIDEO_SIZE = 1080;
 /** 頭のフェードイン・終わりのフェードアウトの長さ（秒）。試聴と書き出しで同じ値を使う。 */
 export const FADE_IN_SECONDS = 1;
 export const FADE_OUT_SECONDS = 2;
-/** 静止画でも、Instagramが普通の動画として扱うフレームレートにする（Keynoteの書き出しと同じ30fps）。 */
+/**
+ * 静止画でも、Instagramが普通の動画として扱うフレームレートにする（Keynoteの書き出しと同じ30fps）。
+ * 2fpsなどに下げても、静止画の2枚目以降は1枚約0.6KBなので59秒で約1MBしか減らない（容量の大半は音声とキーフレーム）。
+ * Instagramの目安（23〜60fps）を外れる危険のほうが大きいので下げない（2026-11-08に検討）。
+ */
 export const VIDEO_FPS = 30;
 /** 書き出す音声。非可逆の圧縮はここで1回だけ（元のMP3 → AAC）。 */
-export const VIDEO_AUDIO_BITRATE = 256_000;
+export const VIDEO_AUDIO_BITRATE = 320_000;
 /** AACの符号化で確実に通るサンプリング周波数。それ以外（96kHzのWAVなど）は48kHzへ変換する。 */
 export const VIDEO_AUDIO_RATES = [44_100, 48_000] as const;
 
