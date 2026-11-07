@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { getSpotifyToken, saveSpotifyToken, clearSpotifyToken, openSpotifyAuthPopup } from "@/lib/spotify-token";
+import NotificationSettings from "@/components/settings/NotificationSettings";
 
 export default function SettingsPage() {
   const { data: session, status } = useSession();
@@ -152,6 +153,8 @@ export default function SettingsPage() {
               </>
             )}
           </div>
+
+          <NotificationSettings />
 
         </div>
       </div>

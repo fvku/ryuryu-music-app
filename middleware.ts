@@ -20,7 +20,8 @@ export default auth((req) => {
   return NextResponse.redirect(url);
 });
 
-// public/ の画像（ロゴ・アイコン）はログイン前のログイン画面やホーム画面追加でも使うので対象外にする
+// public/ の画像（ロゴ・アイコン）はログイン前のログイン画面やホーム画面追加でも使うので対象外にする。
+// 通知の Service Worker（sw.js）と manifest もブラウザが裏で取りに来るので、リダイレクトさせない
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon\\.ico|login|.*\\.(?:png|ico|svg|jpe?g|webp)$).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon\\.ico|login|sw\\.js|manifest\\.webmanifest|.*\\.(?:png|ico|svg|jpe?g|webp)$).*)"],
 };

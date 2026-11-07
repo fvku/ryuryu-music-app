@@ -10,6 +10,7 @@ import { loadHowToUseSections } from "@/lib/how-to-use";
 import ColumnErrorIndicator from "@/components/ColumnErrorIndicator";
 import SpotifyClipboardDetector from "@/components/SpotifyClipboardDetector";
 import SpotifyHeaderButton from "@/components/SpotifyHeaderButton";
+import NotificationBell from "@/components/NotificationBell";
 import GlobalReviewModal from "@/components/GlobalReviewModal";
 import UpdateBanner from "@/components/UpdateBanner";
 
@@ -63,9 +64,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/" className="hover:opacity-80 transition-opacity">
                 <Image src="/logo.png" alt="流流" width={180} height={48} className="h-11 w-auto object-contain my-0" />
               </Link>
-              {/* 右: モバイル=SpotifyFAB、PC=使い方+SpotifyFAB */}
+              {/* 右: モバイル=お知らせ+SpotifyFAB、PC=使い方+お知らせ+SpotifyFAB */}
               <div className="flex justify-end items-center gap-2">
                 <span className="hidden sm:block"><HowToUseModal sections={howToUseSections} /></span>
+                <NotificationBell />
                 <SpotifyHeaderButton />
               </div>
             </div>
