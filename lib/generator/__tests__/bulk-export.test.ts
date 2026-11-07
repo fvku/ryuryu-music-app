@@ -66,6 +66,27 @@ describe("全ページのPNG書き出し", () => {
     expect(rendered).toEqual([]);
   });
 
+  it("entry を渡すと、ページごとに中身と名前を差し替えられる（動画つきZIP）", async () => {
+    const { base, released } = deps();
+    const withEntry = {
+      ...base,
+      entry: async (prepared: Prepared) => prepared.no === 2
+        ? { name: pngFileName(doc, 2), blob: new Blob(["png"]) }
+        : { name: `monthly_26_08_0${prepared.no}_x.mp4`, blob: new Blob(["mp4"], { type: "video/mp4" }) },
+    };
+    const entries = await buildArchiveEntries({ document: doc, pages, deps: withEntry, onProgress: () => {}, shouldAbort: () => false });
+    expect(entries.map(entry => entry.name)).toEqual(["monthly_26_08_02.png", "monthly_26_08_03_x.mp4", "monthly_26_08_04_x.mp4"]);
+    expect(released).toEqual([2, 3, 4]);
+  });
+
+  it("entry で失敗してもそのキャンバスを解放して止める", async () => {
+    const { base, released } = deps();
+    const failing = { ...base, entry: async () => { throw new Error("動画を作れません"); } };
+    await expect(buildArchiveEntries({ document: doc, pages, deps: failing, onProgress: () => {}, shouldAbort: () => false }))
+      .rejects.toThrow("動画を作れません");
+    expect(released).toEqual([2]);
+  });
+
   it("描画で失敗してもそのキャンバスを解放する", async () => {
     const { base, released } = deps();
     const failing = {

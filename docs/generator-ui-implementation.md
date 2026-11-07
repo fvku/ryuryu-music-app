@@ -1748,3 +1748,57 @@ Koheiの依頼：「、は文字詰めされているが、「」や『』など
 ### 未確認事項
 
 - 実文書の編集画面での表示（本番デプロイ後に確認）。
+
+## 41. 2026-11-07：動画（MP4）の書き出し（Opus 5.5）
+
+音楽タブ（端末内保存）の曲・範囲・フェードを使い、画像をMP4にする。設計は[動画書き出しと音楽の共有](./generator-video-music-plan.md)。
+
+### 変更したファイルとUI
+
+- `app/generator/video-export.ts`：変換の本体。`VIDEO_ENCODER_READY` の案内を廃止し、WebCodecs＋`mediabunny@1.62.1`（固定版。動的importなので編集画面の初回読み込みには載らない）で作る。
+  - 画像：`renderTiled` の出力（1200／2400px）を半分ずつ縮めてから1080pxへ。30fpsで同じ絵を並べる（1枚だけ取り込み、時刻だけ変える）。H.264、8Mbps上限、キーフレーム5秒ごと。
+  - 音声：試聴用の再生とは別に読み直す（試聴用は端末の出力に合わせて48kHzなどへ変換されるため）。WAV／AIFFは `parsePcm`、それ以外は元の周波数を mediabunny で調べて `OfflineAudioContext` で読む。区間とフェードを掛けたステレオを AAC 256kbps に。44.1k／48k以外（96kHzのWAVなど）だけ48kHzへ変換。
+  - H.264の種類は書き出し前に**実際に2フレーム符号化して**選ぶ（High → だめなら Constrained Baseline）。iOSシミュレーターのSafari 26.3は High／Main を「対応」と答えるのに出力が返らず止まった。
+  - 対応しないブラウザ（WebCodecsが無い、H.264／AACを作れない）は理由を出して止める。
+- `GeneratorPreview.tsx`：「動画を書き出す」で描画→変換→保存。変換中は「動画の書き出しを中止」。書き出し後、共有に対応する端末では「動画をアプリで送る」（共有シート）。Safariは押した直後でないと共有シートを開けないので、変換の後にもう一度押してもらう形。画像か音楽の設定を変えると消える。
+- `BulkVideoExportButton.tsx`：「全ページを動画つきで書き出す（ZIP）」。`buildArchiveEntries` に追加した `entry`（ページごとに中身と名前を差し替える）で、表紙はPNG、採用・掲載はMP4にして `<archive>_動画.zip`。はみ出し検査・中止は既存のZIPと共通。ZIPはダウンロードのみ。
+- `lib/generator/video.ts`：`fadeGain`・`cutAudio`（区間の切り出し・フェード・ステレオ化）と定数（フェード秒数は MusicPanel から移動）。
+
+### 維持した機能契約
+
+- 共有DB・Release Master・保存・ロックには触れない（音楽設定は従来どおり端末内）。PNGの書き出し条件（はみ出し等だけで止め、未保存では止めない）は動画も同じ。
+
+### 確認
+
+- `npx tsc --noEmit --incremental false` / `npm run lint` / `npm test`（36ファイル・388件）/ `npm run build` 成功。
+- アプリ内ブラウザ（Chromium 152）で `/generator/uipreview-temp`：
+  - 1枚（MP3・開始10.5秒・20秒・フェード両方）：H.264 High 1080×1080 30fps＋AAC 44.1kHz。ffmpegで全フレーム読めた。1秒ごとに音程が変わるテスト信号で、区間の位置が一致。フェードは頭1秒・終わり2秒の直線。所要約10秒、1.4MB。
+  - 全ページZIP：MP3（20秒）と24bit AIF（Release MasterのStart Time 1:09から59秒）の2本。AIFは元音源と相関0.9999、AAC実測251kbps。所要約25秒。
+  - 画質：同じ画像のPNG（2400px）をlanczosで1080pxにしたものとの PSNR(Y) 34〜35dB。文字はくっきり、背景の細かい質感がわずかに丸まる。
+  - 中止、非対応時の案内（1枚・ZIP）、「動画をアプリで送る」（共有APIを差し替えて確認）。
+- Safari：確認用ページで WebCodecs＋mediabunny の同じ処理を実行。Mac Safari 26.3 は High で作成・ffmpegで再生可。iOSシミュレーター（iOS 26.3）は Baseline なら作成・再生可、High は止まる（上記の自動切替で対応）。どちらも MP3 を元の44.1kHzのまま読め、`navigator.canShare` で mp4 を共有できる判定。
+
+### 2026-11-07 追記：PCブラウザの仕上げ（利用者の指示で iPhone は後回し）
+
+- **AACの先頭の遅延を打ち消す**：端末ごとに短い雑音を AAC で符号化・復号して遅延を実測し（`measureDelay`。Chrome・Safari とも2112サンプル）、その分だけ早い時刻から音を置いて edit list で切り落とす。元音源との相互相関で、ずれ 0 サンプルを確認。
+- **Safari の AAC が256kbpsにならない**：可変ビットレート（既定）だと指定を無視して約93kbpsになった。固定ビットレートで指定するよう変更（Safari 256kbps、Chrome 250kbps）。
+- **Safari の映像の色**：キャンバスの色変換を Safari に任せると、テレビ用の範囲の値なのに「フルレンジ」と書かれ、黒が浮いて明るくなった（RGB の PSNR 26dB）。色変換を自前（`rgbaToI420`、BT.709）にし、H.264 の確認で符号化器が名乗る範囲（Safari はフルレンジ、Chrome はテレビ用）に合わせて渡す。両方 34〜35dB、AVFoundation（QuickTime と同じ再生系）のサムネイルも元画像と同じ明るさ。
+- **Safari はタブが裏に回ると変換が止まる**（表に戻すと続きから再開する）。進捗の文言に「このタブを表示したままに」と添えた。
+- 書き出せない理由の見出しを、音楽タブのある画像では「PNG・動画を書き出せない理由」に。
+- 確認用の固定データ（`uipreview-temp`）に表紙を足し、動画つきZIPに表紙PNG（2400px）が入ることを確認。
+
+確認したブラウザ：
+- アプリ内ブラウザ（Chromium 152）と利用者の Chrome 157（拡張機能経由・実際のファイル選択）：1枚と全ページZIPを画面から書き出し、ffmpeg で再生・長さ・区間・フェード・ずれ 0 を確認。
+- Mac Safari 26.3：確認用ページに一時的な自己テスト（書き出しの本体 `buildVideo` を通す）を入れて MP3・AIF を書き出し、同じ項目と色を確認。自己テストは削除済み。画面のボタンからの操作は、Safari を外から操作するのに設定変更が要るため行っていない（ボタンから先の処理は Chrome と共通）。
+- `npm test` 36ファイル・394件、tsc・lint・build 成功。
+
+### 2026-11-08 追記：音声を 320kbps に
+
+- 利用者の指示で AAC を 256kbps → 320kbps に変更（`VIDEO_AUDIO_BITRATE`。固定ビットレート）。Chromium で全ページZIPを書き出し、実音源の59秒で 315kbps、元音源とのずれ 0、ffmpeg で再生可を確認。Safari は 2026-11-07 の測定で固定 320kbps が 321kbps になることを確認済み（書き出し全体は未再確認）。
+- フレームレートは 30fps のまま（2fps などに下げても59秒で約1MBしか減らず、Instagram の目安 23〜60fps を外れる危険のほうが大きい）。59秒の動画は約5MB。
+
+### 未確認事項
+
+- 物理iPhone（後回し。iOSシミュレーターでは High が止まり Baseline で動く。自動で切り替える）。
+- 共有シートから Instagram への投稿（Mac の Chrome・Safari では「動画をアプリで送る」が出る。押した先は OS の画面なので未操作）。
+- Windows の Chrome・Edge（AAC の遅延や色の範囲は書き出し前の確認で自動判定するが、実機では未確認）。

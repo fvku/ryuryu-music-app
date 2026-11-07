@@ -10,6 +10,9 @@ import type { ReimportDiff } from "@/lib/generator/reimport";
 import { getMemberShortName } from "@/lib/members";
 import type { ReleaseMasterAlbum } from "@/lib/types";
 import BulkExportButton from "../BulkExportButton";
+import BulkVideoExportButton from "../BulkVideoExportButton";
+import MusicPanel from "../MusicPanel";
+import { MusicProvider, useMusicStore, videoPage } from "../music-store";
 import GeneratorPreview, { type PreviewDiagnostics, type PreviewSelection } from "../GeneratorPreview";
 import PageNavigator from "../PageNavigator";
 import { generatorJson, snapshotWithLocks, type GeneratorApiError } from "../generator-client";
@@ -156,6 +159,12 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   );
   const currentIndex = Math.min(pageIndex, Math.max(0, previewPages.length - 1));
   const previewPage = previewPages[currentIndex] || null;
+  // 右パネルのタブ。音楽は動画にできる画像（採用・掲載）でだけ出す。設定はこの端末の中だけ（music-store）。
+  const music = useMusicStore(previewDocument);
+  const [panelTab, setPanelTab] = useState<"image" | "music">("image");
+  const musicAvailable = music.enabled && videoPage(previewPage);
+  const showMusic = panelTab === "music" && musicAvailable;
+  const musicStatus = previewPage ? music.status(previewPage) : null;
   const visiblePages = structurePages || snapshot.document.pages;
   const page = visiblePages[currentIndex] || visiblePages[0];
   const editingPage = page ? { ...page, itemIds: previewPage?.slots.map(slot => slot.id) || page.itemIds } : null;
@@ -1171,6 +1180,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   );
 
   return (
+    <MusicProvider value={music}>
     <GeneratorRuntimeProvider documentId={documentId} theme={snapshot.document.theme} period={snapshot.document.period}>
       <div className="generator-workspace relative left-1/2 w-[calc(100vw-2rem)] max-w-[100rem] -translate-x-1/2 space-y-4">
         {/* 企画名・保存状態・移動を1行に畳む。空けた縦はプレビューへ回す。 */}
@@ -1272,6 +1282,18 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             </details>
             {/* 全ページのPNGは文書単位の操作なので、ページごとの書き出しとは分けてここに置く。 */}
             <BulkExportButton document={previewDocument} pages={previewPages} canExport={unsavedLabels.length === 0} onStatus={setStatus} />
+            {music.enabled && (
+              <BulkVideoExportButton
+                document={previewDocument}
+                pages={previewPages}
+                onStatus={setStatus}
+                onOpenMusic={no => {
+                  const index = previewPages.findIndex(value => value.no === no);
+                  if (index >= 0) selectPage(index);
+                  setPanelTab("music");
+                }}
+              />
+            )}
           </div>
         </header>
 
@@ -1364,6 +1386,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                   : null}
                 canExport={unsavedLabels.length === 0}
                 blockedReasons={unsavedLabels}
+                onOpenMusic={() => setPanelTab("music")}
               />
             ) : (
               <p className="text-sm text-amber-300">表示できる画像がありません。</p>
@@ -1372,8 +1395,9 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           </Panel>
 
           {/*
-            編集パネルは1枚（2026-09-18、利用者の決定でタブをやめた）：見出し → 背景色 → 文字 → 下端の保存の帯。
-            切り替えが無いので「押せば切り替わる」ことに気づけない問題が起きない。
+            編集パネル：見出し →（採用・掲載だけ）画像／音楽のタブ → 背景色 → 文字 → 下端の保存の帯。
+            2026-09-18にタブをやめたが、2026-11-07に利用者の指示で「音楽」を足すためタブを戻した。
+            画像タブの中身は従来の1枚のまま。音楽タブは共有データを触らないので、編集ロックが無くても使える。
             保存の帯は下端に固定し、欄をスクロールしても見えたままにする（3カラムではパネルの下端、狭い画面では画面の下端）。
           */}
           {/* overflow-hidden を付けない。付けると下端の帯がパネルの中に貼りつき、画面の外へ出てしまう。スクロールは中身の列が持つ。 */}
@@ -1389,8 +1413,24 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
                   : <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>準備中…</span>}
             </div>
 
+            {musicAvailable && (
+              // 2026-11-07 利用者の指示でタブを戻した：画像（文字・背景）と音楽（動画に付ける曲）。
+              <div className="shrink-0 border-b px-4 py-2" style={{ borderColor: "var(--border-subtle)" }}>
+                <SegmentedControl
+                  label="編集する内容"
+                  size="small"
+                  value={showMusic ? "music" : "image"}
+                  onChange={next => setPanelTab(next === "music" ? "music" : "image")}
+                  options={[
+                    { value: "image", label: "画像" },
+                    { value: "music", label: "音楽", dot: musicStatus?.ready ? "success" : "warn" },
+                  ]}
+                />
+              </div>
+            )}
+
             <div className="space-y-5 px-4 py-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
-              {!imageEditing ? renderNotEditing() : (
+              {showMusic && previewPage ? <MusicPanel key={previewPage.id} page={previewPage} music={music} /> : !imageEditing ? renderNotEditing() : (
                 <>
                   {savedPage && pageUsesBgColor(savedPage) && (
                     <section className="space-y-2">
@@ -1629,6 +1669,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
         )}
       </div>
     </GeneratorRuntimeProvider>
+    </MusicProvider>
   );
 
   /** 作品・背景の状態は画像の操作列がまとめて出すので、ここでは復元と入力欄の可否にだけ使う。 */
