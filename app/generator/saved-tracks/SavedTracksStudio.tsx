@@ -9,6 +9,7 @@ import {
   defaultFrameTime,
   groupByAddedDate,
   initialSelection,
+  SAVED_TRACKS_VIDEO_URL,
   STILL_BACKGROUNDS,
   storyArchiveName,
   storyFileName,
@@ -82,6 +83,7 @@ async function paint(
 function StoryCanvas({
   slide,
   video,
+  waiting,
   scale,
   className,
   onDrawn,
@@ -89,6 +91,8 @@ function StoryCanvas({
 }: {
   slide: Slide;
   video: VideoFrameSource | null;
+  /** 背景動画の読み込み中は描かない。先に静止画を出すと、読み込み後に背景が差し替わって見える。 */
+  waiting: boolean;
   scale: number;
   className?: string;
   onDrawn?(truncated: boolean): void;
@@ -101,13 +105,13 @@ function StoryCanvas({
 
   useEffect(() => {
     const canvas = ref.current;
-    if (!canvas) return;
+    if (!canvas || waiting) return;
     let stale = false;
     paint(canvas, { index, title, artist, pan, time, coverUrl }, video, scale, () => stale)
       .then(truncated => { if (!stale && truncated !== null) callbacks.current.onDrawn?.(truncated); })
       .catch((error: Error) => { if (!stale) callbacks.current.onError(error.message); });
     return () => { stale = true; };
-  }, [index, title, artist, pan, time, coverUrl, video, scale]);
+  }, [index, title, artist, pan, time, coverUrl, video, waiting, scale]);
 
   return <canvas ref={ref} width={Math.round(1080 * scale)} height={Math.round(1920 * scale)} className={className} />;
 }
@@ -140,6 +144,7 @@ export default function SavedTracksStudio({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, SlideEdit>>({});
   const [video, setVideo] = useState<VideoFrameSource | null>(null);
+  const [videoLoading, setVideoLoading] = useState(true);
   const [status, setStatus] = useState<Status | null>(initialError ? { tone: "error", text: initialError } : null);
   const [needsLogin, setNeedsLogin] = useState(initiallyNeedsLogin);
   const [busy, setBusy] = useState(false);
@@ -148,6 +153,22 @@ export default function SavedTracksStudio({
   const canShare = useSyncExternalStore(noSubscription, () => typeof navigator.canShare === "function", () => false);
 
   useEffect(() => () => video?.close(), [video]);
+
+  useEffect(() => {
+    let cancelled = false;
+    VideoFrameSource.openUrl(SAVED_TRACKS_VIDEO_URL)
+      .then(source => {
+        if (cancelled) { source.close(); return; }
+        setVideo(source);
+        setVideoLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setVideoLoading(false);
+        setStatus({ tone: "warn", text: "背景動画を読み込めなかったため、標準の写真を使っています。" });
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const groups = useMemo(() => groupByAddedDate(tracks), [tracks]);
   const slides = useMemo<Slide[]>(() => tracks.filter(track => selected.has(track.id)).map((track, index) => {
@@ -187,28 +208,21 @@ export default function SavedTracksStudio({
     }
   }
 
-  async function chooseVideo(file: File | undefined) {
-    if (!file) return;
+  async function switchVideo(open: () => Promise<VideoFrameSource>, done: string) {
     setBusy(true);
     setStatus({ tone: "info", text: "動画を読み込んでいます…" });
     try {
-      const source = await VideoFrameSource.open(file);
-      // 静止画用の位置やフレームを持ち越すと、別の動画で意味が変わる。
+      const source = await open();
+      // 前の動画のフレームや位置を持ち越すと、別の動画で意味が変わる。
       setEdits(previous => Object.fromEntries(Object.entries(previous).map(([id, value]) => [id, { title: value.title, artist: value.artist }])));
       setVideo(source);
-      setStatus({ tone: "success", text: "動画を読み込みました。画像ごとに背景のフレームを選べます。" });
+      setStatus({ tone: "success", text: done });
     } catch (error) {
       reportError((error as Error).message);
     } finally {
       setBusy(false);
       if (fileInput.current) fileInput.current.value = "";
     }
-  }
-
-  function clearVideo() {
-    setEdits(previous => Object.fromEntries(Object.entries(previous).map(([id, value]) => [id, { title: value.title, artist: value.artist }])));
-    setVideo(null);
-    setStatus(null);
   }
 
   function dateOf(slide: Slide) {
@@ -341,7 +355,7 @@ export default function SavedTracksStudio({
                     aria-current={slide.track.id === active.track.id}
                     className={`relative shrink-0 overflow-hidden rounded-lg border-2 ${slide.track.id === active.track.id ? "border-violet-500" : "border-transparent"}`}
                   >
-                    <StoryCanvas slide={slide} video={video} scale={THUMB_SCALE} className="block h-[7.1rem] w-16" onError={reportError} />
+                    <StoryCanvas slide={slide} video={video} waiting={videoLoading} scale={THUMB_SCALE} className="block h-[7.1rem] w-16 bg-white/5" onError={reportError} />
                     <span className="absolute left-1 top-1 rounded bg-black/70 px-1 text-[10px] leading-4">{slide.index + 1}</span>
                   </button>
                 ))}
@@ -352,8 +366,9 @@ export default function SavedTracksStudio({
                   <StoryCanvas
                     slide={active}
                     video={video}
+                    waiting={videoLoading}
                     scale={PREVIEW_SCALE}
-                    className="block w-full rounded-xl"
+                    className="block w-full rounded-xl bg-white/5"
                     onDrawn={setTruncated}
                     onError={reportError}
                   />
@@ -371,18 +386,29 @@ export default function SavedTracksStudio({
                       </Field>
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <PrimaryButton disabled={busy} onClick={() => void exportOne(active, false)}>PNGを書き出す</PrimaryButton>
-                      {canShare && <SecondaryButton disabled={busy} onClick={() => void exportOne(active, true)}>アプリで送る</SecondaryButton>}
-                      {slides.length > 1 && <SecondaryButton disabled={busy} onClick={() => void exportAll()}>全{slides.length}枚を書き出す（ZIP）</SecondaryButton>}
+                      <PrimaryButton disabled={busy || videoLoading} onClick={() => void exportOne(active, false)}>PNGを書き出す</PrimaryButton>
+                      {canShare && <SecondaryButton disabled={busy || videoLoading} onClick={() => void exportOne(active, true)}>アプリで送る</SecondaryButton>}
+                      {slides.length > 1 && <SecondaryButton disabled={busy || videoLoading} onClick={() => void exportAll()}>全{slides.length}枚を書き出す（ZIP）</SecondaryButton>}
                     </div>
                   </Panel>
 
                   <Panel>
-                    <PanelHeading title="背景" note={video ? video.name : "動画を選ぶと、好きなフレームを背景にできます。未選択のときは標準の写真を使います。"} />
-                    <input ref={fileInput} type="file" accept="video/*" className="hidden" onChange={event => void chooseVideo(event.target.files?.[0])} />
+                    <PanelHeading title="背景" note={videoLoading ? "背景動画を読み込んでいます…" : video?.fileName ?? "画像ごとに、動画の好きなフレームを背景にできます。"} />
+                    <input
+                      ref={fileInput}
+                      type="file"
+                      accept="video/*"
+                      className="hidden"
+                      onChange={event => {
+                        const file = event.target.files?.[0];
+                        if (file) void switchVideo(() => VideoFrameSource.openFile(file), "動画を読み込みました。");
+                      }}
+                    />
                     <div className="flex flex-wrap gap-2">
-                      <SecondaryButton disabled={busy} onClick={() => fileInput.current?.click()}>{video ? "別の動画を選ぶ" : "動画を選ぶ"}</SecondaryButton>
-                      {video && <SecondaryButton disabled={busy} onClick={clearVideo}>標準の写真に戻す</SecondaryButton>}
+                      <SecondaryButton disabled={busy || videoLoading} onClick={() => fileInput.current?.click()}>別の動画を選ぶ</SecondaryButton>
+                      {video?.fileName && (
+                        <SecondaryButton disabled={busy} onClick={() => void switchVideo(() => VideoFrameSource.openUrl(SAVED_TRACKS_VIDEO_URL), "標準の動画に戻しました。")}>標準の動画に戻す</SecondaryButton>
+                      )}
                     </div>
 
                     {video && (

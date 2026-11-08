@@ -6,6 +6,9 @@
 /** Hyoryu's Saved Tracks。毎週月曜に曲がまとめて追加される。 */
 export const SAVED_TRACKS_PLAYLIST_ID = "6stewW41e2gvYLcg5sRYSK";
 
+/** 標準の背景動画。原版（wave.m4v、42MB・60fps）を30fps・1秒ごとのキーフレームへ変換したもの。 */
+export const SAVED_TRACKS_VIDEO_URL = "/saved-tracks/wave.mp4";
+
 export type SavedTrack = {
   id: string;
   title: string;
@@ -136,7 +139,7 @@ export const STORY = {
 } as const;
 
 /**
- * 動画を選ぶ前に使う、Figmaの3枚と同じ背景。
+ * 標準の動画を読み込めなかったときに使う、Figmaの3枚と同じ背景。
  * pan はFigmaの配置（left -600 / -626 / -750、幅2580.5）を、はみ出し量に対する割合へ直したもの。
  */
 export const STILL_BACKGROUNDS = [

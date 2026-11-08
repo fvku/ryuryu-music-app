@@ -3,7 +3,7 @@ export const FRAME_STEP = 1 / 30;
 
 const MAX_CACHED_FRAMES = 16;
 const LOAD_TIMEOUT = 20_000;
-const SEEK_TIMEOUT = 8_000;
+const SEEK_TIMEOUT = 15_000;
 
 function wait(ms: number) {
   return new Promise<void>(resolve => window.setTimeout(resolve, ms));
@@ -22,13 +22,22 @@ export class VideoFrameSource {
   private constructor(
     private readonly video: HTMLVideoElement,
     private readonly url: string,
-    readonly name: string,
+    /** 利用者が手元から選んだ動画のときだけファイル名が入る。 */
+    readonly fileName: string | null,
   ) {}
 
   get duration() { return this.video.duration; }
 
-  static async open(file: File): Promise<VideoFrameSource> {
-    const url = URL.createObjectURL(file);
+  /** アプリに同梱した動画を開く。同じオリジンなのでCanvasへ描ける。 */
+  static openUrl(url: string): Promise<VideoFrameSource> {
+    return VideoFrameSource.load(url, null);
+  }
+
+  static openFile(file: File): Promise<VideoFrameSource> {
+    return VideoFrameSource.load(URL.createObjectURL(file), file.name);
+  }
+
+  private static async load(url: string, fileName: string | null): Promise<VideoFrameSource> {
     const video = window.document.createElement("video");
     video.muted = true;
     video.playsInline = true;
@@ -44,9 +53,9 @@ export class VideoFrameSource {
       // iOS Safari は一度再生を始めないと、シーク後のフレームを描けないことがある。
       await video.play().catch(() => {});
       video.pause();
-      return new VideoFrameSource(video, url, file.name);
+      return new VideoFrameSource(video, url, fileName);
     } catch {
-      URL.revokeObjectURL(url);
+      if (fileName !== null) URL.revokeObjectURL(url);
       throw new Error("この動画を読み込めませんでした。MP4（H.264）で書き出した動画をお試しください。");
     }
   }
@@ -77,7 +86,7 @@ export class VideoFrameSource {
     this.cache.clear();
     this.video.removeAttribute("src");
     this.video.load();
-    URL.revokeObjectURL(this.url);
+    if (this.fileName !== null) URL.revokeObjectURL(this.url);
   }
 
   /** 使ったフレームを末尾へ移し、古いものから捨てられるようにする。 */

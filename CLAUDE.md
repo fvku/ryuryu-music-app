@@ -148,7 +148,7 @@ Release Master の `memo`（旧playlist）列に「そのアルバムがどの�
 - 文字の中心は帯の中央（540）ではなく537。Figmaの文字枠の実測値
 - 帯のFigma Glassエフェクトは Canvas で再現できないので、光る縁の細線で近似している
 - 文字は4倍で描いて縮小する（等倍だとmacOSで太る）。曲名の字間 −5% はSafari対応のため1文字ずつ置く
-- 背景は動画の任意フレーム（`video-frames.ts`）。動画を選ばないときは Figma の静止画2種（`public/saved-tracks/still-*.jpg`）を、Saved_1〜3と同じ位置で順に使う
+- 背景は動画の任意フレーム（`video-frames.ts`）。標準の動画は `public/saved-tracks/wave.mp4`（原版 wave.m4v を `-crf 26 -g 30 -vf fps=30` で約30MBへ変換。アプリと同一オリジンなのでCanvasへ描ける）。読み込めないときだけ Figma の静止画2種（`still-*.jpg`）を、Saved_1〜3と同じ位置で順に使う
 
 ## フィルター状態の永続化（localStorage）
 
