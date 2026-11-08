@@ -205,6 +205,7 @@ POST /api/generator/documents/<id>/reimport
 - 削除作品が参照していた`generator_assets`とStorage実体は自動削除しない。履歴の参照と誤削除防止を優先する。
 - APIが読み取った全既存作品のversionをRPCへ渡し、保存直前にDBで照合する。差分確認中に作品保存が入った場合は`VERSION_CONFLICT`で全体を拒否する。
 - 既存作品が残るページはIDと背景色を保持する。削除・区分移動で不要になったページは落とし、追加で必要なページは新しいID・背景色未設定で作る。
+- 2026-11-08：`resort: true` でも位置ではなく作品からページを探す。ページIDと背景色は作品についていく（[UI実装記録 §43](./generator-ui-implementation.md)）。
 - `202609110001_generator_reimport.sql`を本番Supabaseへ適用済み。既存の`pl_*`／`generator_*`行のハッシュ不変、service role限定の実行権限、合成データによる取り込み直しと全ロールバックを確認した。
 
 ### v2追記（2026-09-12）

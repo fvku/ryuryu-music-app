@@ -28,6 +28,7 @@ beforeAll(async () => {
   await db.exec(await readFile(new URL("../../../supabase/migrations/202609110001_generator_reimport.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../../../supabase/migrations/202609120001_generator_item_source.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../../../supabase/migrations/202611080001_generator_audio.sql", import.meta.url), "utf8"));
+  await db.exec(await readFile(new URL("../../../supabase/migrations/202611080002_generator_structure_colors.sql", import.meta.url), "utf8"));
 }, 30000);
 beforeEach(async () => {
   await db.exec("reset role; truncate public.generator_documents cascade;");
@@ -221,6 +222,42 @@ describe("generator database transaction contract (embedded PostgreSQL)", () => 
     expect(restored.document.pages[1].itemIds).toEqual(doc.pages[1].itemIds);
     expect(restored.document.pages[1].bgColor).toBe("#654321");
     expect(restored.document.items.find(value => value.id === doc.items[1].id)?.content.fields.title).toBe("kept");
+  });
+  it("moves background colours with the albums on a manual reorder and restores them", async () => {
+    await db.exec("truncate public.generator_documents cascade;");
+    const monthly = structuredClone(doc);
+    monthly.id = randomUUID();
+    monthly.pages = [{ id: randomUUID(), kind: "adopted", itemIds: [monthly.items[0].id], bgColor: "#111111" },
+      { id: randomUUID(), kind: "adopted", itemIds: [monthly.items[1].id], bgColor: "#222222" },
+      { id: randomUUID(), kind: "listed", itemIds: [monthly.items[2].id], bgColor: "#333333" }];
+    doc = parseDocument(monthly);
+    await query("select public.generator_create($1,$2,$3) as result", [doc, actor, randomUUID()]);
+    const lock = await acquire("structure", doc.id);
+    const pages = doc.pages.map(page => ({ id: page.id, itemIds: [...page.itemIds] }));
+    [pages[0].itemIds, pages[1].itemIds] = [pages[1].itemIds, pages[0].itemIds];
+    const moved = await query<Snapshot>("select public.generator_structure_save($1,$2,$3,$4) as result", [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 1, content: { pages } }]);
+    expect(moved.document.pages.map(page => page.id)).toEqual(doc.pages.map(page => page.id));
+    expect(moved.document.pages.map(page => page.bgColor)).toEqual(["#222222", "#111111", "#333333"]);
+    expect(moved.pageVersions[doc.pages[0].id]).toBe(2);
+    expect(moved.pageVersions[doc.pages[2].id]).toBe(1);
+    const restored = await query<Snapshot>("select public.generator_structure_save($1,$2,$3,$4) as result", [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 2, restoreVersion: 1 }]);
+    expect(restored.document.pages.map(page => page.bgColor)).toEqual(["#111111", "#222222", "#333333"]);
+  });
+  it("clears a Weekly feature colour when another album swaps in, and keeps the Others colour", async () => {
+    await db.exec("truncate public.generator_documents cascade;");
+    const weekly = structuredClone(doc);
+    weekly.id = randomUUID(); weekly.series = "weekly"; weekly.rendererVersion = "weekly-v1";
+    weekly.period = { type: "week", start: "2027-01-01", end: "2027-01-08", weekNumber: 53 };
+    weekly.pages = [{ id: randomUUID(), kind: "cover", itemIds: [], bgColor: null },
+      { id: randomUUID(), kind: "feature", itemIds: [weekly.items[0].id], bgColor: "#111111" },
+      { id: randomUUID(), kind: "others", itemIds: [weekly.items[1].id, weekly.items[2].id], bgColor: "#222222" }];
+    doc = parseDocument(weekly);
+    await query("select public.generator_create($1,$2,$3) as result", [doc, actor, randomUUID()]);
+    const lock = await acquire("structure", doc.id);
+    const pages = doc.pages.map(page => ({ id: page.id, itemIds: [...page.itemIds] }));
+    [pages[1].itemIds[0], pages[2].itemIds[0]] = [pages[2].itemIds[0], pages[1].itemIds[0]];
+    const swapped = await query<Snapshot>("select public.generator_structure_save($1,$2,$3,$4) as result", [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 1, content: { pages } }]);
+    expect(swapped.document.pages.map(page => page.bgColor)).toEqual([null, null, "#222222"]);
   });
   it("allows a Weekly feature/others swap but rejects moving an item between them", async () => {
     await db.exec("truncate public.generator_documents cascade;");

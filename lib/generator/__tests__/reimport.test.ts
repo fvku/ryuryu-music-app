@@ -33,6 +33,59 @@ describe("Monthly/Japan cover through re-import", () => {
     expect(result.pages[0]).toEqual(document.pages[0]);
   });
 
+  it("moves the background colour and page ID with the album when re-sorting adopted albums", () => {
+    const first = japan({ no: "1", uid: "uid-a", title: "A", artist: "Alpha", date: "2026/09/02" });
+    const second = japan({ no: "2", uid: "uid-b", title: "B", artist: "Beta", date: "2026/09/03" });
+    const document = importDocument([first, second], "japan", "2026-09");
+    const pageOf = (uid: string) => document.pages.find(page => page.itemIds[0] === document.items.find(item => item.source.uid === uid)!.id)!;
+    pageOf("uid-a").bgColor = "#111111"; pageOf("uid-b").bgColor = "#222222";
+    const expected = [pageOf("uid-b"), pageOf("uid-a")];
+    const result = buildReimport({ document, albums: [{ ...first, date: "2026/09/05" }, second], addKeys: [], removeItemIds: [], resort: true });
+    expect(result.pages.slice(1)).toEqual(expected);
+  });
+
+  it("gives a newly added album no colour, even when it takes an earlier position", () => {
+    const later = japan({ no: "1", uid: "uid-a", title: "A", artist: "Alpha", date: "2026/09/10" });
+    const document = importDocument([later], "japan", "2026-09");
+    document.pages[1].bgColor = "#111111";
+    const added = japan({ no: "2", uid: "uid-new", title: "New", artist: "Beta", date: "2026/09/01" });
+    const result = buildReimport({ document, albums: [later, added], addKeys: ["uid:uid-new"], removeItemIds: [], resort: true });
+    expect(result.pages[1]).toMatchObject({ itemIds: [result.addItems[0].id], bgColor: null });
+    expect(result.pages[2]).toEqual(document.pages[1]);
+  });
+
+  it("keeps the colour of each album's former listed page when pairs are rebuilt", () => {
+    const row = (no: string, day: string) => japan({ no, uid: `uid-${no}`, title: `T${no}`, artist: `Artist ${no}`, date: `2026/09/${day}`, mjAdoption: "J掲載" });
+    const albums = [row("1", "01"), row("2", "02"), row("3", "03"), row("4", "04")];
+    const document = importDocument(albums, "japan", "2026-09");
+    const listed = document.pages.filter(page => page.kind === "listed");
+    listed[0].bgColor = "#111111"; listed[1].bgColor = "#222222";
+    // 1件目を一番後ろへ動かすと [2,3] [4,1] に組み替わる。
+    const latest = [{ ...albums[0], date: "2026/09/09" }, ...albums.slice(1)];
+    const result = buildReimport({ document, albums: latest, addKeys: [], removeItemIds: [], resort: true });
+    const after = result.pages.filter(page => page.kind === "listed");
+    const uids = after.map(page => page.itemIds.map(id => document.items.find(item => item.id === id)!.source.uid));
+    expect(uids).toEqual([["uid-2", "uid-3"], ["uid-4", "uid-1"]]);
+    expect(after.map(page => page.bgColor)).toEqual(["#111111", "#222222"]);
+    expect(new Set(after.map(page => page.id)).size).toBe(2);
+  });
+
+  it("gives a split listed page a new ID that still carries the colour", () => {
+    const row = (no: string, day: string, adoption = "J掲載") => japan({ no, uid: `uid-${no}`, title: `T${no}`, artist: `Artist ${no}`, date: `2026/09/${day}`, mjAdoption: adoption });
+    const albums = [row("1", "01"), row("2", "03"), row("3", "04"), row("4", "05")];
+    const document = importDocument(albums, "japan", "2026-09");
+    const listed = document.pages.filter(page => page.kind === "listed");
+    listed[0].bgColor = "#111111"; listed[1].bgColor = null;
+    // [1,2] [3,4] → [1,3] [2,4]：1と2が別のページへ分かれる。
+    const latest = [albums[0], { ...albums[1], date: "2026/09/04" }, { ...albums[2], date: "2026/09/02" }, albums[3]];
+    const result = buildReimport({ document, albums: latest, addKeys: [], removeItemIds: [], resort: true });
+    const after = result.pages.filter(page => page.kind === "listed");
+    expect(after.map(page => page.bgColor)).toEqual(["#111111", "#111111"]);
+    expect(after[0].id).toBe(listed[0].id);
+    expect(after[1].id).not.toBe(listed[0].id);
+    expect(after[1].id).not.toBe(listed[1].id);
+  });
+
   it("does not count an older title imported without [EP] as a hand edit", () => {
     const albums = [japan({}), japan({ no: "2", uid: "uid-b", title: "[EP] B", mjAdoption: "J掲載" })];
     const document = importDocument(albums, "japan", "2026-09");
@@ -88,6 +141,19 @@ describe("generator re-import", () => {
     const others = result.pages.find(page => page.kind === "others")!.itemIds.map(id => items.get(id)!.source.uid);
     expect(features).toEqual(["uid-b", "uid-a"]);
     expect(others).toEqual(["uid-c", "uid-d"]);
+  });
+
+  it("moves Weekly feature colours with the album and leaves the Others colour on its page", () => {
+    const a = album({ no: "1", uid: "uid-a", title: "A", artist: "Alpha", weekAdoption: "採用" });
+    const b = album({ no: "2", uid: "uid-b", title: "B", artist: "Beta", weekAdoption: "採用" });
+    const c = album({ no: "3", uid: "uid-c", title: "C", artist: "Gamma", weekAdoption: "掲載" });
+    const document = importWeeklyDocument([a, b, c], "2027-01-01");
+    const features = document.pages.filter(page => page.kind === "feature");
+    features[0].bgColor = "#111111"; features[1].bgColor = "#222222";
+    document.pages.find(page => page.kind === "others")!.bgColor = "#333333";
+    const result = buildReimport({ document, albums: [b, a, c], addKeys: [], removeItemIds: [], resort: true });
+    expect(result.pages.filter(page => page.kind === "feature")).toEqual([features[1], features[0]]);
+    expect(result.pages.find(page => page.kind === "others")!.bgColor).toBe("#333333");
   });
 
   it("falls back from a changed UID to No. before title and artist", () => {

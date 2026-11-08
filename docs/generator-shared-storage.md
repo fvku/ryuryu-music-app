@@ -177,6 +177,10 @@ Weeklyの取込APIは実Release Masterを読み取り、`#35`がメイン5件＋
 
 すべて`SECURITY DEFINER`・空の`search_path`、実行権は service_role だけ。PGlite のテスト（[database.test.ts](../lib/generator/__tests__/database.test.ts)）で、ページの曲の保存・省略時の保持・null・他ページの作品の拒否・復元・並び替え後の復元、音声の準備・冪等・競合・未確定での保存拒否・確定・期限・削除済みの扱い、Weekly拒否を確認した。
 
+### マイグレーション `202611080002_generator_structure_colors.sql`（2026-11-08 に利用者がSQL Editorで適用済み）
+
+`generator_structure_save` を差し替え、並び順の保存で背景色を作品に追従させる。ページのIDと並び、API の形は変えない。採用・掲載・メインのページは、同じ区分の前のページから、先頭の作品から順に色が設定されている最初の色を受け取る（規則は [page-colors.ts](../lib/generator/page-colors.ts) と同じ）。表紙と Others はページの色のまま。色が変わったページは `page_versions` を進める。
+
 ### 音声の置き場所（Backblaze B2）と API
 
 - サーバー環境変数：`B2_KEY_ID`・`B2_APPLICATION_KEY`（バケット限定のキー）・`B2_BUCKET`・`B2_ENDPOINT`（例 `s3.us-west-004.backblazeb2.com`）。`NEXT_PUBLIC_`は付けない。未設定だと`503 AUDIO_NOT_CONFIGURED`（記録を作る前に止める）。Vercel Production には 2026-11-07 に登録済み（2026-11-08 に `vercel env ls production` で4つの名前を確認。値は未確認）。

@@ -7,6 +7,7 @@ import { canvasPreviewPage, COVER_SLOT_LABELS, pageNumber as pageNumberOf, type 
 import type { GeneratorSnapshot } from "@/lib/generator/client-types";
 import type { GeneratorDocument, GeneratorItemSource, ItemContent, ItemMusic } from "@/lib/generator/model";
 import { chosenMusicItem, EMPTY_MUSIC, legacyMusic, musicIsEmpty } from "@/lib/generator/video";
+import { pagesWithColorsFollowingItems } from "@/lib/generator/page-colors";
 import type { ReimportDiff } from "@/lib/generator/reimport";
 import { getMemberShortName } from "@/lib/members";
 import type { ReleaseMasterAlbum } from "@/lib/types";
@@ -161,7 +162,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const items = useMemo(() => new Map(snapshot.document.items.map(item => [item.id, item])), [snapshot.document.items]);
   const previewDocument = useMemo<GeneratorDocument>(() => ({
     ...snapshot.document,
-    pages: (structurePages || snapshot.document.pages).map(value => ({
+    // 並び替えの途中も、背景色は作品についていく（保存するとDBが同じ規則で移す）。
+    pages: (structurePages ? pagesWithColorsFollowingItems(snapshot.document.pages, structurePages) : snapshot.document.pages).map(value => ({
       ...value,
       bgColor: pageColors[value.id] ?? value.bgColor,
       ...(pageMusic[value.id] !== undefined ? { musicItemId: pageMusic[value.id] } : {}),
@@ -996,12 +998,11 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       setPageColors(current => keep(current, survivingPages));
       setStructurePages(null); setEditingPageId(null);
       setPageIndex(current => Math.min(current, Math.max(0, next.document.pages.length - 1))); setSlotIndex(0);
-      // 背景色は画像（ページ）に紐づく。作品が入れ替わった画像はページごと作り直されるので、色は残らない。
-      // 実文書（W37、2026-09-12）で確認済み。ここを「保持されています」と言い切らない。
+      // 背景色は作品についていく（2026-11-08〜。lib/generator/page-colors.ts）。新しく入った作品と、区分をまたいだ作品だけが未設定になる。
       setStatus({
         tone: discarded ? "warn" : "success",
         text: "作品の増減を保存しました。直していた内容と保存していない変更はそのままです。"
-          + "作品が入れ替わった画像は作り直されるので、その画像の背景色は設定し直してください。"
+          + "背景色は作品についていきます。新しく入った作品の画像は背景色を設定してください。"
           + (discarded ? `外れた作品${discarded}件の未保存の下書きは破棄しました。` : ""),
       });
       return next;

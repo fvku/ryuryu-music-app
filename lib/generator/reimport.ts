@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ReleaseMasterAlbum } from "../types";
 import { GeneratorError } from "./errors";
 import { parseDocument, type GeneratorDocument, type GeneratorItem, type GeneratorPage } from "./model";
+import { bgColorFollowingItems } from "./page-colors";
 import { createGeneratorItem, selectReleaseMasterAlbums, selectWeeklyAlbums, sortAlbums, sortWeeklyOthers } from "./source";
 
 export type ReimportGroup = Exclude<GeneratorPage["kind"], "cover">;
@@ -147,6 +148,17 @@ function orderedAlbums(ids: string[], matched: Map<string, Selected>, group: Rei
 function page(id: string, kind: GeneratorPage["kind"], itemIds: string[], existing?: GeneratorPage): GeneratorPage {
   return { id, kind, itemIds, bgColor: existing?.bgColor || null };
 }
+/**
+ * 作品の居場所が変わるページを作る。背景色は作品についていくので、位置ではなく作品からページを探す。
+ * ページIDを引き継げるのは色が同じときだけ（DBは既存IDなら保存済みの色を残す）。掲載の組み替えで1ページが2つへ分かれたら、残りは新しいIDで同じ色を持つ。
+ */
+function pageFollowingItems(kind: GeneratorPage["kind"], itemIds: string[], previous: GeneratorPage[], used: Set<string>): GeneratorPage {
+  const bgColor = bgColorFollowingItems(kind, itemIds, previous);
+  const kept = itemIds.flatMap(id => previous.filter(value => value.kind === kind && value.itemIds.includes(id)))
+    .find(value => !used.has(value.id) && (value.bgColor ?? null) === bgColor);
+  if (kept) used.add(kept.id);
+  return { id: kept?.id || randomUUID(), kind, itemIds, bgColor };
+}
 
 /** Creates the exact server-side proposal. Existing item IDs/content and page colours are never supplied by the client. */
 export function buildReimport({
@@ -186,19 +198,15 @@ export function buildReimport({
     if (ids.feature.length > 5 || ids.others.length > 60) throw new GeneratorError("INVALID_INPUT", 400, "WEEK列の採用は5件以下、掲載は60件以下にしてください。");
     const cover = original.find(value => value.kind === "cover")!;
     const oldFeatures = original.filter(value => value.kind === "feature"), oldOthers = original.find(value => value.kind === "others")!;
-    const features = ids.feature.map((id, index) => {
-      const kept = resort ? oldFeatures[index] : group.get(id) === "feature" ? oldFeatures.find(value => value.itemIds[0] === id) : undefined;
-      return page(kept?.id || randomUUID(), "feature", [id], kept);
-    });
+    const usedFeatures = new Set<string>();
+    const features = ids.feature.map(id => pageFollowingItems("feature", [id], oldFeatures, usedFeatures));
     const result = [page(cover.id, "cover", [], cover), ...features, page(oldOthers.id, "others", ids.others, oldOthers)];
     parseDocument({ ...document, pages: result, items: [...document.items.filter(item => !removed.has(item.id)), ...addItems] });
     return { pages: result, addItems, removeItemIds };
   }
   const oldAdopted = original.filter(value => value.kind === "adopted"), oldListed = original.filter(value => value.kind === "listed");
-  const adopted = ids.adopted.map((id, index) => {
-    const kept = resort ? oldAdopted[index] : group.get(id) === "adopted" ? oldAdopted.find(value => value.itemIds[0] === id) : undefined;
-    return page(kept?.id || randomUUID(), "adopted", [id], kept);
-  });
+  const usedAdopted = new Set<string>();
+  const adopted = ids.adopted.map(id => pageFollowingItems("adopted", [id], oldAdopted, usedAdopted));
   const listed: GeneratorPage[] = [];
   if (!resort) {
     const allowed = new Set(ids.listed), retained = new Set<string>();
@@ -210,7 +218,8 @@ export function buildReimport({
     if (listed.length && listed.at(-1)!.itemIds.length === 1 && tail.length) listed.at(-1)!.itemIds.push(tail.shift()!);
     for (let index = 0; index < tail.length; index += 2) listed.push(page(randomUUID(), "listed", tail.slice(index, index + 2)));
   } else {
-    for (let index = 0; index < ids.listed.length; index += 2) listed.push(page(oldListed[listed.length]?.id || randomUUID(), "listed", ids.listed.slice(index, index + 2), oldListed[listed.length]));
+    const usedListed = new Set<string>();
+    for (let index = 0; index < ids.listed.length; index += 2) listed.push(pageFollowingItems("listed", ids.listed.slice(index, index + 2), oldListed, usedListed));
   }
   // 表紙は残す。無い旧文書には足す（取り込み直しの確定画面に「表紙を追加」と出している）。
   const oldCover = original.find(value => value.kind === "cover");
