@@ -1,6 +1,6 @@
 # 画像ジェネレーター：動画書き出しと音楽の共有（設計案）
 
-作成：2026-11-07（Claude Code）。状態：**動画書き出しは main に反映済み（PR #16）。音楽の共有は 2026-11-08 に実装（ブランチ `feat/generator-music-share`、未コミット）。マイグレーション `202611080001_generator_audio.sql` は 2026-11-08 に共有DBへ適用済み（利用者がSQL Editorで実行）。Vercel Production への B2 環境変数の登録とデプロイは未了。**
+作成：2026-11-07（Claude Code）。状態：**動画書き出しは main に反映済み（PR #16）。音楽の共有は 2026-11-08 に実装（PR #17、ブランチ `feat/generator-music-share`）。マイグレーション `202611080001_generator_audio.sql` は 2026-11-08 に共有DBへ適用済み（利用者がSQL Editorで実行）。Vercel Production の B2 環境変数は 2026-11-07 に登録済み。本番への反映は PR #17 のマージ待ち。**
 
 ## 1. 背景と利用者の決定
 

@@ -179,7 +179,7 @@ Weeklyの取込APIは実Release Masterを読み取り、`#35`がメイン5件＋
 
 ### 音声の置き場所（Backblaze B2）と API
 
-- サーバー環境変数：`B2_KEY_ID`・`B2_APPLICATION_KEY`（バケット限定のキー）・`B2_BUCKET`・`B2_ENDPOINT`（例 `s3.us-west-004.backblazeb2.com`）。`NEXT_PUBLIC_`は付けない。未設定だと`503 AUDIO_NOT_CONFIGURED`（記録を作る前に止める）。**Vercel Production への登録は利用者が行う。**
+- サーバー環境変数：`B2_KEY_ID`・`B2_APPLICATION_KEY`（バケット限定のキー）・`B2_BUCKET`・`B2_ENDPOINT`（例 `s3.us-west-004.backblazeb2.com`）。`NEXT_PUBLIC_`は付けない。未設定だと`503 AUDIO_NOT_CONFIGURED`（記録を作る前に止める）。Vercel Production には 2026-11-07 に登録済み（2026-11-08 に `vercel env ls production` で4つの名前を確認。値は未確認）。
 - 署名は AWS Signature V4 のクエリ署名を`node:crypto`で実装（[b2.ts](../lib/generator/b2.ts)。AWS公式の例の値でテスト）。PUT 10分・GET 5分。サーバーが読む・消すときも同じ。
 - Vercel の本文上限（4.5MB）を通さないため、音声の本文はブラウザと B2 の直接のやり取りだけ。サーバーは complete のとき B2 から読み直して、宣言どおりのサイズ・SHA-256・先頭バイト（MP3／MP4）かを確かめる。違えば B2 から消して`400 AUDIO_MISMATCH`、届いていなければ`409 AUDIO_NOT_UPLOADED`。
 - B2 は既定で過去の版を残す。版を指定しない DELETE は「隠す」だけで容量が減らないので、HEAD で`x-amz-version-id`を読み、版を指定して消す（実バケットで送信→照合→削除→404を確認）。
