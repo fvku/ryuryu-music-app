@@ -138,6 +138,18 @@ Release Master の `memo`（旧playlist）列に「そのアルバムがどの�
 - 洋楽の Spotify URL 取得はアルバム形式の結果だけを採用する（配信前は同名の先行シングルが先頭に来るため）
 - 月間リスナー数はアーティストページのHTMLから読む。短いUA（`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`）でないとサーバー描画されず数値が入っていない。書き込み先は「リスナー / Google Script 作動」列（旧GASと同じ）。アーティストはアルバムのクレジットから特定し、URLが無い行だけ名前の完全一致で探す。特定できなければセルに何も書かない
 
+## Saved Tracks Stories画像（/generator/saved-tracks）
+
+毎週月曜のストーリー投稿（1080×1920）を、プレイリスト「Hyoryu's Saved Tracks」（`6stewW41e2gvYLcg5sRYSK`）から作る画面（2026-11-08〜）。デザインはFigmaの Saved_1〜3（Weekly_Currents ページ）。
+
+- データの保存はしない。選曲・文字の修正・背景の選択はその場限りで、Supabaseの共有文書とは無関係
+- 曲は公式API（`/v1/playlists/<id>/tracks`、Client Credentials）で読む。自分たちの公開プレイリストなのでエディトリアルと違って通る。追加日時は `added_at`
+- 版面の数値と文字の収め方は `lib/generator/saved-tracks.ts`、描画は `app/generator/saved-tracks/story-canvas.ts`
+- 文字の中心は帯の中央（540）ではなく537。Figmaの文字枠の実測値
+- 帯のFigma Glassエフェクトは Canvas で再現できないので、光る縁の細線で近似している
+- 文字は4倍で描いて縮小する（等倍だとmacOSで太る）。曲名の字間 −5% はSafari対応のため1文字ずつ置く
+- 背景は動画の任意フレーム（`video-frames.ts`）。標準の動画は `public/saved-tracks/wave.mp4`（原版 wave.m4v を `-crf 26 -g 30 -vf fps=30` で約30MBへ変換。アプリと同一オリジンなのでCanvasへ描ける）。読み込めないときだけ Figma の静止画2種（`still-*.jpg`）を、Saved_1〜3と同じ位置で順に使う
+
 ## フィルター状態の永続化（localStorage）
 
 | ページ | キー |

@@ -13,7 +13,7 @@ interface ProfileHeaderProps {
 /** 投稿作業のメニュー。以前はフッターに置いていた入口をここへ集めた */
 const WORK_LINKS = [
   { href: "/weekly", label: "Weekly作業", description: "金曜19時投稿の準備（取り込み・更新・振り分け）" },
-  { href: "/generator", label: "投稿画像ジェネレーター", description: "Weekly・Monthly・Japanの投稿画像をつくる" },
+  { href: "/generator", label: "投稿画像ジェネレーター", description: "Weekly・Monthly・Japan・Saved Tracksの投稿画像をつくる" },
 ];
 
 const CARD = "rounded-xl px-3 py-3 border flex items-center gap-2.5 min-w-0";

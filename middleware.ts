@@ -21,6 +21,7 @@ export default auth((req) => {
 });
 
 // public/ の画像（ロゴ・アイコン）はログイン前のログイン画面やホーム画面追加でも使うので対象外にする
+// mp4 は Saved Tracks の背景動画。分割取得のたびに認証を走らせないよう対象外にする
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon\\.ico|login|.*\\.(?:png|ico|svg|jpe?g|webp)$).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon\\.ico|login|.*\\.(?:png|ico|svg|jpe?g|webp|mp4)$).*)"],
 };
