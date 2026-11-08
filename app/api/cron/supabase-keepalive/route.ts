@@ -4,10 +4,14 @@
  * 無料プランは一定期間アクセスが無いとプロジェクトを自動で一時停止し、
  * 画像ジェネレーターの共有保存が使えなくなる。ジェネレーターを触らない週が
  * 続いても止まらないよう、読み取り専用の generator_read（一覧取得）を毎日呼ぶ。
- * 書き込みは一切しない。
+ * 休止防止のための書き込みはしない。
  *
  * 当初は週2回（月・木）だったが、2026-11-06 に最後の利用から約7日で停止した。
  * Supabase の目安は「1日に数回のリクエスト」なので毎日に変更（Hobby の上限が1日1回）。
+ *
+ * 2026-11-08 から、動画用の音声の自動削除もここで行う（Hobby の Cron の本数を増やさないため）。
+ * 対象月の終わりから1年たった音声と、1日たっても確定しなかったアップロードを Backblaze B2 から消す。
+ * 削除の失敗は休止防止の結果に影響させない（翌日にまた試す）。
  *
  * 認証は CRON_SECRET。Vercel は Cron 実行時に
  * Authorization: Bearer $CRON_SECRET を付けて呼ぶ。
@@ -15,9 +19,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { generatorRpc } from "@/lib/generator/repository";
+import { purgeExpiredAudio } from "@/lib/generator/audio";
 import { GeneratorError } from "@/lib/generator/errors";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -31,8 +37,15 @@ export async function GET(req: NextRequest) {
   try {
     const documents = await generatorRpc("generator_read", { p_id: null });
     const count = Array.isArray(documents) ? documents.length : null;
-    console.log(`[cron/supabase-keepalive] ok documents=${count}`);
-    return NextResponse.json({ ok: true, documents: count });
+    let audio: Awaited<ReturnType<typeof purgeExpiredAudio>> | { error: string };
+    try {
+      audio = await purgeExpiredAudio();
+    } catch (error) {
+      audio = { error: error instanceof GeneratorError ? error.code : "UNKNOWN" };
+      console.error("[cron/supabase-keepalive] audio purge failed", error);
+    }
+    console.log(`[cron/supabase-keepalive] ok documents=${count} audio=${JSON.stringify(audio)}`);
+    return NextResponse.json({ ok: true, documents: count, audio });
   } catch (e) {
     const code = e instanceof GeneratorError ? e.code : "UNKNOWN";
     console.error(`[cron/supabase-keepalive] failed: ${code}`, e);

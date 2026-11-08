@@ -1,6 +1,9 @@
+import type { ItemMusic } from "./model";
+
 /**
  * 動画書き出し（画像1枚＋おすすめ曲）の、描画にもDBにも依存しない計算。
- * 音声ファイルは端末の中だけで使い、共有データには何も保存しない。
+ * 曲・範囲・フェードは作品の content.music、掲載の上下はページの musicItemId に保存する（2026-11-08〜）。
+ * 音声ファイルの実体は Backblaze B2（lib/generator/b2.ts）。
  */
 
 /** Instagramのフィードは60秒未満。これまでKeynoteで作ってきた長さを既定にする。 */
@@ -85,14 +88,15 @@ export function dragRange(origin: VideoRange, mode: RangeDragMode, deltaSeconds:
   return { start: origin.start, length };
 }
 
-/** 手で変えた開始・長さ・フェードを、このブラウザだけに覚えておく。共有データには入れない。 */
+/** 画面と書き出しで使う、開始・長さ・フェード（開始は Start Time を当てはめた実際の値）。 */
 export type VideoPreference = { start: number; length: number; fadeIn: boolean; fadeOut: boolean };
 
+/** 2026-11-08 より前に、このブラウザだけへ覚えていた設定のキー（共有へ移すために読むだけ）。 */
 export function videoPreferenceKey(documentId: string, itemId: string): string {
   return `ryuryu_generator_video:v1:${documentId}:${itemId}`;
 }
 
-/** 掲載ページで、上下どちらの作品の曲を使うか。ページごとにこのブラウザへ覚える。 */
+/** 掲載ページで、上下どちらの作品の曲を使うか。2026-11-08 より前にこのブラウザへ覚えていたキー。 */
 export function videoChoiceKey(documentId: string, pageId: string): string {
   return `ryuryu_generator_video_choice:v1:${documentId}:${pageId}`;
 }
@@ -259,4 +263,44 @@ export function rgbaToI420(rgba: Uint8ClampedArray | Uint8Array, width: number, 
     }
   }
   return out;
+}
+
+/** 未設定の作品の音楽。開始は Start Time に従い、長さは既定、フェードなし。 */
+export const EMPTY_MUSIC: ItemMusic = { audioId: null, start: null, length: VIDEO_DEFAULT_SECONDS, fadeIn: false, fadeOut: false };
+
+/** 保存した音楽を、画面と書き出しで使う値にする。開始が未指定（null）なら Start Time、それも無ければ 0:00。 */
+export function musicPreference(music: ItemMusic | null | undefined, sheetStart: number | null): VideoPreference {
+  const value = music ?? EMPTY_MUSIC;
+  return { start: value.start ?? sheetStart ?? 0, length: value.length, fadeIn: value.fadeIn, fadeOut: value.fadeOut };
+}
+
+/** 開始・長さ・フェードを手で変えたか（Release Master の値に戻す、を出すかどうか）。 */
+export function musicEdited(music: ItemMusic | null | undefined): boolean {
+  return Boolean(music && (music.start !== null || music.length !== VIDEO_DEFAULT_SECONDS || music.fadeIn || music.fadeOut));
+}
+
+/** 何も設定していない音楽か（保存済みが空なら、下書きも空のままにして「未保存」に数えない）。 */
+export function musicIsEmpty(music: ItemMusic | null | undefined): boolean {
+  return !music || (music.audioId === null && !musicEdited(music));
+}
+
+/**
+ * 範囲・フェードを変えた後の音楽。開始が Start Time と同じ値に戻ったら、また Start Time に従う（null）。
+ * 音声ID はそのまま。
+ */
+export function updateMusic(music: ItemMusic | null | undefined, next: Partial<VideoPreference>, sheetStart: number | null): ItemMusic {
+  const current = music ?? EMPTY_MUSIC, base = musicPreference(current, sheetStart);
+  const value = { ...base, ...next };
+  const follows = value.start === (sheetStart ?? 0);
+  return { audioId: current.audioId, start: follows ? null : value.start, length: value.length, fadeIn: value.fadeIn, fadeOut: value.fadeOut };
+}
+
+/** 端末だけに覚えていた旧設定を、共有の形にする（音声は別にアップロードしてから ID を入れる）。 */
+export function legacyMusic(preference: VideoPreference | undefined, sheetStart: number | null): ItemMusic {
+  return preference ? updateMusic(EMPTY_MUSIC, preference, sheetStart) : { ...EMPTY_MUSIC };
+}
+
+/** 掲載ページで使う曲の作品。保存した作品がページに無い（並び順を変えた）・未設定なら先頭の作品。 */
+export function chosenMusicItem(itemIds: string[], musicItemId: string | null | undefined): string {
+  return musicItemId && itemIds.includes(musicItemId) ? musicItemId : itemIds[0] ?? "";
 }

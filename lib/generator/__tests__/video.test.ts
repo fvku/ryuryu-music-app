@@ -192,3 +192,28 @@ describe("rgbaToI420", () => {
     expect(v).toBe(240);
   });
 });
+
+describe("共有する音楽の設定（content.music）", () => {
+  it("follows Release Master's Start Time until the start is moved, and returns to it when moved back", async () => {
+    const { musicPreference, updateMusic, musicEdited, musicIsEmpty, EMPTY_MUSIC } = await import("../video");
+    expect(musicPreference(undefined, 69)).toEqual({ start: 69, length: 59, fadeIn: false, fadeOut: false });
+    expect(musicPreference(undefined, null).start).toBe(0);
+    const moved = updateMusic({ ...EMPTY_MUSIC, audioId: "a" }, { start: 80 }, 69);
+    expect(moved).toEqual({ audioId: "a", start: 80, length: 59, fadeIn: false, fadeOut: false });
+    expect(musicEdited(moved)).toBe(true);
+    const back = updateMusic(moved, { start: 69 }, 69);
+    expect(back.start).toBeNull();
+    expect(musicEdited(back)).toBe(false);
+    expect(musicIsEmpty(back)).toBe(false); // 音声があるので空ではない
+    expect(musicIsEmpty(updateMusic(null, { fadeIn: false }, 10))).toBe(true);
+    expect(musicIsEmpty(updateMusic(null, { fadeOut: true }, 10))).toBe(false);
+  });
+  it("converts this device's old settings and picks the page's song item", async () => {
+    const { legacyMusic, chosenMusicItem } = await import("../video");
+    expect(legacyMusic({ start: 12.5, length: 30, fadeIn: true, fadeOut: false }, 69)).toEqual({ audioId: null, start: 12.5, length: 30, fadeIn: true, fadeOut: false });
+    expect(legacyMusic(undefined, 69)).toEqual({ audioId: null, start: null, length: 59, fadeIn: false, fadeOut: false });
+    expect(chosenMusicItem(["top", "bottom"], "bottom")).toBe("bottom");
+    expect(chosenMusicItem(["top", "bottom"], "moved-away")).toBe("top");
+    expect(chosenMusicItem(["top", "bottom"], null)).toBe("top");
+  });
+});

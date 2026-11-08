@@ -42,13 +42,18 @@ type Decoded = { itemId: string; blob: Blob; audio: DecodedAudio } | { itemId: s
 
 /**
  * 右パネルの「音楽」タブ。その画像の動画に使う曲・範囲・フェードを決める。
- * 設定と音声ファイルはこの端末の中だけに保存し、共有データには入れない。
+ * 2026-11-08〜 画像と同じく共有する：変更は下書きになり、下端の「保存」で作品・背景色と一緒に確定する。
+ * 音声ファイルは選んだ時点でアップロードする（作品のロックが必要。編集できない画像ではこのタブ自体を出さない）。
  */
 export default function MusicPanel({ page, music }: { page: CanvasPreviewPage; music: MusicApi }) {
   const itemId = music.choice(page);
   const slot = page.slots.find(value => value.id === itemId) ?? page.slots[0];
-  const entry = music.state.audio[itemId];
+  const sound = music.audio(itemId);
+  const entry = sound.entry;
   const listed = page.slots.length > 1;
+
+  // 共有の音声がまだ端末に無ければ読み込む。
+  useEffect(() => { if (sound.kind === "loading") music.fetchAudio(itemId); }, [sound.kind, itemId, music]);
 
   // 音声の読み込み（波形・長さ）。ファイルが変わったら読み直す。
   const [decoded, setDecoded] = useState<Decoded | null>(null);
@@ -118,19 +123,25 @@ export default function MusicPanel({ page, music }: { page: CanvasPreviewPage; m
   useEffect(() => () => stop(), [itemId, page.id]);
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const [saving, setSaving] = useState(false);
   async function onFile(file: File | undefined) {
+    if (fileRef.current) fileRef.current.value = "";
     if (!file) return;
     stop();
-    setSaving(true);
-    try { await music.setAudio(itemId, file); } finally {
-      setSaving(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
+    await music.setAudio(itemId, file);
   }
+  const local = sound.kind === "local" ? sound.local : null;
+  const sending = local?.phase === "preparing" || local?.phase === "uploading";
+  const fileState = local
+    ? local.phase === "preparing" ? { text: "音声を確かめています…（WAV・AIF は AAC に変換します）", tone: "muted" }
+      : local.phase === "uploading" ? { text: `アップロードしています… ${Math.round(local.progress * 100)}%`, tone: "muted" }
+        : local.phase === "failed" ? { text: local.error || "アップロードできませんでした。", tone: "error" }
+          : { text: "まだ共有していません。「保存」のときにアップロードします。", tone: "warn" }
+    : sound.kind === "loading" ? { text: "共有の音声を読み込んでいます…", tone: "muted" }
+      : sound.kind === "error" ? { text: sound.error, tone: "error" }
+        : null;
 
   const sheetLabel = music.startTimes === null ? "Release Master を読み込んでいます…"
-    : music.edited(itemId) ? `手で変えました（Release Master は ${sheetStart === null ? "空欄" : formatClock(sheetStart)}）· このブラウザに覚えます`
+    : music.edited(itemId) ? `手で変えました（Release Master は ${sheetStart === null ? "空欄" : formatClock(sheetStart)}）`
       : sheetStart === null
         ? (music.startTimesError ? `Start Time を読めませんでした（${music.startTimesError}）。0:00 から始めます` : "Release Master の Start Time が空なので 0:00 から始めます")
         : `開始は Release Master の Start Time（${formatClock(sheetStart)}）`;
@@ -145,7 +156,7 @@ export default function MusicPanel({ page, music }: { page: CanvasPreviewPage; m
         <h3 className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{listed ? "曲（上下どちらかの作品）" : "曲"}</h3>
         <div className={`grid gap-1.5 ${listed ? "grid-cols-2" : "grid-cols-1"}`}>
           {page.slots.map((value, index) => {
-            const active = value.id === itemId, hasAudio = Boolean(music.state.audio[value.id]);
+            const active = value.id === itemId, hasAudio = music.audio(value.id).kind !== "none";
             const label = trackLabel(value.id, value.fields.trackNo, value.fields.track);
             return (
               <button
@@ -171,22 +182,35 @@ export default function MusicPanel({ page, music }: { page: CanvasPreviewPage; m
       <section className="space-y-1.5">
         <h3 className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>音声ファイル</h3>
         <div className="flex flex-wrap items-center gap-2">
-          <SecondaryButton className="!min-h-9 px-3 text-xs" disabled={saving || !music.state.audioReady} onClick={() => fileRef.current?.click()}>
-            {saving ? "読み込み中…" : entry ? "差し替える" : "ファイルを選ぶ"}
+          <SecondaryButton className="!min-h-9 px-3 text-xs" disabled={sending || !music.editable} onClick={() => fileRef.current?.click()}>
+            {sending ? "送信中…" : sound.kind === "none" ? "ファイルを選ぶ" : "差し替える"}
           </SecondaryButton>
           <input ref={fileRef} type="file" accept="audio/*,.m4a,.mp3,.wav,.aac,.aif,.aiff" className="hidden" onChange={event => void onFile(event.target.files?.[0])} />
           <span className="min-w-0 flex-1 truncate text-sm" style={{ color: entry ? "var(--text-primary)" : "var(--text-secondary)" }}>
             {entry ? `${entry.name}${trackSeconds ? ` · ${formatClock(trackSeconds)}` : ""}` : "未選択（m4a・mp3・wav）"}
           </span>
-          {entry && (
-            <button type="button" className="text-[11px] underline decoration-dotted underline-offset-2" style={{ color: "var(--text-secondary)" }} onClick={() => { stop(); void music.removeAudio(itemId); }}>
+          {sound.kind !== "none" && !sending && music.editable && (
+            <button type="button" className="text-[11px] underline decoration-dotted underline-offset-2" style={{ color: "var(--text-secondary)" }} onClick={() => { stop(); music.removeAudio(itemId); }}>
               外す
             </button>
           )}
         </div>
+        {local?.phase === "uploading" && (
+          <div className="h-1 overflow-hidden rounded-full bg-white/10" aria-hidden="true">
+            <div className="h-full rounded-full transition-[width]" style={{ width: `${Math.round(local.progress * 100)}%`, backgroundColor: "var(--accent)" }} />
+          </div>
+        )}
+        {fileState && (
+          <p className="flex flex-wrap items-center gap-x-2 text-xs" style={{ color: fileState.tone === "error" ? "#fda4af" : fileState.tone === "warn" ? "#fcd34d" : "var(--text-secondary)" }}>
+            <span>{fileState.text}</span>
+            {local && (local.phase === "failed" || local.phase === "waiting") && music.editable && (
+              <button type="button" className="underline decoration-dotted underline-offset-2" onClick={() => music.retryUpload(itemId)}>いま送る</button>
+            )}
+          </p>
+        )}
         {decodeError && <p className="text-xs" style={{ color: "#fda4af" }}>{decodeError}</p>}
         <p className="text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>
-          音声ファイルはこのブラウザの中だけに保存します。アップロードせず、ほかのメンバーには共有されません。
+          選んだ音声はアップロードし、下の「保存」でほかのメンバーにも共有します。MP3・m4a はそのまま、WAV・AIF は AAC（256kbps）に変換して送ります。50MBまで。
         </p>
       </section>
 

@@ -7,7 +7,14 @@ import { bodyIndexAt, hitTest, selectionRects, type FieldKey, type Rect } from "
 import { pngFileName } from "./bulk-export";
 import { drawPageInto, preparePage, useGeneratorRuntime, waveWarnings, type GeneratorRuntime, type LegacyPage } from "./runtime";
 import { PrimaryButton, SecondaryButton } from "./ui";
-import { useMusic } from "./music-store";
+import { useMusic, type MusicAudio } from "./music-store";
+
+/** 書き出した動画が、いまの音声のものか（音声を差し替えたら「アプリで送る」を消す）。 */
+function audioKey(audio: MusicAudio): string {
+  if (audio.kind === "none") return "";
+  if (audio.kind === "local") return `local:${audio.entry.name}:${audio.entry.blob.size}`;
+  return audio.audioId;
+}
 import { buildVideo, downloadFile, planVideo, progressText, VideoAborted, VideoNotReady, videoSupportProblem } from "./video-export";
 
 export type PreviewSelection = { slotIndex: number; key: FieldKey; start: number; end: number };
@@ -176,7 +183,7 @@ export default function GeneratorPreview({
   }
 
   const videoKey = musicStatus && music
-    ? `${signature}\u0000${musicStatus.itemId}\u0000${JSON.stringify(music.preference(musicStatus.itemId))}\u0000${music.state.audio[musicStatus.itemId]?.name ?? ""}`
+    ? `${signature}\u0000${musicStatus.itemId}\u0000${JSON.stringify(music.preference(musicStatus.itemId))}\u0000${audioKey(music.audio(musicStatus.itemId))}`
     : "";
   const sharableVideo = video && video.key === videoKey && typeof navigator !== "undefined" && navigator.canShare?.({ files: [video.file] }) ? video.file : null;
 

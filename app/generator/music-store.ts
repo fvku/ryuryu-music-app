@@ -2,19 +2,22 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { CanvasPreviewPage } from "@/lib/generator/canvas-preview";
-import type { GeneratorDocument } from "@/lib/generator/model";
+import type { GeneratorDocument, ItemMusic } from "@/lib/generator/model";
 import {
-  parseClock, parseVideoPreference, videoChoiceKey, videoPreferenceKey, waveformLevels,
-  VIDEO_DEFAULT_SECONDS, type StartTimeHit, type VideoPreference,
+  chosenMusicItem, EMPTY_MUSIC, musicEdited, musicPreference, parseClock, updateMusic, waveformLevels,
+  type StartTimeHit, type VideoPreference,
 } from "@/lib/generator/video";
 import { parsePcm } from "@/lib/generator/pcm";
+import { downloadAudio, type AudioEntry } from "./audio-files";
 import { generatorJson } from "./generator-client";
+
+export type { AudioEntry } from "./audio-files";
 
 /**
  * 音声を読む。まずブラウザのデコーダーに任せ、読めなければ非圧縮WAV／AIFFとして自前で読む
  * （ChromeはAIFFを読めない。Safariとの差を埋める）。decodeAudioDataは渡したバイト列を手放すので複製して渡す。
  */
-async function decodeAudio(context: AudioContext, bytes: ArrayBuffer): Promise<AudioBuffer> {
+export async function decodeAudio(context: BaseAudioContext, bytes: ArrayBuffer): Promise<AudioBuffer> {
   try {
     return await context.decodeAudioData(bytes.slice(0));
   } catch (error) {
@@ -27,125 +30,78 @@ async function decodeAudio(context: AudioContext, bytes: ArrayBuffer): Promise<A
 }
 
 /**
- * 動画の音楽設定。すべてこのブラウザの中だけに置き、共有DBにもRelease Masterにも書かない。
- * - 曲の選択（掲載の上下）と範囲・フェード：localStorage
- * - 音声ファイル：IndexedDB（再読み込みしても残す。アップロードはしない）
+ * 動画の音楽設定（2026-11-08〜 共有）。
+ * - 曲・範囲・フェード：作品の content.music。掲載の上下：ページの musicItemId。どちらも画像と同じ下書き → 「保存」で確定。
+ * - 音声ファイル：Backblaze B2。読み出した分は端末の IndexedDB にキャッシュする（audio-files.ts）。
+ * このファイルは文書（下書きを含む）を読み、変更は編集画面（MusicHost）へ渡すだけ。下書きの持ち主は編集画面。
  */
 
 const PEAK_BUCKETS = 240;
-const DB_NAME = "ryuryu_generator_audio";
-const STORE = "files";
 
-export type AudioEntry = { name: string; type: string; blob: Blob };
 export type DecodedAudio = { buffer: AudioBuffer; peaks: number[] };
-type State = {
-  choices: Record<string, string>;
-  preferences: Record<string, VideoPreference>;
-  audio: Record<string, AudioEntry>;
-  audioReady: boolean;
+
+/** まだ共有へ送れていない音声（選んだ直後・送信の失敗・この端末の旧設定）。「保存」のときにも送り直す。 */
+export type LocalAudio = {
+  entry: AudioEntry;
+  phase: "preparing" | "uploading" | "failed" | "waiting";
+  progress: number;
+  error: string | null;
 };
 
-const EMPTY: State = { choices: {}, preferences: {}, audio: {}, audioReady: false };
+/** 編集画面が持つ下書きへの書き口。 */
+export type MusicHost = {
+  /** この画像の編集ロックを持っているか。持っていなければ設定を変えられない（画像と同じ）。 */
+  editable: boolean;
+  localAudio: Record<string, LocalAudio>;
+  setItemMusic(itemId: string, music: ItemMusic | null): void;
+  setPageMusic(pageId: string, itemId: string): void;
+  selectAudio(itemId: string, file: File): Promise<void>;
+  retryUpload(itemId: string): void;
+  removeAudio(itemId: string): void;
+};
 
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => { request.result.createObjectStore(STORE); };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
+type SharedEntry = { state: "loading" } | { state: "ready"; entry: AudioEntry } | { state: "error"; error: string };
 
-async function withStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T> | void): Promise<T | undefined> {
-  const db = await openDb();
-  try {
-    return await new Promise<T | undefined>((resolve, reject) => {
-      const transaction = db.transaction(STORE, mode), request = run(transaction.objectStore(STORE));
-      transaction.oncomplete = () => resolve(request ? request.result : undefined);
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error);
-    });
-  } finally { db.close(); }
-}
-
-class MusicStore {
-  private state: State = EMPTY;
+/** 共有の音声（audioId ごと）を、要るときだけ読む。同じ音声を何度も取りにいかない。 */
+class SharedAudioStore {
+  private value: Record<string, SharedEntry> = {};
+  private promises = new Map<string, Promise<AudioEntry>>();
   private listeners = new Set<() => void>();
-  private started = false;
 
   constructor(readonly documentId: string) {}
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
-    this.start();
     return () => { this.listeners.delete(listener); };
   };
 
-  getSnapshot = () => this.state;
-  getServerSnapshot = () => EMPTY;
+  get = () => this.value;
+  private static readonly EMPTY: Record<string, SharedEntry> = {};
+  getServer = () => SharedAudioStore.EMPTY;
 
-  private set(next: Partial<State>) {
-    this.state = { ...this.state, ...next };
+  private set(audioId: string, entry: SharedEntry) {
+    this.value = { ...this.value, [audioId]: entry };
     this.listeners.forEach(listener => listener());
   }
 
-  private start() {
-    if (this.started || typeof window === "undefined") return;
-    this.started = true;
-    const choices: Record<string, string> = {}, preferences: Record<string, VideoPreference> = {};
-    const choicePrefix = videoChoiceKey(this.documentId, ""), preferencePrefix = videoPreferenceKey(this.documentId, "");
-    try {
-      for (let index = 0; index < window.localStorage.length; index += 1) {
-        const key = window.localStorage.key(index);
-        if (!key) continue;
-        if (key.startsWith(choicePrefix)) choices[key.slice(choicePrefix.length)] = window.localStorage.getItem(key) || "";
-        else if (key.startsWith(preferencePrefix)) {
-          const value = parseVideoPreference(window.localStorage.getItem(key));
-          if (value) preferences[key.slice(preferencePrefix.length)] = value;
-        }
-      }
-    } catch { /* 読めなければ初期値で始める */ }
-    this.set({ choices, preferences });
-    const prefix = `${this.documentId}:`;
-    void withStore<IDBValidKey[]>("readonly", store => store.getAllKeys(IDBKeyRange.bound(prefix, `${prefix}￿`)))
-      .then(async keys => {
-        const audio: Record<string, AudioEntry> = {};
-        for (const key of keys || []) {
-          const entry = await withStore<AudioEntry>("readonly", store => store.get(key));
-          if (entry?.blob) audio[String(key).slice(prefix.length)] = entry;
-        }
-        this.set({ audio, audioReady: true });
-      })
-      .catch(() => this.set({ audioReady: true }));
+  load(audioId: string): Promise<AudioEntry> {
+    let promise = this.promises.get(audioId);
+    if (!promise) {
+      this.set(audioId, { state: "loading" });
+      promise = downloadAudio(this.documentId, audioId);
+      this.promises.set(audioId, promise);
+      promise.then(
+        entry => this.set(audioId, { state: "ready", entry }),
+        (error: Error) => { this.promises.delete(audioId); this.set(audioId, { state: "error", error: error.message }); },
+      );
+    }
+    return promise;
   }
 
-  setChoice(pageId: string, itemId: string) {
-    try { window.localStorage.setItem(videoChoiceKey(this.documentId, pageId), itemId); } catch { /* 覚えられなくても今の画面では使える */ }
-    this.set({ choices: { ...this.state.choices, [pageId]: itemId } });
-  }
-
-  setPreference(itemId: string, value: VideoPreference | null) {
-    const key = videoPreferenceKey(this.documentId, itemId), preferences = { ...this.state.preferences };
-    try {
-      if (value) window.localStorage.setItem(key, JSON.stringify(value));
-      else window.localStorage.removeItem(key);
-    } catch { /* 同上 */ }
-    if (value) preferences[itemId] = value; else delete preferences[itemId];
-    this.set({ preferences });
-  }
-
-  async setAudio(itemId: string, file: File) {
-    const entry: AudioEntry = { name: file.name, type: file.type, blob: file };
-    // 保存に失敗しても、この画面を開いている間は使えるようにする。
-    await withStore("readwrite", store => { store.put(entry, `${this.documentId}:${itemId}`); }).catch(() => undefined);
-    this.set({ audio: { ...this.state.audio, [itemId]: entry } });
-  }
-
-  async removeAudio(itemId: string) {
-    await withStore("readwrite", store => { store.delete(`${this.documentId}:${itemId}`); }).catch(() => undefined);
-    const audio = { ...this.state.audio };
-    delete audio[itemId];
-    this.set({ audio });
+  /** アップロードした音声は、そのまま手元の分を使う（読み直さない）。 */
+  prime(audioId: string, entry: AudioEntry) {
+    this.promises.set(audioId, Promise.resolve(entry));
+    this.set(audioId, { state: "ready", entry });
   }
 }
 
@@ -184,15 +140,20 @@ class StartTimeStore {
   }
 }
 
-/** 試聴中の音。どの作品を、どこから鳴らしているか。 */
-export type Playback = { itemId: string; from: number; startedAt: number; until: number | null };
-
 export type MusicPageStatus = { itemId: string; ready: boolean; reason: string | null };
+
+/** その作品の音声の状態。`entry` があれば試聴・書き出しに使える。 */
+export type MusicAudio =
+  | { kind: "none"; entry: null }
+  | { kind: "local"; entry: AudioEntry; local: LocalAudio }
+  | { kind: "loading"; entry: null; audioId: string }
+  | { kind: "ready"; entry: AudioEntry; audioId: string }
+  | { kind: "error"; entry: null; audioId: string; error: string };
 
 export type MusicApi = {
   documentId: string;
   enabled: boolean;
-  state: State;
+  editable: boolean;
   startTimes: Record<string, StartTimeHit> | null;
   startTimesError: string | null;
   /** その作品の Start Time（秒）。空・読めないときは null。 */
@@ -203,8 +164,15 @@ export type MusicApi = {
   reset(itemId: string): void;
   choice(page: CanvasPreviewPage): string;
   setChoice(pageId: string, itemId: string): void;
+  audio(itemId: string): MusicAudio;
+  /** 共有の音声を端末へ読み込む（まだなら）。画面に出したときに呼ぶ。 */
+  fetchAudio(itemId: string): void;
+  /** 音声を手元に用意する。書き出しの直前に使う。 */
+  loadAudio(itemId: string): Promise<AudioEntry>;
   setAudio(itemId: string, file: File): Promise<void>;
-  removeAudio(itemId: string): Promise<void>;
+  retryUpload(itemId: string): void;
+  removeAudio(itemId: string): void;
+  primeAudio(audioId: string, entry: AudioEntry): void;
   decode(itemId: string): Promise<DecodedAudio>;
   status(page: CanvasPreviewPage): MusicPageStatus | null;
   audioContext(): AudioContext;
@@ -214,11 +182,22 @@ export function videoPage(page: CanvasPreviewPage | null): boolean {
   return Boolean(page && (page.kind === "adopted" || page.kind === "listed"));
 }
 
-export function useMusicStore(document: GeneratorDocument): MusicApi {
+const NO_HOST: MusicHost = {
+  editable: false,
+  localAudio: {},
+  setItemMusic: () => {},
+  setPageMusic: () => {},
+  selectAudio: async () => {},
+  retryUpload: () => {},
+  removeAudio: () => {},
+};
+
+/** `document` は下書きを当てた文書（プレビューと同じもの）。 */
+export function useMusicStore(document: GeneratorDocument, host: MusicHost = NO_HOST): MusicApi {
   const documentId = document.id;
-  const store = useMemo(() => new MusicStore(documentId), [documentId]);
-  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
   const enabled = document.series !== "weekly";
+  const shared = useMemo(() => new SharedAudioStore(documentId), [documentId]);
+  const sharedState = useSyncExternalStore(shared.subscribe, shared.get, shared.getServer);
 
   // Start Time は文書の作品（採用・掲載）をまとめて1回だけ読む。
   const items = useMemo(() => {
@@ -236,60 +215,90 @@ export function useMusicStore(document: GeneratorDocument): MusicApi {
   const decodedRef = useRef(new Map<string, { blob: Blob; promise: Promise<DecodedAudio> }>());
   useEffect(() => () => { void audioRef.current?.close(); audioRef.current = null; }, []);
 
+  const musicOf = useMemo(() => {
+    const map = new Map(document.items.map(item => [item.id, item.content.music ?? null]));
+    return (itemId: string) => map.get(itemId) ?? null;
+  }, [document.items]);
+  const pageOf = useMemo(() => new Map(document.pages.map(page => [page.id, page])), [document.pages]);
+
   return useMemo<MusicApi>(() => {
     const audioContext = () => (audioRef.current ??= new AudioContext());
     const sheetStart = (itemId: string) => {
       const raw = startTimes.hits?.[itemId]?.startTime || "";
       return raw ? parseClock(raw) : null;
     };
-    const defaults = (itemId: string): VideoPreference => ({ start: sheetStart(itemId) ?? 0, length: VIDEO_DEFAULT_SECONDS, fadeIn: false, fadeOut: false });
-    const preference = (itemId: string) => state.preferences[itemId] ?? defaults(itemId);
-    const choice = (page: CanvasPreviewPage) => {
-      const saved = state.choices[page.id];
-      return page.slots.some(slot => slot.id === saved) ? saved : page.slots[0]?.id ?? "";
+    const preference = (itemId: string) => musicPreference(musicOf(itemId), sheetStart(itemId));
+    const choice = (page: CanvasPreviewPage) => chosenMusicItem(page.slots.map(slot => slot.id), pageOf.get(page.id)?.musicItemId);
+    const audio = (itemId: string): MusicAudio => {
+      const local = host.localAudio[itemId];
+      if (local) return { kind: "local", entry: local.entry, local };
+      const audioId = musicOf(itemId)?.audioId;
+      if (!audioId) return { kind: "none", entry: null };
+      const value = sharedState[audioId];
+      if (value?.state === "ready") return { kind: "ready", entry: value.entry, audioId };
+      if (value?.state === "error") return { kind: "error", entry: null, audioId, error: value.error };
+      return { kind: "loading", entry: null, audioId };
+    };
+    const loadAudio = (itemId: string): Promise<AudioEntry> => {
+      const value = audio(itemId);
+      if (value.entry) return Promise.resolve(value.entry);
+      if (value.kind === "none") return Promise.reject(new Error("音声ファイルが未設定です。"));
+      return shared.load(value.audioId);
     };
     return {
       documentId,
       enabled,
-      state,
+      editable: host.editable,
       startTimes: startTimes.hits,
       startTimesError: startTimes.error,
       sheetStart,
       preference,
-      edited: itemId => Boolean(state.preferences[itemId]),
+      edited: itemId => musicEdited(musicOf(itemId)),
       update(itemId, next) {
-        const value = { ...preference(itemId), ...next }, base = defaults(itemId);
-        const isDefault = value.start === base.start && value.length === base.length && !value.fadeIn && !value.fadeOut;
-        store.setPreference(itemId, isDefault ? null : value);
+        if (!host.editable) return;
+        host.setItemMusic(itemId, updateMusic(musicOf(itemId), next, sheetStart(itemId)));
       },
-      reset: itemId => store.setPreference(itemId, null),
+      reset(itemId) {
+        if (!host.editable) return;
+        const current = musicOf(itemId);
+        host.setItemMusic(itemId, { ...EMPTY_MUSIC, audioId: current?.audioId ?? null });
+      },
       choice,
-      setChoice: (pageId, itemId) => store.setChoice(pageId, itemId),
-      setAudio: (itemId, file) => store.setAudio(itemId, file),
-      removeAudio: itemId => { decodedRef.current.delete(itemId); return store.removeAudio(itemId); },
+      setChoice: (pageId, itemId) => { if (host.editable) host.setPageMusic(pageId, itemId); },
+      audio,
+      fetchAudio(itemId) {
+        const value = audio(itemId);
+        if (value.kind === "loading" && !sharedState[value.audioId]) void shared.load(value.audioId).catch(() => undefined);
+      },
+      loadAudio,
+      setAudio: (itemId, file) => host.selectAudio(itemId, file),
+      retryUpload: itemId => host.retryUpload(itemId),
+      removeAudio(itemId) { decodedRef.current.delete(itemId); host.removeAudio(itemId); },
+      primeAudio: (audioId, entry) => shared.prime(audioId, entry),
       decode(itemId) {
-        const entry = state.audio[itemId];
-        if (!entry) return Promise.reject(new Error("音声ファイルがありません。"));
-        const cached = decodedRef.current.get(itemId);
-        if (cached && cached.blob === entry.blob) return cached.promise;
-        const promise = entry.blob.arrayBuffer().then(bytes => decodeAudio(audioContext(), bytes)).then(buffer => {
-          const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) => buffer.getChannelData(index));
-          return { buffer, peaks: waveformLevels(channels, PEAK_BUCKETS) };
+        return loadAudio(itemId).then(entry => {
+          const cached = decodedRef.current.get(itemId);
+          if (cached && cached.blob === entry.blob) return cached.promise;
+          const promise = entry.blob.arrayBuffer().then(bytes => decodeAudio(audioContext(), bytes)).then(buffer => {
+            const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) => buffer.getChannelData(index));
+            return { buffer, peaks: waveformLevels(channels, PEAK_BUCKETS) };
+          });
+          promise.catch(() => decodedRef.current.delete(itemId));
+          decodedRef.current.set(itemId, { blob: entry.blob, promise });
+          return promise;
         });
-        promise.catch(() => decodedRef.current.delete(itemId));
-        decodedRef.current.set(itemId, { blob: entry.blob, promise });
-        return promise;
       },
       status(page) {
         if (!enabled || !videoPage(page)) return null;
-        const itemId = choice(page);
-        if (!state.audioReady) return { itemId, ready: false, reason: "音楽の設定を読み込んでいます…" };
-        if (!state.audio[itemId]) return { itemId, ready: false, reason: "音声ファイルが未設定です" };
+        const itemId = choice(page), value = audio(itemId);
+        if (value.kind === "none") return { itemId, ready: false, reason: "音声ファイルが未設定です" };
+        if (value.kind === "error") return { itemId, ready: false, reason: value.error };
+        // 共有の音声で、まだ端末に無いもの（loading）も書き出しの直前に読めるので「用意できる」とみなす。
         return { itemId, ready: true, reason: null };
       },
       audioContext,
     };
-  }, [documentId, enabled, state, startTimes, store]);
+  }, [documentId, enabled, host, musicOf, pageOf, sharedState, shared, startTimes]);
 }
 
 const MusicContext = createContext<MusicApi | null>(null);

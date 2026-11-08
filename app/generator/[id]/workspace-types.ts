@@ -6,7 +6,7 @@ export type LockKind = "item" | "page" | "theme" | "structure";
 export type ActiveLock = { kind: LockKind; targetId: string; clientId: string; token: string; generation: number; expiresAt: string };
 export type LockResponse = { generation: number; expiresAt: string; owner: string };
 
-export const targetLabels: Record<LockKind, string> = { item: "作品", page: "背景色", theme: "共通設定", structure: "並び順" };
+export const targetLabels: Record<LockKind, string> = { item: "作品", page: "背景色・曲の選択", theme: "共通設定", structure: "並び順" };
 
 export function keyOf(kind: LockKind, targetId: string): string {
   return `${kind}:${targetId}`;
@@ -25,8 +25,17 @@ export function cloneContent(content: ItemContent): ItemContent {
   return structuredClone(content);
 }
 
+/**
+ * 内容が同じか。キーの順は問わない（DBのjsonbはキーを並べ替えて返すので、
+ * 画面で組み立てた下書きと保存済みでキーの順が違っても「未保存」に数えないため。2026-11-08）。
+ */
 export function same(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return JSON.stringify(left, sortedKeys) === JSON.stringify(right, sortedKeys);
+}
+
+function sortedKeys(_key: string, value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, (value as Record<string, unknown>)[key]]));
 }
 
 export type OrderedPageKind = "adopted" | "listed" | "feature" | "others";
@@ -192,6 +201,7 @@ export function imageSaveTargets({
   pageColors,
   titleOf,
   isItemDirty,
+  musicChanged = false,
 }: {
   page: { id: string; itemIds: string[] };
   /** 共有DBに入っている背景色。未設定はnull。 */
@@ -199,12 +209,16 @@ export function imageSaveTargets({
   pageColors: Record<string, string>;
   titleOf(itemId: string): string;
   isItemDirty(itemId: string): boolean;
+  /** 掲載ページの「上下どちらの曲」を変えたか（2026-11-08〜 背景色と同じページの保存で確定する）。 */
+  musicChanged?: boolean;
 }): ImageSaveTarget[] {
   const targets: ImageSaveTarget[] = page.itemIds
     .filter(isItemDirty)
     .map(id => ({ kind: "item" as const, targetId: id, label: `作品「${titleOf(id) || "作品名未入力"}」` }));
-  const color = pageColors[page.id];
-  if (color !== undefined && color !== savedBgColor) targets.push({ kind: "page", targetId: page.id, label: "背景色" });
+  const color = pageColors[page.id], colorChanged = color !== undefined && color !== savedBgColor;
+  if (colorChanged || musicChanged) {
+    targets.push({ kind: "page", targetId: page.id, label: colorChanged && musicChanged ? "背景色・曲の選択" : colorChanged ? "背景色" : "曲の選択" });
+  }
   return targets;
 }
 

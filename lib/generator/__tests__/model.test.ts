@@ -173,3 +173,37 @@ describe("target commands", () => {
     expect(() => parseReimport({ ...value, addKeys: [1] })).toThrow();
   });
 });
+
+describe("動画の音楽（2026-11-08）", () => {
+  it("accepts item music and a page's song item, and keeps documents without them valid", () => {
+    const doc = fixture(), audioId = randomUUID();
+    doc.items[1].content.music = { audioId, start: null, length: 59, fadeIn: false, fadeOut: true };
+    doc.items[2].content.music = null;
+    doc.pages[1].musicItemId = doc.items[2].id;
+    const parsed = parseDocument(doc);
+    expect(parsed.items[1].content.music).toEqual({ audioId, start: null, length: 59, fadeIn: false, fadeOut: true });
+    expect(parsed.items[2].content.music).toBeNull();
+    expect(parsed.items[0].content).not.toHaveProperty("music");
+    expect(parsed.pages[1].musicItemId).toBe(doc.items[2].id);
+    expect(parsed.pages[0]).not.toHaveProperty("musicItemId");
+  });
+  it.each([
+    { audioId: "x", start: null, length: 59, fadeIn: false, fadeOut: false },
+    { audioId: null, start: -1, length: 59, fadeIn: false, fadeOut: false },
+    { audioId: null, start: null, length: 60, fadeIn: false, fadeOut: false },
+    { audioId: null, start: null, length: 59, fadeIn: "yes", fadeOut: false },
+    { audioId: null, start: null, length: 59, fadeIn: false, fadeOut: false, url: "https://example.com" },
+  ])("rejects malformed music %#", music => {
+    const content = { ...fixture().items[0].content, music };
+    expect(() => parseItemContent(content)).toThrow();
+  });
+  it("parses page saves with or without the song item", () => {
+    const base = { requestId: randomUUID(), kind: "page", targetId: randomUUID(), clientId: randomUUID(), token: "a".repeat(64), generation: 1, expectedVersion: 1 };
+    const itemId = randomUUID();
+    const contentOf = (value: unknown) => (parseChange(value).change as { content?: unknown }).content;
+    expect(contentOf({ ...base, content: { bgColor: "#ABCDEF", musicItemId: itemId } })).toEqual({ bgColor: "#abcdef", musicItemId: itemId });
+    expect(contentOf({ ...base, content: { bgColor: null, musicItemId: null } })).toEqual({ bgColor: null, musicItemId: null });
+    expect(contentOf({ ...base, content: { bgColor: "#abcdef" } })).toEqual({ bgColor: "#abcdef" });
+    expect(() => parseChange({ ...base, content: { bgColor: "#abcdef", musicItemId: "top" } })).toThrow();
+  });
+});

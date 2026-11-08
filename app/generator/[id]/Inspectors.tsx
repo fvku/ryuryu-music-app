@@ -112,7 +112,7 @@ export function RestoreControl({ state, compact = false, bare = false }: { state
     ? state.versions
     : state.versions.filter(entry => (entry.targetKind === state.kind && entry.targetId === state.targetId) || !entry.targetKind);
   if (candidates.length === 0) return null;
-  const subject = state.kind === "item" ? "この作品" : state.kind === "page" ? "この画像の背景色" : targetLabels[state.kind];
+  const subject = state.kind === "item" ? "この作品" : state.kind === "page" ? "この画像の背景色・曲の選択" : targetLabels[state.kind];
   const Wrapper = bare ? "div" : "details";
   return (
     <Wrapper className={bare ? "" : `rounded-lg border ${compact ? "px-2 py-1" : "px-3 py-2"}`} style={bare ? undefined : { borderColor: "var(--border-subtle)" }}>
