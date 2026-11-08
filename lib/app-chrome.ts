@@ -8,5 +8,6 @@
 export function isImmersiveRoute(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
   // /generator/<id> のみ。/generator（一覧）と /generator/<id>/history は通常の枠を使う。
-  return /^\/generator\/[^/]+$/.test(pathname);
+  // /generator/saved-tracks は固定のページで、編集画面ではないので通常の枠を使う。
+  return /^\/generator\/[^/]+$/.test(pathname) && pathname !== "/generator/saved-tracks";
 }

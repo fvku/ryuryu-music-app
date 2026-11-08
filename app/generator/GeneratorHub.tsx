@@ -139,6 +139,15 @@ export default function GeneratorHub({
         </div>
       </Panel>
 
+      <Link
+        href="/generator/saved-tracks"
+        className="block rounded-2xl border p-4 transition hover:bg-white/5 sm:p-5"
+        style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}
+      >
+        <span className="block text-sm font-semibold">Saved Tracks Stories画像</span>
+        <span className="mt-1 block text-xs" style={{ color: "var(--text-secondary)" }}>毎週月曜のストーリー投稿用。Spotifyのプレイリストから曲を選んで画像をつくります。</span>
+      </Link>
+
       <Panel>
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold">共有文書</h2>
