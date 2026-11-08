@@ -53,7 +53,12 @@ export function parseChange(value: unknown) {
       return { id, itemIds: page.itemIds.map(value => { const id = uuid(value); if (itemIds.has(id)) invalid(); itemIds.add(id); return id; }) };
     }) };
   }
-  else { const data = record(raw.content, ["bgColor"]); content = { bgColor: parseColor(data.bgColor) }; }
+  else {
+    // ページは背景色と、動画に使う曲の作品（2026-11-08追加。省略すると保存済みの値を残す）。
+    const data = record(raw.content, ["bgColor", "musicItemId"]);
+    content = { bgColor: parseColor(data.bgColor),
+      ...(data.musicItemId === undefined ? {} : { musicItemId: data.musicItemId === null ? null : uuid(data.musicItemId) }) };
+  }
   if (base.kind !== "item" && raw.source !== undefined) invalid();
   return { requestId, change: { ...base, content, ...(source ? { source } : {}) } };
 }

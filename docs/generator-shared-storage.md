@@ -48,8 +48,10 @@
 | POST `/:id/assets` | ロックを伴う画像検証・非公開Storage保存・ready確定。ファイルはmultipart、ジャケットURLは`{url, assetId, kind: "item", targetId, clientId, token, generation}`のJSON |
 | GET `/:id/assets/:assetId` | 同じ文書に属するready画像だけを認可取得 |
 | GET `/api/generator/remote-image?url=...` | Release Master由来の外部カバーを認証・検証後に同一Originで中継 |
+| POST `/:id/audio` | 動画用の音声。`action: "prepare"`（作品のロック付き。署名付きPUT URLを返す）／`"complete"`（B2上のサイズ・SHA-256を確かめて ready）。§8 |
+| GET `/:id/audio/:audioId` | 同じ文書の ready の音声だけ、署名付きGET URL（5分）を返す。期限で削除済みは410。§8 |
 
-PATCHには`requestId, kind, targetId, clientId, token, generation, expectedVersion`と、`content`または`restoreVersion`の片方を送る。`kind`は`item / page / theme`。item保存に限り、Release Masterから再取得した完全な`source`を`content`と一緒に任意指定できる。`source.kind`は`release-master`だけを更新でき、手動作品のsourceは変更できない。source更新とcontent更新は同じitem version・履歴へ原子的に確定し、`content.jacketAssetId`をsource更新だけで消さない。item復元ではsourceとcontentを同じ対象として戻す。sourceを含む保存とitem復元は新しい`generator_item_save` RPCを使い、未適用DBがsourceを無視してcontentだけ確定することを防ぐ。ページ内容は`{bgColor}`のみ。themeとstructureの対象IDには文書IDを使う。ロックAPIは`structure`も受け付け、延長・解放では`generation`が必須。[ルート実装](../app/api/generator/documents/)、[操作検証](../lib/generator/commands.ts)、[source更新SQL](../supabase/migrations/202609120001_generator_item_source.sql)
+PATCHには`requestId, kind, targetId, clientId, token, generation, expectedVersion`と、`content`または`restoreVersion`の片方を送る。`kind`は`item / page / theme`。item保存に限り、Release Masterから再取得した完全な`source`を`content`と一緒に任意指定できる。`source.kind`は`release-master`だけを更新でき、手動作品のsourceは変更できない。source更新とcontent更新は同じitem version・履歴へ原子的に確定し、`content.jacketAssetId`をsource更新だけで消さない。item復元ではsourceとcontentを同じ対象として戻す。sourceを含む保存とitem復元は新しい`generator_item_save` RPCを使い、未適用DBがsourceを無視してcontentだけ確定することを防ぐ。ページ内容は`{bgColor, musicItemId?}`（`musicItemId`は2026-11-08追加。省略すると保存済みの値を残す。§8）。themeとstructureの対象IDには文書IDを使う。ロックAPIは`structure`も受け付け、延長・解放では`generation`が必須。[ルート実装](../app/api/generator/documents/)、[操作検証](../lib/generator/commands.ts)、[source更新SQL](../supabase/migrations/202609120001_generator_item_source.sql)
 
 `GET /:id/reimport`は既存文書とRelease Masterを読むだけで、`generator_lock`を呼ばない。UIも差分確認時にはロックを取らず、実際に作品構成を変えるPOSTの直前だけ`structure`ロックを取得する。page↔structureの書き込み排他は維持する。残るページでも構成変更により`itemIds`が変わり得るため、旧画像を見て編集した背景色を新しい構成へ競合保存させないためである。文字情報・カバー差分をローカル下書きへ取り込むだけの操作は構成書き込みではない。
 
@@ -148,3 +150,49 @@ Weeklyの取込APIは実Release Masterを読み取り、`#35`がメイン5件＋
 これにより、実Supabase・実HTTP API・実UIを通る3主体の接続分離は確認済み。
 残るのは物理的に異なる3端末での受入と、タブを突然閉じた場合に3分後の期限切れが実時間でも成立することの確認。
 モバイルUIは再検討対象のため、別端末試験はPCまたはiPadで実施してよい。
+
+## 8. 動画の音楽（2026-11-08）
+
+利用者の決定で、音楽の設定と音声ファイルを「画像と同じ仕様」で共有する。設計の経緯は[動画と音楽の計画書 §3](./generator-video-music-plan.md)。
+
+### 保存形式
+
+- 作品：`content.music = { audioId: uuid|null, start: number|null, length: 1〜59, fadeIn: boolean, fadeOut: boolean }`。任意キー（無い作品は未設定）。`start: null` は Release Master の Start Time に従う。[モデル](../lib/generator/model.ts)の`parseItemMusic`。
+- ページ：`musicItemId: uuid`（掲載の上下どちらの曲か）。任意キー。無い・ページに無い作品（並び順の変更で外れた）なら先頭の作品として扱う。DBの`generator_structure_save`は書き換えない。
+- 作品の保存・復元は既存の item の PATCH のまま（content は丸ごと保存）。ページの保存・復元だけ `generator_save` を差し替えた。
+
+### マイグレーション `202611080001_generator_audio.sql`（2026-11-08 に利用者がSQL Editorで適用済み）
+
+適用後、存在しないIDで新しいRPCを呼んで`NOT_FOUND`（書き込みなし）を確認し、実文書で送信・保存・読み出し・復元まで通した（[UI実装記録 §42](./generator-ui-implementation.md)）。
+
+| 対象 | 内容 |
+| --- | --- |
+| 表 `generator_audio` | document_id, id, item_id, object_key（`audio/<文書>/<音声>.mp3|m4a`、一意）, status（pending／ready／deleted）, mime_type（audio/mpeg・audio/mp4）, bytes（≦50MiB）, sha256, name（表示用のファイル名）, created_by, created_at, expires_at（対象月の終わり＝`period_end`の0時JST＋1年）, deleted_at。RLS有効・直接権限なし |
+| `generator_check_assets`（差し替え） | 画像3種に加え、`content.music.audioId` が同じ文書の ready（または期限で削除済み）であることを確かめる。削除済みを通すのは、1年たった文書で文字だけ直す保存を止めないため |
+| `generator_save`（差し替え） | ページの`musicItemId`を書く（null はキーごと消す）。保存ではページにある作品だけ受け付ける。復元は過去版の`bgColor`と`musicItemId`を戻し、ページから外れた作品なら未設定に戻す。`musicItemId`を送らない保存（移行前のクライアント）は保存済みの値を残す。item・theme は従来と同じ |
+| `generator_audio_prepare` | 作品のロック（item、対象の作品と一致）が必要。Weekly文書は不可。同じ内容の再送は冪等、別内容は`REQUEST_CONFLICT` |
+| `generator_audio_ready` | 準備した本人・同じ作品のロック・同じSHA-256で ready にする |
+| `generator_audio_read` | 1件の情報（状態を問わない）。読み出しの認可はサーバーが ready のときだけURLを出すことで行う |
+| `generator_audio_expired`／`generator_audio_forget` | 自動削除。期限切れの ready は deleted として記録を残し、1日たっても確定しなかった pending は行ごと消す |
+
+すべて`SECURITY DEFINER`・空の`search_path`、実行権は service_role だけ。PGlite のテスト（[database.test.ts](../lib/generator/__tests__/database.test.ts)）で、ページの曲の保存・省略時の保持・null・他ページの作品の拒否・復元・並び替え後の復元、音声の準備・冪等・競合・未確定での保存拒否・確定・期限・削除済みの扱い、Weekly拒否を確認した。
+
+### 音声の置き場所（Backblaze B2）と API
+
+- サーバー環境変数：`B2_KEY_ID`・`B2_APPLICATION_KEY`（バケット限定のキー）・`B2_BUCKET`・`B2_ENDPOINT`（例 `s3.us-west-004.backblazeb2.com`）。`NEXT_PUBLIC_`は付けない。未設定だと`503 AUDIO_NOT_CONFIGURED`（記録を作る前に止める）。Vercel Production には 2026-11-07 に登録済み（2026-11-08 に `vercel env ls production` で4つの名前を確認。値は未確認）。
+- 署名は AWS Signature V4 のクエリ署名を`node:crypto`で実装（[b2.ts](../lib/generator/b2.ts)。AWS公式の例の値でテスト）。PUT 10分・GET 5分。サーバーが読む・消すときも同じ。
+- Vercel の本文上限（4.5MB）を通さないため、音声の本文はブラウザと B2 の直接のやり取りだけ。サーバーは complete のとき B2 から読み直して、宣言どおりのサイズ・SHA-256・先頭バイト（MP3／MP4）かを確かめる。違えば B2 から消して`400 AUDIO_MISMATCH`、届いていなければ`409 AUDIO_NOT_UPLOADED`。
+- B2 は既定で過去の版を残す。版を指定しない DELETE は「隠す」だけで容量が減らないので、HEAD で`x-amz-version-id`を読み、版を指定して消す（実バケットで送信→照合→削除→404を確認）。
+- バケットの CORS（`generatorAudio`）：本番URLと localhost:3000／3456／3458、s3_put／s3_get／s3_head。ローカルで別のポートを使うと PUT が CORS で止まる。
+- 自動削除は`/api/cron/supabase-keepalive`（毎日）。B2 未設定の環境では何もしない。削除の失敗は休止防止の結果に影響させず、翌日にまた試す。
+
+### ブラウザ側の流れ
+
+[audio-files.ts](../app/generator/audio-files.ts)・[music-store.ts](../app/generator/music-store.ts)・[GeneratorWorkspace.tsx](../app/generator/[id]/GeneratorWorkspace.tsx)。
+
+1. 音楽タブでファイルを選ぶ → 作品のロックを取る → MP3・AAC の m4a はそのまま（読めるか確かめる）、それ以外は AAC 256kbps の m4a に変換（先頭の無音は edit list で切り落とす）。
+2. prepare → B2 へ PUT（進み具合を表示）→ complete → 下書きの`music.audioId`へ入れる。ここまでで「未保存」。
+3. 「保存」で作品（item）と曲の選択（page）を順に確定。送れていない音声があれば、作品を保存する前に送る。送れなければその作品は保存しない。
+4. 読み出しは`GET /audio/:id`の URL から直接取得し、SHA-256 を確かめて IndexedDB に音声IDごとにキャッシュする。
+
+ローカル開発サーバーは共有（本番）DB と同じ B2 バケットにつながる。保存・アップロードを試すときは、書き込む文書を利用者に確認する。

@@ -1802,3 +1802,67 @@ Koheiの依頼：「、は文字詰めされているが、「」や『』など
 - 物理iPhone（後回し。iOSシミュレーターでは High が止まり Baseline で動く。自動で切り替える）。
 - 共有シートから Instagram への投稿（Mac の Chrome・Safari では「動画をアプリで送る」が出る。押した先は OS の画面なので未操作）。
 - Windows の Chrome・Edge（AAC の遅延や色の範囲は書き出し前の確認で自動判定するが、実機では未確認）。
+
+## 42. 2026-11-08：動画の音楽を画像と同じ仕様で共有（Opus 5.5）
+
+利用者の依頼：「動画の音楽設定と音声ファイルを『画像と同じ仕様』で保存・共有し、ほかのメンバーが別の端末から作業を引き継げるようにする」。保存先は Backblaze B2（計画書 §3-7 で決定済み）。設計は[計画書 §3-0](./generator-video-music-plan.md)、保存の契約は[共有保存 §8](./generator-shared-storage.md#8-動画の音楽2026-11-08)。
+
+### 利用者が決めた仕様
+
+- ロック・引き継ぎ・未保存・離れるときの確認・版の競合・履歴・過去版の復元・requestId の再送は画像と同じ。
+- 音楽タブの変更も「未保存の変更」に数え、同じ「保存」で作品・背景色・音楽をまとめて確定する。
+- 音声は選んだ時点でアップロード（ロック必須）。MP3 は変換せず、WAV／AIF は AAC 256kbps。1ファイル50MBまで。
+- この端末の既存設定は、共有側が空なら「未保存」として出し、保存すれば共有に移る。
+- 対象月の終わりから1年後に音声を自動で削除（既存の日次 Cron に足す）。
+
+### 変更したファイルとUI
+
+| ファイル | 変更 |
+| --- | --- |
+| `supabase/migrations/202611080001_generator_audio.sql` | 新規。`generator_audio` 表、`generator_check_assets`・`generator_save` の差し替え、音声の準備・確定・読み出し・期限切れの RPC（共有保存 §8） |
+| `lib/generator/model.ts`・`commands.ts` | `content.music`（`parseItemMusic`）、ページの `musicItemId`、ページの PATCH の `{bgColor, musicItemId?}` |
+| `lib/generator/b2.ts` | 新規。SigV4 のクエリ署名、B2 上の検査（サイズ・SHA-256・先頭バイト）、版を指定した削除 |
+| `lib/generator/audio.ts`・`app/api/generator/documents/[id]/audio/**` | 新規。prepare／complete／読み出し、期限切れの削除 |
+| `app/api/cron/supabase-keepalive/route.ts` | 休止防止のあとに音声の自動削除 |
+| `lib/generator/video.ts` | `content.music` の読み替え・更新（`musicPreference`・`updateMusic`・`musicIsEmpty`・`legacyMusic`・`chosenMusicItem`） |
+| `app/generator/audio-files.ts` | 新規。IndexedDB のキャッシュ（音声IDごと）、旧設定の読み出しと消去、変換の判断、B2 への直接 PUT（進み具合つき）、読み出しと SHA-256 の確認 |
+| `app/generator/video-export.ts` | `encodeAacForStorage`（保存用の AAC 256kbps。動画と同じく先頭の無音を edit list で切り落とす）・`mp4AudioCodec`。書き出しの音声は直前に読む（`VideoPlan.load`） |
+| `app/generator/music-store.ts` | 端末内の保存をやめ、下書きを当てた文書から読み、変更は編集画面へ渡す形に作り替え。共有の音声は要るときだけ読む |
+| `app/generator/MusicPanel.tsx` | 送信中の％・失敗と「いま送る」・共有の音声の読み込み・期限切れの表示。説明文を「アップロードして『保存』で共有」に |
+| `app/generator/[id]/GeneratorWorkspace.tsx` | 音楽の下書き（作品の `music`、ページの `pageMusic`、未送信の `localAudio`）、未保存の集計・帯・ヘッダー・離れるときの確認への算入、「保存」での送信と確定、破棄・再読込・一時保存からの復元、旧設定の読み込み。編集できない画像では音楽タブも理由だけを出す |
+| `app/generator/[id]/workspace-types.ts` | `imageSaveTargets` に曲の選択、`same()` をキーの順に左右されない比較に（jsonb はキーを並べ替えて返すため） |
+| `app/generator/GeneratorPreview.tsx`・`history/page.tsx` | 書き出し済み動画の判定キー、履歴の対象名「背景色・曲の選択」 |
+| `content/how-to-use.md` | 「投稿画像ジェネレーターの音楽（動画）」の節 |
+
+### 維持した機能契約
+
+- 画像の保存・ロック・履歴の粒度は変えていない。曲・範囲は作品（item）、曲の選択はページ（page）の対象別 PATCH に乗せただけ。保存の順序（作品 → ページ）と止め方（v2 §8-2）も同じ。
+- 未保存でも PNG・動画は書き出せる（2026-09-13）。書き出しは画面の内容（下書き）で行う。
+- 一時保存（復旧用コピー）のキー・形式は同じ。文書に `music`・`musicItemId` が入るだけ。
+
+### 実行した確認
+
+- `npx tsc --noEmit --incremental false`・`npm run lint`・`npm run build`：成功。`npx vitest run --exclude ".claude/**"`：38ファイル・419件成功（新規：DB 4件、B2 署名 4件、音声 API 6件、モデル 7件、保存対象・比較 2件、音楽の計算 2件）。
+- 実バケット（B2）：一時スクリプトで署名付き PUT → 照合（一致／不一致）→ 版を指定した削除 → HEAD 404 を確認。試験用オブジェクトは残していない。
+- 内蔵ブラウザ（`generator-preview-3458`、固定データの `uipreview-temp`。ロック・音声 API・保存は画面内で差し替え、**共有DB・B2 には書いていない**）：
+  - 端末に残っていた §41 の設定（MP3 と範囲）が「未保存」として読み込まれ、「保存」で MP3（6MB）がそのまま送られてから、作品の保存に `music`（新しい audioId・開始10.5秒・20秒・フェード両方）が載った。
+  - 24bit の WAV（30秒）を選ぶと AAC の m4a に変換して送り（％表示）、帯が「未保存の変更 1件」に。範囲を変えて「保存」すると作品の保存に audioId と範囲が載った。
+  - 掲載ページで「下」を選ぶと「未保存の変更 1件」、破棄で元に戻り、保存でページの `{bgColor, musicItemId}` が送られた。
+  - 保存用 AAC のビットレート：ノイズ入りの30秒の WAV で 986KB（容器込み 263kbps）。純音だけのテスト信号では約185kbpsと少なく出た（符号化器が単純な信号を少ない量で作るため）。
+
+- 実共有DB・実 B2（マイグレーション適用後。利用者の指定で2026-10 Monthly `f5ac06a4…`、Kohei、`generator-preview-3458`）：
+  - 画像 2「Life 1」で試験用の WAV（10秒）を選ぶ → AAC の m4a に変換して B2 へ直接 PUT → サーバーの照合で ready（329,492 bytes、期限 2027-11-01 0時 JST）→「保存」で作品 版2・背景色 版2、文書 版3。
+  - 手元の IndexedDB のキャッシュを消して開き直す → 署名付きURLから読み直してファイル名・長さ・波形が出る → そのまま MP4 に書き出せた（10秒、905KB。ダウンロードは画面内で止めた）。
+  - 同じ人の別タブがロックを持っている間は「ほかの画面でこの作品を編集中」で送信が止まり、ロックの失効後に「いま送る」で通った。タブを閉じる操作（ツール経由）では解放されず、3分の失効を待った。
+  - 「以前の保存に戻す」で作品・背景色を版1の内容へ戻した（文書 版5、作品 版3、ページ 版3、`music` なし、背景色 null、ロック0件）。戻したことは履歴に残る。試験用の音声 `claude-test-tone.m4a` は `generator_audio` と B2 に残り、期限（2027-11-01）で自動削除される。
+- この確認で、背景色が未設定の版へ戻すと既定の色が「未保存」として残ることを見つけて直した。復元の説明も「背景色・曲の選択」に直した。
+
+### 未確認事項
+
+- 別のメンバー（別アカウント）に止められる表示と、別の人が開いたときの引き継ぎ。利用者の判断で、本番で実際に使いながら確かめる。
+- Vercel Production での動作（B2 環境変数は登録済み。PR #17 のマージ後に確かめる。環境変数の値が正しいかも、このとき分かる）。
+- 物理 iPhone、Safari での変換・アップロード。
+
+### 表紙について
+
+- 表紙（Monthly／Japan）は先頭の作品のジャケットを並べるので、それらの作品の音楽の下書きも表紙の「未保存」に数える（Time の補完で作られた下書きと同じ既存の数え方）。表紙で「破棄」すると、それらの作品の音楽の下書きも捨てる。

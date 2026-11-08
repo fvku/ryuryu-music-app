@@ -14,7 +14,7 @@ import type { MusicApi } from "./music-store";
  * - 画像はジェネレーターの描画（1200／2400px）を1080pxへ縮小した静止画。30fpsで同じ絵を並べる。
  * - 音声は元のファイルを元のサンプリング周波数のまま読み、区間とフェードを掛けて AAC 320kbps にする（2026-11-08に256から変更。利用者の指示）。
  *   非可逆の圧縮はこの1回だけ（試聴用の再生とは別に読み直す。試聴用は端末の出力に合わせて周波数が変わるため）。
- * - 変換は WebCodecs（VideoEncoder／AudioEncoder）、MP4への格納は mediabunny。サーバーには何も送らない。
+ * - 変換は WebCodecs（VideoEncoder／AudioEncoder）、MP4への格納は mediabunny。動画はブラウザの中だけで作り、サーバーには送らない。
  */
 
 /** 1枚の動画に必要なもの。音声はまだ読んでいない（全ページのときに曲をすべて抱えないため）。 */
@@ -22,7 +22,8 @@ export type VideoPlan = {
   page: CanvasPreviewPage;
   itemId: string;
   name: string;
-  file: Blob;
+  /** 音声ファイル。共有の音声はまだ端末に無いことがあるので、書き出す直前に読む。 */
+  load(): Promise<Blob>;
   preference: VideoPreference;
 };
 
@@ -38,10 +39,12 @@ export function planVideo(music: MusicApi, page: CanvasPreviewPage, pngName: str
   const status = music.status(page);
   if (!status) throw new VideoNotReady([page.no], "この画像は動画にできません。");
   if (!status.ready) throw new VideoNotReady([page.no], `画像 ${page.no}: ${status.reason}`);
-  const entry = music.state.audio[status.itemId];
-  if (!entry) throw new VideoNotReady([page.no], `画像 ${page.no}: 音声ファイルが未設定です`);
   const slot = page.slots.find(value => value.id === status.itemId) ?? page.slots[0];
-  return { page, itemId: status.itemId, name: videoFileName(pngName, slot?.fields.title || ""), file: entry.blob, preference: music.preference(status.itemId) };
+  return {
+    page, itemId: status.itemId, name: videoFileName(pngName, slot?.fields.title || ""),
+    load: () => music.loadAudio(status.itemId).then(entry => entry.blob),
+    preference: music.preference(status.itemId),
+  };
 }
 
 /** 静止画なので、動きのある映像よりずっと少ない量で足りる。文字の輪郭がつぶれない程度に高めにしておく。 */
@@ -274,6 +277,55 @@ async function toEncodableRate(audio: Pcm): Promise<Pcm> {
   return { sampleRate: target, channels: Array.from({ length: rendered.numberOfChannels }, (_, index) => rendered.getChannelData(index)) };
 }
 
+/** 保存用のAAC。WAV／AIF（非圧縮）を共有する前にこの音質へ変換する（計画書 §3-1。MP3はそのまま保存）。 */
+const STORAGE_AUDIO_QUALITY = { bitrate: 256_000, bitrateMode: "constant" } as const;
+
+/** MP4（m4a）の中身の音声の種類。AAC ならそのまま保存し、ALAC などは変換する。読めなければ null。 */
+export async function mp4AudioCodec(file: Blob): Promise<string | null> {
+  try {
+    const { ALL_FORMATS, BlobSource, Input } = await import("mediabunny");
+    const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+    try {
+      return (await input.getPrimaryAudioTrack())?.codec ?? null;
+    } finally { input.dispose(); }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 音声ファイル全体を AAC 256kbps の m4a にする（共有の保存用）。元の周波数のまま（AACで作れない周波数だけ48kHzへ）。
+ * 先頭の無音（プライミング）は動画と同じく edit list で切り落とし、元の音と時刻をそろえる。
+ */
+export async function encodeAacForStorage(file: Blob): Promise<Blob> {
+  if (typeof AudioEncoder === "undefined" || typeof AudioBuffer === "undefined") {
+    throw new Error("このブラウザは WAV・AIF を変換できません。MP3 を選ぶか、PCの Chrome・Edge、Safari 26以降で開いてください。");
+  }
+  if (!(await audioRates()).length) throw new Error("このブラウザは AAC の音声を作れません。MP3 を選ぶか、PCの Chrome・Edge、Safari 26以降で開いてください。");
+  const audio = await toEncodableRate(await decodeForExport(file));
+  const frames = audio.channels[0]?.length ?? 0;
+  if (!frames) throw new Error("音声が空です。");
+  const { AudioBufferSource, BufferTarget, Mp4OutputFormat, Output, Quality } = await import("mediabunny");
+  const output = new Output({ format: new Mp4OutputFormat({ fastStart: "in-memory" }), target: new BufferTarget() });
+  const delay = await aacDelay(audio.sampleRate);
+  const sound = new AudioBufferSource({ codec: "aac", quality: new Quality(STORAGE_AUDIO_QUALITY) }, { startTimestamp: -delay / audio.sampleRate });
+  output.addAudioTrack(sound);
+  try {
+    await output.start();
+    const buffer = new AudioBuffer({ length: frames, numberOfChannels: audio.channels.length, sampleRate: audio.sampleRate });
+    audio.channels.forEach((channel, index) => buffer.copyToChannel(channel as Float32Array<ArrayBuffer>, index));
+    await sound.add(buffer);
+    sound.close();
+    await output.finalize();
+  } catch (error) {
+    await output.cancel().catch(() => undefined);
+    throw error;
+  }
+  const bytes = output.target.buffer;
+  if (!bytes) throw new Error("変換した音声を受け取れませんでした。");
+  return new Blob([bytes], { type: "audio/mp4" });
+}
+
 /**
  * 1080pxの正方形へ縮小する。2400pxからは半分ずつ縮めてから仕上げる
  * （一度に半分以下へ縮めると、ブラウザによっては細い線や文字の輪郭が荒れるため）。
@@ -380,7 +432,10 @@ export async function buildVideo({ plan, image, onProgress, shouldAbort = () => 
     onProgress({ phase: "audio", ratio: 0 });
     let section: Pcm, range: ReturnType<typeof effectiveRange>;
     {
-      const whole = await decodeForExport(plan.file).catch(() => {
+      const file = await plan.load().catch((error: Error) => {
+        throw new VideoNotReady([plan.page.no], `画像 ${plan.page.no}: ${error.message}`);
+      });
+      const whole = await decodeForExport(file).catch(() => {
         throw new VideoNotReady([plan.page.no], `画像 ${plan.page.no}: 音声ファイルを読み込めませんでした。`);
       });
       range = effectiveRange(plan.preference, whole.channels[0].length / whole.sampleRate);

@@ -11,7 +11,7 @@ import { generatorRpc } from "@/lib/generator/repository";
 export const metadata: Metadata = { title: "変更履歴 | 投稿画像ジェネレーター" };
 export const dynamic = "force-dynamic";
 
-const targetLabels = { item: "作品", page: "背景", theme: "共通設定", structure: "並び順" } as const;
+const targetLabels = { item: "作品", page: "背景色・曲の選択", theme: "共通設定", structure: "並び順" } as const;
 const seriesLabels = { monthly: "Monthly Review", japan: "Monthly Japan Review", weekly: "Weekly Review" } as const;
 const dateFormat = new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Tokyo" });
 

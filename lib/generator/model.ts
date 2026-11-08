@@ -20,7 +20,15 @@ export type ItemContent = {
   coverFocusX?: number | null;
   /** Monthly／Japan表紙だけが使う縦位置（0〜1）。Weeklyの帯は縦に切らないので使わない。 */
   coverFocusY?: number | null;
+  /**
+   * 動画に付ける曲（2026-11-08追加。それより前の作品には無い）。音声ファイルの実体は B2 に置き、ここは ID だけ。
+   * `start: null` は Release Master の Start Time に従う（手で動かすまではシートの値を使う）。
+   */
+  music?: ItemMusic | null;
 };
+export type ItemMusic = { audioId: string | null; start: number | null; length: number; fadeIn: boolean; fadeOut: boolean };
+/** 動画の長さの上限（Instagramのフィードは60秒未満）。video.ts の VIDEO_MAX_SECONDS と同じ値。 */
+export const MUSIC_MAX_SECONDS = 59;
 export type GeneratorItemSource = {
   kind: "manual" | "release-master";
   uid: string | null;
@@ -35,7 +43,11 @@ export type GeneratorItem = {
   source: GeneratorItemSource;
   content: ItemContent;
 };
-export type GeneratorPage = { id: string; kind: "adopted" | "listed" | "cover" | "feature" | "others"; itemIds: string[]; bgColor: string | null };
+export type GeneratorPage = {
+  id: string; kind: "adopted" | "listed" | "cover" | "feature" | "others"; itemIds: string[]; bgColor: string | null;
+  /** 動画に使う曲の作品（掲載の上下どちら）。無い・ページに無い作品なら先頭の作品。2026-11-08追加。 */
+  musicItemId?: string | null;
+};
 export type GeneratorTheme = { useWave: boolean; waveAssetId: string | null; backgroundAssetId: string | null; outputSize: 1200 | 2400 };
 export type GeneratorDocument = {
   schemaVersion: 1;
@@ -102,8 +114,19 @@ export function parseItemSource(value: unknown): GeneratorItemSource {
     fields: fields(source.fields),
   };
 }
+export function parseItemMusic(value: unknown): ItemMusic | null {
+  if (value === null) return null;
+  const raw = record(value, ["audioId", "start", "length", "fadeIn", "fadeOut"]);
+  return {
+    audioId: nullableId(raw.audioId),
+    start: raw.start === null ? null : number(raw.start, 0, 36000),
+    length: number(raw.length, 1, MUSIC_MAX_SECONDS),
+    fadeIn: bool(raw.fadeIn),
+    fadeOut: bool(raw.fadeOut),
+  };
+}
 export function parseItemContent(value: unknown): ItemContent {
-  const raw = record(value, ["fields", "show", "tracking", "kerns", "bodyLeadMode", "bodyMaxLead", "typography", "jacketAssetId", "coverFocusX", "coverFocusY"]);
+  const raw = record(value, ["fields", "show", "tracking", "kerns", "bodyLeadMode", "bodyMaxLead", "typography", "jacketAssetId", "coverFocusX", "coverFocusY", "music"]);
   const text = fields(raw.fields), visibility = record(raw.show, SHOW_KEYS), tracking = number(raw.tracking, -.2, .2);
   const bodyLeadMode = raw.bodyLeadMode === undefined ? "auto" : raw.bodyLeadMode;
   if (bodyLeadMode !== "auto" && bodyLeadMode !== "custom") invalid();
@@ -115,7 +138,8 @@ export function parseItemContent(value: unknown): ItemContent {
     tracking, kerns: kerns(raw.kerns, text.text, tracking), bodyLeadMode, bodyMaxLead: number(raw.bodyMaxLead, 28, 84), typography,
     jacketAssetId: nullableId(raw.jacketAssetId),
     ...(raw.coverFocusX === undefined ? {} : { coverFocusX: raw.coverFocusX === null ? null : number(raw.coverFocusX, 0, 1) }),
-    ...(raw.coverFocusY === undefined ? {} : { coverFocusY: raw.coverFocusY === null ? null : number(raw.coverFocusY, 0, 1) }) };
+    ...(raw.coverFocusY === undefined ? {} : { coverFocusY: raw.coverFocusY === null ? null : number(raw.coverFocusY, 0, 1) }),
+    ...(raw.music === undefined ? {} : { music: parseItemMusic(raw.music) }) };
 }
 function date(value: unknown): string {
   const result = string(value, 10);
@@ -158,7 +182,7 @@ export function parseDocument(value: unknown): GeneratorDocument {
   const pageIds = new Set<string>(), placed = new Set<string>();
   let listed = false, weeklyStage: "cover" | "feature" | "others" = "cover", featureCount = 0, coverCount = 0, othersCount = 0;
   const pages = raw.pages.map(value => {
-    const raw = record(value, ["id", "kind", "itemIds", "bgColor"]), id = uuid(raw.id);
+    const raw = record(value, ["id", "kind", "itemIds", "bgColor", "musicItemId"]), id = uuid(raw.id);
     if (pageIds.has(id) || !Array.isArray(raw.itemIds) || typeof raw.kind !== "string") invalid();
     pageIds.add(id);
     if (series === "weekly") {
@@ -184,7 +208,10 @@ export function parseDocument(value: unknown): GeneratorDocument {
       if (raw.itemIds.length < 1 || raw.itemIds.length > (raw.kind === "adopted" ? 1 : 2)) invalid();
     }
     const ids = raw.itemIds.map(value => { const id = uuid(value); if (!itemIds.has(id) || placed.has(id)) invalid(); placed.add(id); return id; });
-    return { id, kind: raw.kind as GeneratorPage["kind"], itemIds: ids, bgColor: parseColor(raw.bgColor) };
+    // 曲の作品は、並び順の変更でページから外れることがある（DBは並び順の保存で書き換えない）。
+    // 外れた値は読むときに先頭の作品として扱うので、ここではIDの形だけを確かめる。
+    const music = raw.musicItemId === undefined ? {} : { musicItemId: nullableId(raw.musicItemId) };
+    return { id, kind: raw.kind as GeneratorPage["kind"], itemIds: ids, bgColor: parseColor(raw.bgColor), ...music };
   });
   if (series === "weekly" && (coverCount !== 1 || othersCount !== 1)) invalid();
   if (placed.size !== items.length) invalid();

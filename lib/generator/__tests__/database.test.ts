@@ -27,6 +27,7 @@ beforeAll(async () => {
   await db.exec(await readFile(new URL("../../../supabase/migrations/202609050001_generator_completion.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../../../supabase/migrations/202609110001_generator_reimport.sql", import.meta.url), "utf8"));
   await db.exec(await readFile(new URL("../../../supabase/migrations/202609120001_generator_item_source.sql", import.meta.url), "utf8"));
+  await db.exec(await readFile(new URL("../../../supabase/migrations/202611080001_generator_audio.sql", import.meta.url), "utf8"));
 }, 30000);
 beforeEach(async () => {
   await db.exec("reset role; truncate public.generator_documents cascade;");
@@ -291,7 +292,7 @@ describe("generator database transaction contract (embedded PostgreSQL)", () => 
       await db.exec("reset role");
     }
     const enabled = await db.query<{ relrowsecurity: boolean }>("select relrowsecurity from pg_class where relname like 'generator_%' and relkind = 'r'");
-    expect(enabled.rows).toHaveLength(5); expect(enabled.rows.every(row => row.relrowsecurity)).toBe(true);
+    expect(enabled.rows).toHaveLength(6); expect(enabled.rows.every(row => row.relrowsecurity)).toBe(true);
   });
   it("creates idempotently and rejects duplicate periods without creating orphan data", async () => {
     const another = fixture(); another.period = { type: "month", start: "2026-09-01", end: "2026-10-01" };
@@ -300,5 +301,78 @@ describe("generator database transaction contract (embedded PostgreSQL)", () => 
     expect(await query("select public.generator_create($1,$2,$3) as result", [another, actor, request])).toEqual(first);
     const collision = { ...another, id: randomUUID() };
     await expect(query("select public.generator_create($1,$2,$3) as result", [collision, actor, randomUUID()])).rejects.toThrow(/unique constraint/);
+  });
+  it("saves the page's music choice with its colour, keeps it when omitted, and restores it", async () => {
+    const page = doc.pages[1], [top, bottom] = page.itemIds, lock = await acquire("page", page.id);
+    const chosen = await save(lock, { bgColor: "#111111", musicItemId: bottom });
+    expect(chosen.document.pages[1]).toEqual(expect.objectContaining({ bgColor: "#111111", musicItemId: bottom }));
+    // 移行前のクライアント（musicItemId を送らない）の保存は、曲の選択を消さない。
+    const colourOnly = await save(lock, { bgColor: "#222222" }, actor, 2);
+    expect(colourOnly.document.pages[1]).toEqual(expect.objectContaining({ bgColor: "#222222", musicItemId: bottom }));
+    const cleared = await save(lock, { bgColor: "#222222", musicItemId: null }, actor, 3);
+    expect(cleared.document.pages[1]).not.toHaveProperty("musicItemId");
+    // ページに無い作品は選べない。
+    await expect(save(lock, { bgColor: "#222222", musicItemId: doc.items[0].id }, actor, 4)).rejects.toThrow("INVALID_INPUT");
+    await expect(save(lock, { bgColor: "#222222", musicItemId: top }, actor, 4)).resolves.toBeTruthy();
+    const restored = await query<Snapshot>("select public.generator_save($1,$2,$3,$4) as result",
+      [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 5, restoreVersion: chosen.version }]);
+    expect(restored.document.pages[1]).toEqual(expect.objectContaining({ bgColor: "#111111", musicItemId: bottom }));
+  });
+  it("restores a page whose chosen item has since moved away as unset, without failing", async () => {
+    const lock = await acquire("page", doc.pages[1].id), moved = doc.pages[1].itemIds[1];
+    const chosen = await save(lock, { bgColor: "#abcdef", musicItemId: moved });
+    await query("select public.generator_lock($1,$2,'release',$3) as result", [doc.id, actor, lock]);
+    const structure = await acquire("structure", doc.id);
+    const pages = doc.pages.map(page => ({ id: page.id, itemIds: page.kind === "adopted" ? [moved] : [doc.pages[1].itemIds[0], doc.items[0].id] }));
+    await query("select public.generator_structure_save($1,$2,$3,$4) as result", [doc.id, actor, randomUUID(), { ...structure, expectedVersion: 1, content: { pages } }]);
+    await query("select public.generator_lock($1,$2,'release',$3) as result", [doc.id, actor, structure]);
+    const again = await acquire("page", doc.pages[1].id);
+    const restored = await query<Snapshot>("select public.generator_save($1,$2,$3,$4) as result",
+      [doc.id, actor, randomUUID(), { ...again, expectedVersion: 2, restoreVersion: chosen.version }]);
+    expect(restored.document.pages[1]).not.toHaveProperty("musicItemId");
+  });
+  it("registers audio under the item lock, requires it ready before saving, and expires it a year after the month", async () => {
+    const item = doc.items[0], lock = await acquire("item", item.id), id = randomUUID(), sha = "b".repeat(64);
+    const audio = { id, itemId: item.id, mimeType: "audio/mpeg", bytes: 1000, sha256: sha, name: "song.mp3" };
+    // ほかの作品のロックでは準備できない。
+    const other = await acquire("item", doc.items[1].id);
+    await expect(query("select public.generator_audio_prepare($1,$2,$3,$4) as result", [doc.id, actor, audio, other])).rejects.toThrow("INVALID_INPUT");
+    const prepared = await query<{ objectKey: string; status: string }>("select public.generator_audio_prepare($1,$2,$3,$4) as result", [doc.id, actor, audio, lock]);
+    expect(prepared).toEqual({ id, objectKey: `audio/${doc.id}/${id}.mp3`, status: "pending" });
+    expect(await query("select public.generator_audio_prepare($1,$2,$3,$4) as result", [doc.id, actor, audio, lock])).toEqual(prepared);
+    await expect(query("select public.generator_audio_prepare($1,$2,$3,$4) as result", [doc.id, actor, { ...audio, bytes: 2000 }, lock])).rejects.toThrow("REQUEST_CONFLICT");
+    const music = { audioId: id, start: null, length: 59, fadeIn: false, fadeOut: true };
+    const content = { ...item.content, music };
+    await expect(query("select public.generator_save($1,$2,$3,$4) as result", [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 1, content }])).rejects.toThrow("ASSET_NOT_READY");
+    await expect(query("select public.generator_audio_ready($1,$2,$3,$4,$5) as result", [doc.id, "other@example.com", id, sha, lock])).rejects.toThrow("LOCK_LOST");
+    expect(await query("select public.generator_audio_ready($1,$2,$3,$4,$5) as result", [doc.id, actor, id, sha, lock]))
+      .toEqual({ id, itemId: item.id, name: "song.mp3", mimeType: "audio/mpeg", bytes: 1000 });
+    const saved = await query<Snapshot>("select public.generator_save($1,$2,$3,$4) as result", [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 1, content }]);
+    expect(saved.document.items.find(value => value.id === item.id)?.content.music).toEqual(music);
+    const read = await query<{ status: string; expiresAt: string; objectKey: string }>("select public.generator_audio_read($1,$2) as result", [doc.id, id]);
+    expect(read.status).toBe("ready");
+    expect(new Date(read.expiresAt).toISOString()).toBe("2027-08-31T15:00:00.000Z"); // 2027-09-01 0:00 JST
+    // 期限が来たら一覧に出て、B2から消した後は削除済みとして残る。削除済みの音声を参照したままの作品は保存できる。
+    expect(await query("select public.generator_audio_expired(10) as result")).toEqual([]);
+    await db.query("update public.generator_audio set expires_at = now() - interval '1 second' where id = $1", [id]);
+    const expired = await query<{ documentId: string; id: string; objectKey: string }[]>("select public.generator_audio_expired(10) as result");
+    expect(expired).toEqual([expect.objectContaining({ documentId: doc.id, id, objectKey: read.objectKey, status: "ready" })]);
+    expect(await query("select public.generator_audio_forget($1) as result", [JSON.stringify(expired)])).toBe(1);
+    expect((await query<{ status: string }>("select public.generator_audio_read($1,$2) as result", [doc.id, id])).status).toBe("deleted");
+    const edited = { ...content, fields: { ...content.fields, title: "Renamed" } };
+    await expect(query("select public.generator_save($1,$2,$3,$4) as result", [doc.id, actor, randomUUID(), { ...lock, expectedVersion: 2, content: edited }])).resolves.toBeTruthy();
+    await expect(query("select public.generator_audio_ready($1,$2,$3,$4,$5) as result", [doc.id, actor, id, sha, lock])).rejects.toThrow("NOT_FOUND");
+  });
+  it("forgets an abandoned pending upload after a day, and refuses audio for Weekly documents", async () => {
+    const item = doc.items[1], lock = await acquire("item", item.id), id = randomUUID();
+    await query("select public.generator_audio_prepare($1,$2,$3,$4) as result", [doc.id, actor, { id, itemId: item.id, mimeType: "audio/mp4", bytes: 10, sha256: "c".repeat(64), name: "a.m4a" }, lock]);
+    expect(await query("select public.generator_audio_expired(10) as result")).toEqual([]);
+    await db.query("update public.generator_audio set created_at = now() - interval '2 days' where id = $1", [id]);
+    const expired = await query<unknown[]>("select public.generator_audio_expired(10) as result");
+    expect(expired).toHaveLength(1);
+    expect(await query("select public.generator_audio_forget($1) as result", [JSON.stringify(expired)])).toBe(1);
+    await expect(query("select public.generator_audio_read($1,$2) as result", [doc.id, id])).rejects.toThrow("NOT_FOUND");
+    await db.query("update public.generator_documents set series = 'weekly' where id = $1", [doc.id]);
+    await expect(query("select public.generator_audio_prepare($1,$2,$3,$4) as result", [doc.id, actor, { id: randomUUID(), itemId: item.id, mimeType: "audio/mp4", bytes: 10, sha256: "c".repeat(64), name: "a.m4a" }, lock])).rejects.toThrow("INVALID_INPUT");
   });
 });

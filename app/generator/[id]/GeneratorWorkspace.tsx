@@ -5,14 +5,16 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { canvasPreviewPage, COVER_SLOT_LABELS, pageNumber as pageNumberOf, type CanvasPreviewPage } from "@/lib/generator/canvas-preview";
 import type { GeneratorSnapshot } from "@/lib/generator/client-types";
-import type { GeneratorDocument, GeneratorItemSource, ItemContent } from "@/lib/generator/model";
+import type { GeneratorDocument, GeneratorItemSource, ItemContent, ItemMusic } from "@/lib/generator/model";
+import { chosenMusicItem, EMPTY_MUSIC, legacyMusic, musicIsEmpty } from "@/lib/generator/video";
 import type { ReimportDiff } from "@/lib/generator/reimport";
 import { getMemberShortName } from "@/lib/members";
 import type { ReleaseMasterAlbum } from "@/lib/types";
 import BulkExportButton from "../BulkExportButton";
 import BulkVideoExportButton from "../BulkVideoExportButton";
 import MusicPanel from "../MusicPanel";
-import { MusicProvider, useMusicStore, videoPage } from "../music-store";
+import { decodeAudio, MusicProvider, useMusicStore, videoPage, type LocalAudio, type MusicHost } from "../music-store";
+import { forgetLegacyMusic, prepareUpload, readLegacyMusic, uploadAudio } from "../audio-files";
 import GeneratorPreview, { type PreviewDiagnostics, type PreviewSelection } from "../GeneratorPreview";
 import PageNavigator from "../PageNavigator";
 import { generatorJson, snapshotWithLocks, type GeneratorApiError } from "../generator-client";
@@ -32,6 +34,7 @@ import {
   derivePageBadges,
   imageSaveTargets,
   keyOf,
+  lockPayload,
   pageEditBlocker,
   pageUsesBgColor,
   recoveryHasChanges,
@@ -82,6 +85,18 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   /** 保存時に作品と一緒に送る、進んだ取り込み基準。カバー画像の差し替えもここに入る。 */
   const [pendingSources, setPendingSources] = useState<Record<string, GeneratorItemSource>>({});
   const [pageColors, setPageColors] = useState<Record<string, string>>({});
+  /** 掲載ページの「上下どちらの曲」の下書き。null は先頭の作品（保存済みの未設定と同じ）。 */
+  const [pageMusic, setPageMusic] = useState<Record<string, string | null>>({});
+  /**
+   * まだ共有へ送れていない音声（作品ごと）。選んだ直後に送るが、失敗した分とこの端末の旧設定はここに残し、「保存」のときに送る。
+   * 非同期の送信の途中でも最新を読めるよう、参照でも持つ。
+   */
+  const [localAudio, setLocalAudioState] = useState<Record<string, LocalAudio>>({});
+  const localAudioRef = useRef<Record<string, LocalAudio>>({});
+  const setLocalAudio = useCallback((update: (current: Record<string, LocalAudio>) => Record<string, LocalAudio>) => {
+    localAudioRef.current = update(localAudioRef.current);
+    setLocalAudioState(localAudioRef.current);
+  }, []);
   const [structurePages, setStructurePages] = useState<GeneratorDocument["pages"] | null>(null);
   /** Release Masterを読み直した結果。作品の増減と文字情報を1つのダイアログで確認する。 */
   const [sourceUpdate, setSourceUpdate] = useState<{ diff: ReimportDiff; refresh: SourceRefreshItem[]; sources: Record<string, GeneratorItemSource>; refreshError: string | null } | null>(null);
@@ -146,27 +161,43 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const items = useMemo(() => new Map(snapshot.document.items.map(item => [item.id, item])), [snapshot.document.items]);
   const previewDocument = useMemo<GeneratorDocument>(() => ({
     ...snapshot.document,
-    pages: (structurePages || snapshot.document.pages).map(value => ({ ...value, bgColor: pageColors[value.id] ?? value.bgColor })),
+    pages: (structurePages || snapshot.document.pages).map(value => ({
+      ...value,
+      bgColor: pageColors[value.id] ?? value.bgColor,
+      ...(pageMusic[value.id] !== undefined ? { musicItemId: pageMusic[value.id] } : {}),
+    })),
     items: snapshot.document.items.map(item => ({
       ...item,
       source: pendingSources[item.id] || item.source,
       content: drafts[item.id] || item.content,
     })),
-  }), [drafts, pageColors, pendingSources, snapshot.document, structurePages]);
+  }), [drafts, pageColors, pageMusic, pendingSources, snapshot.document, structurePages]);
   const previewPages = useMemo(
     () => previewDocument.pages.map((_, index) => canvasPreviewPage(previewDocument, index)).filter((page): page is CanvasPreviewPage => page !== null),
     [previewDocument],
   );
   const currentIndex = Math.min(pageIndex, Math.max(0, previewPages.length - 1));
   const previewPage = previewPages[currentIndex] || null;
-  // 右パネルのタブ。音楽は動画にできる画像（採用・掲載）でだけ出す。設定はこの端末の中だけ（music-store）。
-  const music = useMusicStore(previewDocument);
+  const visiblePages = structurePages || snapshot.document.pages;
+  const page = visiblePages[currentIndex] || visiblePages[0];
+  // 右パネルのタブ。音楽は動画にできる画像（採用・掲載）でだけ出す。
+  // 音楽の設定は画像と同じ下書き（content.music・ページの musicItemId）で、変えられるのは編集中の画像だけ。
+  const musicEditable = Boolean(page && editingPageId === page.id && activeLocks[keyOf("page", page.id)]);
+  const musicHostRef = useRef<Omit<MusicHost, "editable" | "localAudio"> | null>(null);
+  const musicHost = useMemo<MusicHost>(() => ({
+    editable: musicEditable,
+    localAudio,
+    setItemMusic: (itemId, value) => musicHostRef.current?.setItemMusic(itemId, value),
+    setPageMusic: (pageId, itemId) => musicHostRef.current?.setPageMusic(pageId, itemId),
+    selectAudio: async (itemId, file) => { await musicHostRef.current?.selectAudio(itemId, file); },
+    retryUpload: itemId => musicHostRef.current?.retryUpload(itemId),
+    removeAudio: itemId => musicHostRef.current?.removeAudio(itemId),
+  }), [localAudio, musicEditable]);
+  const music = useMusicStore(previewDocument, musicHost);
   const [panelTab, setPanelTab] = useState<"image" | "music">("image");
   const musicAvailable = music.enabled && videoPage(previewPage);
   const showMusic = panelTab === "music" && musicAvailable;
   const musicStatus = previewPage ? music.status(previewPage) : null;
-  const visiblePages = structurePages || snapshot.document.pages;
-  const page = visiblePages[currentIndex] || visiblePages[0];
   const editingPage = page ? { ...page, itemIds: previewPage?.slots.map(slot => slot.id) || page.itemIds } : null;
   const pageItems = editingPage?.itemIds
     .map(id => items.get(id))
@@ -177,8 +208,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     : { itemId: activeItem?.id || "", slotIndex: 0, key: page?.kind === "adopted" ? "text" : "title", start: 0, end: 0, source: "field" };
 
   const itemDirty = useCallback(
-    (id: string) => (Boolean(drafts[id]) && !same(drafts[id], items.get(id)?.content)) || Boolean(pendingSources[id]),
-    [drafts, items, pendingSources],
+    (id: string) => (Boolean(drafts[id]) && !same(drafts[id], items.get(id)?.content)) || Boolean(pendingSources[id]) || Boolean(localAudio[id]),
+    [drafts, items, localAudio, pendingSources],
   );
 
   // 既存versionの作成後に Release Master の Time が補完された場合も、空欄だけを最新値で下書きへ戻す。
@@ -292,6 +323,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       setDrafts({});
       setPendingSources({});
       setPageColors({});
+      setPageMusic({});
+      setLocalAudio(() => ({}));
       setStructurePages(null);
       setSourceUpdate(null);
       pendingSaves.clear();
@@ -329,6 +362,7 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       pageColors,
       titleOf: id => items.get(id)?.content.fields.title || "",
       isItemDirty: itemDirty,
+      musicChanged: pageMusic[pageId] !== undefined,
     });
   }
 
@@ -430,9 +464,158 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
     setDrafts(omit);
     setPendingSources(omit);
     setPageColors(omit);
+    setPageMusic(omit);
+    setLocalAudio(omit);
     updateAutoColors(omit);
     setInspectorEpoch(value => value + 1);
+    // この端末だけに残っていた旧い音楽の設定も捨てる（残すと、開くたびに未保存として出続けるため）。
+    void forgetLegacyMusic(documentId, { itemIds: target.itemIds, pageIds: [pageId] });
   }
+
+  /** 作品の音楽の下書き。空に戻したら保存済みの形へ戻し、「未保存」に数えない。 */
+  function setItemMusic(itemId: string, value: ItemMusic | null) {
+    const saved = items.get(itemId)?.content;
+    if (!saved) return;
+    setDrafts(current => {
+      const next: ItemContent = { ...(current[itemId] || cloneContent(saved)) };
+      if (!musicIsEmpty(value)) next.music = value;
+      else if (saved.music === undefined) delete next.music;
+      else next.music = saved.music && musicIsEmpty(saved.music) ? { ...saved.music } : null;
+      return { ...current, [itemId]: next };
+    });
+  }
+
+  /** 掲載ページの「上下どちらの曲」の下書き。保存済みと同じ作品に戻したら下書きを消す。 */
+  function setPageMusicDraft(pageId: string, itemId: string) {
+    const ids = previewPages.find(value => value.id === pageId)?.slots.map(slot => slot.id) ?? [];
+    const saved = snapshot.document.pages.find(value => value.id === pageId)?.musicItemId ?? null;
+    const value = itemId === ids[0] ? null : itemId;
+    setPageMusic(current => {
+      const next = { ...current };
+      if (chosenMusicItem(ids, value) === chosenMusicItem(ids, saved)) delete next[pageId];
+      else next[pageId] = value;
+      return next;
+    });
+  }
+
+  /** 送信中の音声。同じファイルを二重に送らない（選んだ直後の送信と「保存」が重なったとき）。 */
+  const uploadsRef = useRef(new Map<string, { entry: LocalAudio["entry"]; promise: Promise<string | null> }>());
+
+  /**
+   * まだ共有へ送れていない音声を送る。作品のロックを取り、MP3・m4a はそのまま、ほかは AAC に変換して B2 へ直接送る。
+   * 送れたら作品の下書きの audioId に入れる（「保存」で確定）。送れなければ理由を残し、null を返す。
+   */
+  function sendAudio(itemId: string): Promise<string | null> {
+    const local = localAudioRef.current[itemId];
+    if (!local) return Promise.resolve(null);
+    const running = uploadsRef.current.get(itemId);
+    if (running && running.entry === local.entry) return running.promise;
+    const patch = (value: Partial<LocalAudio>) => setLocalAudio(current => current[itemId]?.entry === local.entry
+      ? { ...current, [itemId]: { ...current[itemId], ...value } } : current);
+    const promise = (async () => {
+      patch({ phase: "preparing", progress: 0, error: null });
+      try {
+        const got = await session.tryAcquire("item", itemId);
+        if (!got.ok) throw new Error(got.error.code === "LOCK_CONFLICT" ? "ほかの画面でこの作品を編集中のため、いまは送れません。" : got.error.message);
+        const prepared = await prepareUpload(local.entry, async blob => { await decodeAudio(new OfflineAudioContext(1, 1, 44_100), await blob.arrayBuffer()); });
+        patch({ phase: "uploading" });
+        const audioId = await uploadAudio({
+          documentId, itemId, lock: { ...lockPayload(got.lock), kind: "item" }, entry: prepared,
+          onProgress: ratio => patch({ progress: ratio }),
+        });
+        music.primeAudio(audioId, prepared);
+        // 送っている間に差し替えた・外したなら、この結果は使わない。
+        if (localAudioRef.current[itemId]?.entry !== local.entry) return null;
+        const saved = items.get(itemId)?.content;
+        if (saved) {
+          setDrafts(current => {
+            const base = current[itemId] || cloneContent(saved);
+            return { ...current, [itemId]: { ...base, music: { ...(base.music ?? EMPTY_MUSIC), audioId } } };
+          });
+        }
+        setLocalAudio(current => {
+          const next = { ...current };
+          delete next[itemId];
+          return next;
+        });
+        return audioId;
+      } catch (error) {
+        patch({ phase: "failed", error: `アップロードできませんでした: ${(error as Error).message}` });
+        return null;
+      } finally {
+        if (uploadsRef.current.get(itemId)?.entry === local.entry) uploadsRef.current.delete(itemId);
+      }
+    })();
+    uploadsRef.current.set(itemId, { entry: local.entry, promise });
+    return promise;
+  }
+
+  // 音楽タブからの変更の書き口。描画のたびに最新の関数へ差し替える（下書き・ロックの最新を使うため）。
+  useEffect(() => {
+    musicHostRef.current = {
+      setItemMusic,
+      setPageMusic: setPageMusicDraft,
+      async selectAudio(itemId, file) {
+        if (!musicEditable) return;
+        setLocalAudio(current => ({ ...current, [itemId]: { entry: { name: file.name, type: file.type, blob: file }, phase: "preparing", progress: 0, error: null } }));
+        await sendAudio(itemId);
+      },
+      retryUpload: itemId => { void sendAudio(itemId); },
+      removeAudio(itemId) {
+        if (!musicEditable) return;
+        setLocalAudio(current => {
+          const next = { ...current };
+          delete next[itemId];
+          return next;
+        });
+        const current = previewDocument.items.find(item => item.id === itemId)?.content.music;
+        setItemMusic(itemId, { ...(current ?? EMPTY_MUSIC), audioId: null });
+      },
+    };
+  });
+
+  // 2026-11-08 より前に、この端末だけに保存していた音楽の設定。共有側が空なら未保存の下書きとして出す（保存すれば共有へ移る）。
+  // 共有側に設定がある作品・ページの分は、共有を正として端末から消す。Start Time を読み終えてから1回だけ行う。
+  const legacyLoaded = useRef<string | null>(null);
+  useEffect(() => {
+    if (!music.enabled || music.startTimes === null || legacyLoaded.current === documentId) return;
+    legacyLoaded.current = documentId;
+    const document = snapshot.document;
+    void readLegacyMusic(documentId).then(legacy => {
+      const videoItems = new Set(document.pages.filter(value => value.kind === "adopted" || value.kind === "listed").flatMap(value => value.itemIds));
+      const musicDrafts: Record<string, ItemMusic> = {}, locals: Record<string, LocalAudio> = {}, choices: Record<string, string> = {};
+      const staleItems: string[] = [], stalePages: string[] = [];
+      for (const itemId of new Set([...Object.keys(legacy.audio), ...Object.keys(legacy.preferences)])) {
+        const saved = document.items.find(item => item.id === itemId);
+        if (!saved || !videoItems.has(itemId)) continue;
+        if (!musicIsEmpty(saved.content.music)) { staleItems.push(itemId); continue; }
+        musicDrafts[itemId] = legacyMusic(legacy.preferences[itemId], music.sheetStart(itemId));
+        const entry = legacy.audio[itemId];
+        if (entry) locals[itemId] = { entry, phase: "waiting", progress: 0, error: null };
+      }
+      for (const [pageId, itemId] of Object.entries(legacy.choices)) {
+        const saved = document.pages.find(value => value.id === pageId);
+        if (!saved || !saved.itemIds.includes(itemId)) continue;
+        if (saved.musicItemId) { stalePages.push(pageId); continue; }
+        if (itemId !== saved.itemIds[0]) choices[pageId] = itemId;
+      }
+      if (staleItems.length || stalePages.length) void forgetLegacyMusic(documentId, { itemIds: staleItems, pageIds: stalePages });
+      const count = new Set([...Object.keys(musicDrafts).filter(id => locals[id] || !musicIsEmpty(musicDrafts[id])), ...Object.keys(choices)]).size;
+      if (!count) return;
+      setDrafts(current => {
+        const next = { ...current };
+        for (const [itemId, value] of Object.entries(musicDrafts)) {
+          if (musicIsEmpty(value)) continue;
+          const saved = document.items.find(item => item.id === itemId)!;
+          next[itemId] = { ...(current[itemId] || cloneContent(saved.content)), music: value };
+        }
+        return next;
+      });
+      setLocalAudio(current => ({ ...locals, ...current }));
+      setPageMusic(current => ({ ...choices, ...current }));
+      setStatus({ tone: "warn", text: "この端末だけに残っていた音楽の設定を読み込みました。画像ごとに「保存」すると、ほかのメンバーにも共有されます。" });
+    });
+  }, [documentId, music, setLocalAudio, setStatus, snapshot.document]);
 
   // 画像を選んだら、そのまま編集を始める。止められたときは理由を出して待ち、繰り返し取りにいかない。
   const currentPageId = page?.id ?? null;
@@ -512,9 +695,23 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           continue;
         }
       }
+      // まだ共有へ送れていない音声は、作品を保存する前に送る。送れなければこの作品は保存しない（音声の無い設定で上書きしないため）。
+      let uploadedAudioId: string | null = null;
+      if (target.kind === "item" && localAudioRef.current[target.targetId]) {
+        uploadedAudioId = await sendAudio(target.targetId);
+        if (!uploadedAudioId) {
+          failed.push(`${target.label}の音声`);
+          continue;
+        }
+      }
+      const itemBase = target.kind === "item" ? drafts[target.targetId] || items.get(target.targetId)?.content : undefined;
+      const savedPageValue = snapshot.document.pages.find(value => value.id === page.id);
       const content = target.kind === "item"
-        ? drafts[target.targetId] || items.get(target.targetId)?.content
-        : { bgColor: pageColors[page.id] };
+        ? (uploadedAudioId && itemBase ? { ...itemBase, music: { ...(itemBase.music ?? EMPTY_MUSIC), audioId: uploadedAudioId } } : itemBase)
+        : {
+          bgColor: pageColors[page.id] ?? savedPageValue?.bgColor ?? null,
+          musicItemId: pageMusic[page.id] !== undefined ? pageMusic[page.id] : savedPageValue?.musicItemId ?? null,
+        };
       const result = await session.saveTarget({
         kind: target.kind,
         targetId: target.targetId,
@@ -532,9 +729,24 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             delete remaining[target.targetId];
             return remaining;
           });
+          // 共有へ移したので、この端末だけの旧設定は消す。
+          void forgetLegacyMusic(documentId, { itemIds: [target.targetId] });
         } else {
           const next = result.snapshot.document.pages.find(value => value.id === target.targetId);
-          if (next) setPageColors(current => ({ ...current, [target.targetId]: next.bgColor || FALLBACK_PAGE_COLOR }));
+          if (next) {
+            setPageColors(current => {
+              const rest = { ...current };
+              if (next.bgColor) rest[target.targetId] = next.bgColor;
+              else delete rest[target.targetId];
+              return rest;
+            });
+          }
+          setPageMusic(current => {
+            const rest = { ...current };
+            delete rest[target.targetId];
+            return rest;
+          });
+          void forgetLegacyMusic(documentId, { pageIds: [target.targetId] });
           // 保存した色はもう仮の初期値ではない。
           updateAutoColors(current => {
             const rest = { ...current };
@@ -599,7 +811,20 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       if (value) setDrafts(current => ({ ...current, [targetId]: cloneContent(value.content) }));
     } else if (kind === "page") {
       const value = next.document.pages.find(entry => entry.id === targetId);
-      if (value) setPageColors(current => ({ ...current, [targetId]: value.bgColor || FALLBACK_PAGE_COLOR }));
+      // 背景色が未設定の版へ戻したら下書きも消す（既定の色を入れると「未保存」に数えてしまう）。
+      if (value) {
+        setPageColors(current => {
+          const rest = { ...current };
+          if (value.bgColor) rest[targetId] = value.bgColor;
+          else delete rest[targetId];
+          return rest;
+        });
+      }
+      setPageMusic(current => {
+        const rest = { ...current };
+        delete rest[targetId];
+        return rest;
+      });
     } else if (kind === "structure") {
       setStructurePages(next.document.pages.map(value => ({ ...value, itemIds: [...value.itemIds] })));
     }
@@ -850,6 +1075,10 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
       setPageColors(Object.fromEntries(recovered.pages
         .filter(value => snapshot.document.pages.some(current => current.id === value.id) && value.bgColor)
         .map(value => [value.id, value.bgColor!] as const)));
+      setPageMusic(Object.fromEntries(recovered.pages.flatMap(value => {
+        const saved = snapshot.document.pages.find(current => current.id === value.id);
+        return saved && (value.musicItemId ?? null) !== (saved.musicItemId ?? null) ? [[value.id, value.musicItemId ?? null] as const] : [];
+      })));
       setStructurePages(snapshot.document.pages.map(current => ({
         ...current,
         itemIds: [...recoveredPages.get(current.id)!.itemIds],
@@ -877,17 +1106,21 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
   const latestReimportVersion = history.find(entry => entry.operation === "reimport")?.version || 0;
   const savedPage = page ? snapshot.document.pages.find(value => value.id === page.id) || null : null;
   // 未保存の背景色は表示中のページ以外にもあり得る。書き出せない理由には全ページ分を挙げる。
+  const colorChanged = (value: GeneratorDocument["pages"][number]) => pageColors[value.id] !== undefined && pageColors[value.id] !== value.bgColor && !isAutoColor(value.id);
   const dirtyPages = snapshot.document.pages
     .map((value, index) => ({ value, index }))
-    .filter(({ value }) => pageColors[value.id] !== undefined && pageColors[value.id] !== value.bgColor && !isAutoColor(value.id));
+    .filter(({ value }) => colorChanged(value) || pageMusic[value.id] !== undefined);
   const pageDirty = Boolean(savedPage && dirtyPages.some(({ value }) => value.id === savedPage.id));
+  /** 背景色の欄の「変更あり」。曲の選択だけの変更では出さない。 */
+  const colorDirty = Boolean(savedPage && colorChanged(savedPage));
   const structureDirty = Boolean(structurePages) && !same(
     structurePages!.map(value => ({ id: value.id, itemIds: value.itemIds })),
     snapshot.document.pages.map(value => ({ id: value.id, itemIds: value.itemIds })),
   );
   const unsavedLabels = [
     ...snapshot.document.items.filter(item => itemDirty(item.id)).map(item => `作品「${item.content.fields.title || "作品名未入力"}」`),
-    ...dirtyPages.map(({ index }) => `画像 ${pageNumberOf(snapshot.document, index)} の背景色`),
+    ...dirtyPages.map(({ value, index }) => `画像 ${pageNumberOf(snapshot.document, index)} の${
+      colorChanged(value) && pageMusic[value.id] !== undefined ? "背景色・曲の選択" : colorChanged(value) ? "背景色" : "曲の選択"}`),
     ...(structureDirty ? ["並び順"] : []),
   ];
   const imageChanges = page ? changesFor(page.id) : [];
@@ -1397,7 +1630,8 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
           {/*
             編集パネル：見出し →（採用・掲載だけ）画像／音楽のタブ → 背景色 → 文字 → 下端の保存の帯。
             2026-09-18にタブをやめたが、2026-11-07に利用者の指示で「音楽」を足すためタブを戻した。
-            画像タブの中身は従来の1枚のまま。音楽タブは共有データを触らないので、編集ロックが無くても使える。
+            画像タブの中身は従来の1枚のまま。音楽タブも2026-11-08から共有データ（作品の content.music・ページの musicItemId）なので、
+            画像と同じく編集中の画像でだけ出し、変更は同じ下端の「保存」で作品・背景色と一緒に確定する。
             保存の帯は下端に固定し、欄をスクロールしても見えたままにする（3カラムではパネルの下端、狭い画面では画面の下端）。
           */}
           {/* overflow-hidden を付けない。付けると下端の帯がパネルの中に貼りつき、画面の外へ出てしまう。スクロールは中身の列が持つ。 */}
@@ -1430,13 +1664,14 @@ export default function GeneratorWorkspace({ initialSnapshot, actor }: { initial
             )}
 
             <div className="space-y-5 px-4 py-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
-              {showMusic && previewPage ? <MusicPanel key={previewPage.id} page={previewPage} music={music} /> : !imageEditing ? renderNotEditing() : (
+              {/* 音楽も画像と同じく、編集中の画像でだけ変えられる。止められている間は理由だけを出す。 */}
+              {!imageEditing ? renderNotEditing() : showMusic && previewPage ? <MusicPanel key={previewPage.id} page={previewPage} music={music} /> : (
                 <>
                   {savedPage && pageUsesBgColor(savedPage) && (
                     <section className="space-y-2">
                       <h3 className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
                         背景色<span className="ml-1 font-normal">（この画像だけ）</span>
-                        {pageDirty && <span className="ml-1.5 font-normal text-amber-300">・変更あり</span>}
+                        {colorDirty && <span className="ml-1.5 font-normal text-amber-300">・変更あり</span>}
                       </h3>
                       <PageInspector
                         state={pageTargetStateFor(savedPage.id)}
