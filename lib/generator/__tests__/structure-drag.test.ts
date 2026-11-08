@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { movePageItemTo, structureDrop } from "@/app/generator/[id]/workspace-types";
 import type { GeneratorPage } from "@/lib/generator/model";
+import { pagesWithColorsFollowingItems } from "@/lib/generator/page-colors";
 
 const monthly = [
   { id: "p1", kind: "adopted", itemIds: ["a", "b"], bgColor: null },
@@ -27,6 +28,29 @@ describe("同じ区分の中へ差し込む", () => {
     expect(movePageItemTo(monthly, "adopted", "a", 9)).toBe(monthly);
     expect(movePageItemTo(monthly, "adopted", "a", 0)).toBe(monthly);
     expect(movePageItemTo(monthly, "adopted", "zz", 1)).toBe(monthly);
+  });
+});
+
+describe("並び替えの途中の背景色", () => {
+  const saved = [
+    { id: "p1", kind: "adopted", itemIds: ["a"], bgColor: "#111111" },
+    { id: "p2", kind: "adopted", itemIds: ["b"], bgColor: "#222222" },
+    { id: "p3", kind: "listed", itemIds: ["x", "y"], bgColor: null },
+    { id: "p4", kind: "listed", itemIds: ["z", "w"], bgColor: "#444444" },
+  ] as unknown as GeneratorPage[];
+
+  it("作品についていき、ページのIDと並びは変えない", () => {
+    const moved = pagesWithColorsFollowingItems(saved, movePageItemTo(saved, "adopted", "a", 1));
+    expect(moved.map(page => [page.id, page.itemIds[0], page.bgColor]).slice(0, 2)).toEqual([["p1", "b", "#222222"], ["p2", "a", "#111111"]]);
+  });
+
+  it("掲載は上の作品の色を優先し、未設定なら下の作品の色を使う", () => {
+    const moved = pagesWithColorsFollowingItems(saved, movePageItemTo(saved, "listed", "z", 1));
+    expect(moved.filter(page => page.kind === "listed").map(page => page.bgColor)).toEqual(["#444444", "#444444"]);
+  });
+
+  it("動かしていなければ元のままの値になる", () => {
+    expect(pagesWithColorsFollowingItems(saved, saved)).toEqual(saved);
   });
 });
 
