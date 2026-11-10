@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     // Vercel のログに残しておくと、取りこぼしの調査で追える
     console.log(`[cron/sync-playlist-tags]\n${lines.join("\n")}`);
 
-    logCronResult("sync-playlist-tags", true, { month: result.month, written: result.written, failed: result.index.failed });
+    logCronResult("sync-playlist-tags", result.index.failed.length === 0, { month: result.month, written: result.written, failed: result.index.failed });
     return NextResponse.json({
       month: result.month,
       scannedRows: result.scannedRows,
