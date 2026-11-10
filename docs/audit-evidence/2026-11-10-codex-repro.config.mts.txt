@@ -1,0 +1,16 @@
+import { fileURLToPath } from 'node:url';
+
+const root = fileURLToPath(new URL('.', import.meta.url));
+const local = (path: string) => fileURLToPath(new URL(path, import.meta.url));
+
+export default {
+  root,
+  resolve: {
+    alias: {
+      vitest: local('./node_modules/vitest/dist/index.js'),
+      '@': root,
+      googleapis: local('./node_modules/googleapis/build/src/index.js'),
+    },
+  },
+  test: { include: ['audit-repro.test.ts'] },
+};
