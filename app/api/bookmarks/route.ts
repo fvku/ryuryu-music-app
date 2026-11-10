@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { guardMember } from "@/lib/member-auth";
 import { getBookmarks, addBookmark, removeBookmark } from "@/lib/sheets";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
-    const bookmarks = await getBookmarks(session.user.email.toLowerCase());
+    const gate = await guardMember(request);
+    if (!gate.ok) return gate.response;
+    const bookmarks = await getBookmarks(gate.email);
     return NextResponse.json(bookmarks);
   } catch (error) {
     console.error("Failed to get bookmarks:", error);
@@ -18,11 +18,11 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+    const gate = await guardMember(request);
+    if (!gate.ok) return gate.response;
     const { albumTitle, artistName, albumUid } = await request.json() as { albumTitle: string; artistName: string; albumUid?: string };
     if (!albumTitle || !artistName) return NextResponse.json({ error: "albumTitleとartistNameが必要です" }, { status: 400 });
-    await addBookmark(session.user.email.toLowerCase(), albumTitle, artistName, albumUid);
+    await addBookmark(gate.email, albumTitle, artistName, albumUid);
     return NextResponse.json({ ok: true }, { status: 201 });
   } catch (error) {
     console.error("Failed to add bookmark:", error);
@@ -32,11 +32,11 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+    const gate = await guardMember(request);
+    if (!gate.ok) return gate.response;
     const { albumTitle, artistName, albumUid } = await request.json() as { albumTitle: string; artistName: string; albumUid?: string };
     if (!albumTitle || !artistName) return NextResponse.json({ error: "albumTitleとartistNameが必要です" }, { status: 400 });
-    await removeBookmark(session.user.email.toLowerCase(), albumTitle, artistName, albumUid);
+    await removeBookmark(gate.email, albumTitle, artistName, albumUid);
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Failed to remove bookmark:", error);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
-import { auth } from "@/lib/auth";
+import { guardMember } from "@/lib/member-auth";
 import { isAuthorized } from "@/lib/api-token";
 import { corsJson, corsPreflight } from "@/lib/api-cors";
 import { ReleaseMasterAlbum } from "@/lib/types";
@@ -99,10 +99,8 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
-    }
+    const gate = await guardMember(request);
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const { mjAdoption, mjData, mjAssign, albumMeta, uid, title, artist } = body;

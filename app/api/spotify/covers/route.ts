@@ -1,5 +1,5 @@
 import { after, NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { guardMember } from "@/lib/member-auth";
 import { searchAlbums } from "@/lib/spotify";
 import { artistMatch, titleMatch } from "@/lib/spotify-match";
 import { writeSpotifyDataToSheet } from "@/lib/release-master";
@@ -21,8 +21,8 @@ interface CoverRequestAlbum {
  * （1件目をそのまま使うと別アーティストの作品が紐付くため）。
  */
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+  const gate = await guardMember(request);
+  if (!gate.ok) return gate.response;
 
   try {
     const { albums } = await request.json() as { albums: CoverRequestAlbum[] };

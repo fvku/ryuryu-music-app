@@ -7,7 +7,7 @@ import { reportColumnError } from "@/components/ColumnErrorIndicator";
 import { useSpotifyPlayer } from "@/hooks/useSpotifyPlayer";
 import { useMjTracks } from "@/hooks/useMjTracks";
 import { useInlineFieldUpdate } from "@/hooks/useInlineFieldUpdate";
-import { getSpotifyToken, saveSpotifyToken, openSpotifyAuthPopup } from "@/lib/spotify-token";
+import { getSpotifyToken, saveSpotifyToken, openSpotifyAuthPopup, spotifyAuthErrorMessage } from "@/lib/spotify-token";
 import ModalHeader from "@/components/mj-writing-modal/ModalHeader";
 import AlbumInfoSection from "@/components/mj-writing-modal/AlbumInfoSection";
 import AssignSection from "@/components/mj-writing-modal/AssignSection";
@@ -170,6 +170,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
               spotifyToken={spotifyToken}
               connectingSpotify={connectingSpotify}
               onConnect={() => {
+                setError(null);
                 setConnectingSpotify(true);
                 openSpotifyAuthPopup(
                   (token, expiresIn) => {
@@ -177,7 +178,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
                     setSpotifyToken(token);
                     setConnectingSpotify(false);
                   },
-                  () => setConnectingSpotify(false)
+                  (error) => { setConnectingSpotify(false); setError(spotifyAuthErrorMessage(error)); }
                 );
               }}
               player={player}
@@ -199,7 +200,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
 
           <TextEditor text={text} onTextChange={setText} />
 
-          {error && <p className="text-xs px-1" style={{ color: "#ef4444" }}>{error}</p>}
+          {error && <p role="alert" className="text-xs px-1" style={{ color: "#ef4444" }}>{error}</p>}
 
           {/* Save */}
           <button

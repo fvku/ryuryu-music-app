@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { guardMember } from "@/lib/member-auth";
 import { google } from "googleapis";
 import { getAllScores, addScore, updateScore, initScoresSheet } from "@/lib/sheets";
 import { getReleaseMasterScoreRows } from "@/lib/release-master";
@@ -41,7 +42,23 @@ function getSheetsClient() {
   return google.sheets({ version: "v4", auth: getGoogleAuth(true) });
 }
 
-export async function GET() {
+/** 定期実行は共有のCron認証。ブラウザからのGETでシートを書き換えない。 */
+export async function GET(request: NextRequest) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return syncReleaseMaster();
+}
+
+/** 既存のホームからの同期は、検証済みメンバーによる同一オリジンPOSTに限定する。 */
+export async function POST(request: NextRequest) {
+  const gate = await guardMember(request);
+  if (!gate.ok) return gate.response;
+  return syncReleaseMaster();
+}
+
+async function syncReleaseMaster() {
   if (running) {
     return NextResponse.json({ ok: true, skipped: "already-running" });
   }
@@ -236,7 +253,7 @@ export async function GET() {
       const scoresLinked = backfillResult.sheets.find((s) => s.sheet === "scores");
       if (scoresLinked && scoresLinked.exactHit + scoresLinked.lowerHit > 0) invalidateCache(CACHE_KEY.SCORES);
     } catch (e) {
-      uidError = String(e);
+      uidError = "UIDの自動採番・紐付けに失敗しました";
       console.error("UID assign/backfill failed:", e);
     }
 
@@ -244,7 +261,7 @@ export async function GET() {
     return NextResponse.json({ ok: true, synced, added, uidsAssigned, uidError });
   } catch (error) {
     console.error("Sync cron failed:", error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: "Release Masterの同期に失敗しました" }, { status: 500 });
   } finally {
     running = false;
   }

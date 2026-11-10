@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { REFRESH_COOKIE, REFRESH_COOKIE_MAX_AGE, refreshCookieOptions } from "@/lib/spotify-oauth-cookie";
+import { guardMember } from "@/lib/member-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,8 @@ export const dynamic = "force-dynamic";
  * 失効している場合は Cookie を削除して 401 を返す（クライアントは再接続へ誘導）。
  */
 export async function GET(req: NextRequest) {
+  const gate = await guardMember();
+  if (!gate.ok) return gate.response;
   const refreshToken = req.cookies.get(REFRESH_COOKIE)?.value;
   if (!refreshToken) {
     return NextResponse.json({ error: "no_refresh_token" }, { status: 401 });

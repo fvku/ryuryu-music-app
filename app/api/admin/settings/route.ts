@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { cached, invalidateCache, CACHE_KEY, CACHE_TTL } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
 import { guardAdmin } from "@/lib/admin-auth";
+import { guardMember } from "@/lib/member-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -41,8 +42,10 @@ async function readSettings(spreadsheetId: string): Promise<Record<string, strin
   }
 }
 
-// GET — 全設定を返す（認証不要：ホームページからも呼ばれる）
+// GET — ホームからも使うため、管理操作ではなく通常メンバーの認可で読む
 export async function GET() {
+  const gate = await guardMember();
+  if (!gate.ok) return gate.response;
   try {
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
     if (!spreadsheetId) return NextResponse.json({ error: "GOOGLE_SPREADSHEET_ID is not set" }, { status: 500 });
