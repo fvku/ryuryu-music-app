@@ -39,7 +39,7 @@ export default function SettingsPage() {
   }
 
   async function handleDisconnectSpotify() {
-    setSpotifyError(null);
+    setSpotifyError("");
     setSpotifyToken(null);
     const ok = await disconnectSpotify();
     if (!ok) setSpotifyError("この端末の接続は解除しましたが、サーバー側の解除に失敗しました。通信状態を確認して、もう一度「接続」→「解除」をお試しください");
