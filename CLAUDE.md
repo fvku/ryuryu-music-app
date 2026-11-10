@@ -16,7 +16,9 @@
 ## データソース
 
 - **Google Sheets（アプリ用）**: `GOOGLE_SPREADSHEET_ID`
-  - `scores` シート: A=reviewId, B=memberName(email), C=score, D=comment, E=submittedAt, F=albumTitle, G=artistName, H=albumUid
+  - `scores` シート: A=reviewId, B=memberName(email), C=score, D=comment, E=submittedAt, F=albumTitle, G=artistName, H=albumUid, I=requestId（投稿の再送で二重登録しないための操作ID。2026-11-10〜）
+  - `sync_review` シート: レビュー同期の確認待ち（`lib/ops/review-sync.ts` が毎回作り直す。手で触らない）。管理画面の保守タブで解消する
+  - `sync_pending` シート: 旧同期の待機リスト。2026-11-10の作り直しで使わなくなった（データは残している）
   - `recommendations` シート: A=id, B=recommenderId, C=albumNo, D=albumTitle, E=artistName, F=coverUrl, G=message, H=createdAt, I=mentionedEmails(カンマ区切り), J=albumUid
   - `bookmarks` シート: A=memberName(email), B=albumTitle, C=artistName, D=savedAt, E=albumUid
   - `playlists` シート: A=playlistId, B=label, C=enabled, D=addedAt（プレイリスト収録タグの取得対象。管理画面から追加・削除）
@@ -82,6 +84,17 @@ npx tsx scripts/fill-time-tracks.ts --apply --force --from-row=915  # 指定行�
 ```
 
 書き込み形式: `13songs, 50min 4sec`。60分以上は `24songs, 1hr 24min`（秒は切り捨てて省略）。表記は `lib/time-format.ts` に集約（アルバム追加APIも同じ関数を使う）
+
+## レビュー同期（Release Master ⇄ アプリ）
+
+2026-11-10に作り直した（改善プラン第2段階）。判定は `lib/review-sync.ts`、本体は `lib/ops/review-sync.ts`。
+
+- 照合は albumUid × メンバー。Release Master の手入力の編集時刻は、同じファイルの `_review_edit_log`（`apps-script/ReviewJournal.gs` が手入力を、`lib/review-journal.ts` がアプリの書き込みを記録）だけを根拠にする
+- 履歴でアプリより新しいと確かめられたものだけ、その記録時刻でアプリへ反映。それ以外の差分（時刻不明・アプリの方が新しい・同時刻・シートで削除・要確認）は `sync_review` に出して、管理画面で「シートの内容を採用」「アプリの内容を残す」を選ぶまで両方そのまま
+- 検出した時刻を編集時刻の代わりに使わない。履歴の無いコメントだけのセルは、旧同期と同じく取り込まない
+- セルの読み方は平均点の計算（`parseLegacyScoreNum`）と同じ「先頭の語を parseFloat」。変えると既存データと大量に食い違って見える（2026-11-10の本番照合で、揃えた後の差分は13件）
+- 起動は Vercel Cron（毎日 19:00 UTC）とホームを開いたときのPOST。冪等なので同時に走っても壊れない
+- アプリの投稿・更新は Release Master へも書く。スコアなしに更新したらコメントだけを書く（元が空なら書かない）。Release Master だけ失敗したら画面に「再送」を出す
 
 ## 管理画面の認可
 

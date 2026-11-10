@@ -7,6 +7,14 @@ import { AuthStatus, NOSCORE_MIN, getScoreColor } from "./utils";
 import { clearDraft, draftKey, loadDraft, saveDraft } from "@/lib/drafts";
 import { notifyDataChanged } from "@/lib/data-events";
 
+function newRequestId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  }
+}
+
 interface ReviewDraft {
   rawSlider: number;
   comment: string;
@@ -47,6 +55,11 @@ export default function ReviewForm({ album, status, myScore, alreadyReviewed, my
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  // 同じ投稿の再送を二重登録しないための操作ID。投稿に成功したら作り直す
+  const requestIdRef = useRef<string>("");
+  // アプリには保存できたが Release Master への反映に失敗した内容（再送用）
+  const [rmPending, setRmPending] = useState<{ score: number | null; comment: string } | null>(null);
+  const [resending, setResending] = useState(false);
 
   const draftStorageKey = myEmail ? draftKey("review", album, myEmail) : null;
   const [draftOffer, setDraftOffer] = useState<ReviewDraft | null>(() =>
@@ -98,14 +111,17 @@ export default function ReviewForm({ album, status, myScore, alreadyReviewed, my
     submittingRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
+    if (!requestIdRef.current) requestIdRef.current = newRequestId();
     try {
       const res = await fetch(`/api/scores/${album.no}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist, albumUid: album.uid }),
+        body: JSON.stringify({ score, comment: comment.trim(), albumTitle: album.title, artistName: album.artist, albumUid: album.uid, requestId: requestIdRef.current }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "投稿に失敗しました");
+      requestIdRef.current = "";
+      setRmPending(data.rmPending ? { score, comment: comment.trim() } : null);
       setSubmitSuccess(true);
       setRawSlider(NOSCORE_MIN);
       setComment("");
@@ -134,6 +150,7 @@ export default function ReviewForm({ album, status, myScore, alreadyReviewed, my
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "更新に失敗しました");
+      setRmPending(data.rmPending ? { score, comment: comment.trim() } : null);
       setSubmitSuccess(true);
       setIsEditing(false);
       afterSaved();
@@ -143,6 +160,27 @@ export default function ReviewForm({ album, status, myScore, alreadyReviewed, my
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
+    }
+  }
+
+  /** Release Master への反映だけ失敗した場合の再送。更新（PUT）は同じ内容なら何度送っても同じ結果になる */
+  async function resendToReleaseMaster() {
+    if (!rmPending || resending) return;
+    setResending(true);
+    try {
+      const res = await fetch(`/api/scores/${album.no}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...rmPending, albumTitle: album.title, artistName: album.artist, albumUid: album.uid }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "再送に失敗しました");
+      setRmPending(data.rmPending ? rmPending : null);
+      if (!data.rmPending) notifyDataChanged({ kind: "scores", albumNo: album.no });
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "再送に失敗しました");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -189,6 +227,15 @@ export default function ReviewForm({ album, status, myScore, alreadyReviewed, my
                 <button type="button" onClick={() => restoreDraft(draftOffer)} className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "var(--accent)", color: "white" }}>書きかけを戻す</button>
                 <button type="button" onClick={discardDraft} className="px-3 py-1.5 rounded-lg text-xs border" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>破棄する</button>
               </div>
+            </div>
+          )}
+
+          {rmPending && (
+            <div role="alert" className="rounded-xl p-3 mb-3 border flex flex-col gap-2" style={{ backgroundColor: "rgba(234,179,8,0.1)", borderColor: "rgba(234,179,8,0.4)" }}>
+              <p className="text-xs" style={{ color: "#fde68a" }}>アプリには保存しましたが、Release Masterへの反映に失敗しました。シートの点数が古いままです。</p>
+              <button type="button" onClick={resendToReleaseMaster} disabled={resending} className="self-start px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50" style={{ backgroundColor: "#eab308", color: "#1f1f1f" }}>
+                {resending ? "再送中..." : "Release Masterへ再送する"}
+              </button>
             </div>
           )}
 

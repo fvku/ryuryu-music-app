@@ -2,6 +2,7 @@ import { google } from "googleapis";
 import { Score } from "./types";
 import { dedupeLatestScores } from "./score-utils";
 import { getGoogleAuth } from "./google-auth";
+import { LEGACY_NAME_TO_EMAIL } from "./members";
 
 function getSheetsClient() {
   return google.sheets({ version: "v4", auth: getGoogleAuth(true) });
@@ -31,22 +32,31 @@ function matchesAlbum(
   return (rowTitle ?? "").trim() === albumTitle.trim() && (rowArtist ?? "").trim() === artistName.trim();
 }
 
+const SCORES_HEADERS = ["reviewId", "memberName", "score", "comment", "submittedAt", "albumTitle", "artistName", "albumUid", "requestId"];
+
 export async function initScoresSheet(): Promise<void> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
 
   const scoresRes = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "scores!A1:H1",
+    range: "scores!A1:I1",
   });
-  if (!scoresRes.data.values || scoresRes.data.values.length === 0) {
+  const header = scoresRes.data.values?.[0] ?? [];
+  if (header.length === 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: "scores!A1:H1",
+      range: "scores!A1:I1",
       valueInputOption: "RAW",
-      requestBody: {
-        values: [["reviewId", "memberName", "score", "comment", "submittedAt", "albumTitle", "artistName", "albumUid"]],
-      },
+      requestBody: { values: [SCORES_HEADERS] },
+    });
+  } else if (!header[8]) {
+    // I列（requestId: 投稿の再送で二重登録しないための操作ID）は2026-11-10に追加
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: "scores!I1",
+      valueInputOption: "RAW",
+      requestBody: { values: [["requestId"]] },
     });
   }
 }
@@ -93,23 +103,53 @@ export async function getScoresForAlbum(albumTitle: string, artistName: string, 
   return dedupeLatestScores(matched, false);
 }
 
-export async function addScore(scoreData: Omit<Score, "submittedAt"> & { submittedAt?: string }): Promise<Score> {
+export async function addScore(scoreData: Omit<Score, "submittedAt"> & { submittedAt?: string; requestId?: string }): Promise<Score> {
   const sheets = getSheetsClient();
   const spreadsheetId = getSpreadsheetId();
 
   const submittedAt = scoreData.submittedAt ?? new Date().toISOString();
-  const score: Score = { ...scoreData, submittedAt };
+  const { requestId, ...rest } = scoreData;
+  const score: Score = { ...rest, submittedAt };
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: "scores!A:H",
+    range: "scores!A:I",
     valueInputOption: "RAW",
     requestBody: {
-      values: [[score.reviewId, score.memberName, score.score ?? "", score.comment, score.submittedAt, score.albumTitle || "", score.artistName || "", score.albumUid || ""]],
+      values: [[score.reviewId, score.memberName, score.score ?? "", score.comment, score.submittedAt, score.albumTitle || "", score.artistName || "", score.albumUid || "", requestId ?? ""]],
     },
   });
 
   return score;
+}
+
+/** 同じ操作ID（投稿の再送）で既に保存された行があれば返す */
+export async function findScoreByRequestId(requestId: string): Promise<Score | null> {
+  if (!requestId) return null;
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "scores!A2:I" });
+  const row = (res.data.values ?? []).find((r) => r[0] && (r[8] ?? "") === requestId);
+  return row ? rowToScore(row) : null;
+}
+
+/**
+ * アルバム×メンバーのレビュー行を消す（行は詰めずに空にする。他の行番号をずらさないため）。
+ * Release Master でセルを消したことを管理画面で採用したときに使う。
+ */
+export async function clearScoreRow(albumUid: string, albumTitle: string, artistName: string, memberEmail: string): Promise<number> {
+  const sheets = getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range: "scores!A2:I" });
+  const names = new Set([memberEmail.toLowerCase(), ...Object.entries(LEGACY_NAME_TO_EMAIL).filter(([, e]) => e === memberEmail.toLowerCase()).map(([n]) => n)]);
+  const ranges: string[] = [];
+  (res.data.values ?? []).forEach((row, i) => {
+    if (row[0] && names.has((row[1] ?? "").trim().toLowerCase()) && matchesAlbum(row[7], row[5], row[6], albumUid, albumTitle, artistName)) {
+      ranges.push(`scores!A${i + 2}:I${i + 2}`);
+    }
+  });
+  if (ranges.length > 0) await sheets.spreadsheets.values.batchClear({ spreadsheetId, requestBody: { ranges } });
+  return ranges.length;
 }
 
 export async function hasScore(albumTitle: string, artistName: string, memberName: string, altNames: string[] = [], albumUid?: string): Promise<boolean> {

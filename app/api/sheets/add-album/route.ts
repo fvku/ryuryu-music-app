@@ -53,84 +53,104 @@ export async function POST(request: NextRequest) {
 
     const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
 
-    // ヘッダー行とデータ行（A〜D列）を同時取得
-    const [headerRes, dataRes] = await Promise.all([
-      sheets.spreadsheets.values.get({
+    // 同時に2人が追加すると、同じ「最後の行の次」を選んで上書きし合う。
+    // 書き込んだ後にUIDを読み戻し、別の追加に取られていたら次の空き行でやり直す（最大3回）
+    const albumUid = generateAlbumUid();
+    let writtenRow: number | null = null;
+    for (let attempt = 0; attempt < 3 && writtenRow === null; attempt++) {
+      // ヘッダー行とデータ行（A〜D列）を同時取得
+      const [headerRes, dataRes] = await Promise.all([
+        sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: "'Release Master'!1:1",
+        }),
+        sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: "'Release Master'!A2:D",
+        }),
+      ]);
+
+      const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
+
+      // 書き込み対象列をヘッダー名で解決
+      const timeColIdx    = col["Time"]               ?? 6;
+      const wabokuColIdx  = col["洋邦"]               ?? 5;   // F列
+      const spotifyColIdx = col[SHEET_COL.SPOTIFY_URL] ?? -1;
+      const coverColIdx   = col[SHEET_COL.COVER_URL]   ?? -1;
+
+      if (spotifyColIdx < 0) {
+        return NextResponse.json({ error: `COLUMN_NOT_FOUND: ${SHEET_COL.SPOTIFY_URL}` }, { status: 500 });
+      }
+
+      const dataRows = dataRes.data.values ?? [];
+
+      // No.列（A列）には数式("=ROW()-1")が事前に入っている行があるため、
+      // dataRows.length だけでは「実データの最終行」を判定できない。
+      // タイトル・アーティストが両方入っている最後の行を後ろから探し、その直後に追記する
+      // （MISMATCH解消でクリアされた途中の空白行は再利用しない）
+      let lastFilledIndex = -1;
+      for (let i = 0; i < dataRows.length; i++) {
+        const rowTitle  = (dataRows[i][2] ?? "").trim();
+        const rowArtist = (dataRows[i][3] ?? "").trim();
+        if (rowTitle && rowArtist) lastFilledIndex = i;
+      }
+      const writeRow = lastFilledIndex >= 0 ? lastFilledIndex + 3 : dataRows.length + 2;
+
+      const trackInfo = formatTimeTracks(trackCount, totalDurationMs);
+      const dateStr = formatReleaseDate(releaseDate);
+
+      // 値のあるセルのみ個別に書き込む（既存の数式・値を上書きしない）
+      const cellsToWrite: [number, string][] = [
+        [2, title],
+        [3, artist],
+        [timeColIdx, trackInfo],
+        [spotifyColIdx, spotifyUrl],
+      ];
+      if (waboku) cellsToWrite.push([wabokuColIdx, waboku]);
+      if (coverColIdx >= 0) cellsToWrite.push([coverColIdx, coverUrl]);
+      // UID列があれば安定IDを採番（なければ sync cron の自動採番に任せる）
+      const uidColIdx = col[SHEET_COL.UID] ?? -1;
+      if (uidColIdx >= 0) cellsToWrite.push([uidColIdx, albumUid]);
+
+      // No.列の数式は途中の行で途切れている（2026-09-28時点で2407行目まで）。
+      // No.が空の行はアプリにもジェネレーターにも出ないので、空なら数式を入れる
+      const hasNo = !!(dataRows[writeRow - 2]?.[0] ?? "").trim();
+
+      await Promise.all([
+        // 日付はUSER_ENTEREDで書く（RAWだと文字列扱いになり、シート上で先頭に'が付く）
+        sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `'Release Master'!${hasNo ? indexToColumnLetter(1) : "A"}${writeRow}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [hasNo ? [dateStr] : ["=ROW()-1", dateStr]] },
+        }),
+        sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            valueInputOption: "RAW",
+            data: cellsToWrite.map(([colIdx, value]) => ({
+              range: `'Release Master'!${indexToColumnLetter(colIdx)}${writeRow}`,
+              values: [[value]],
+            })),
+          },
+        }),
+      ]);
+
+      if (uidColIdx < 0) {
+        writtenRow = writeRow; // UID列が無いシートでは確かめようがない（従来どおり）
+        break;
+      }
+      const check = await sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: "'Release Master'!1:1",
-      }),
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: "'Release Master'!A2:D",
-      }),
-    ]);
-
-    const col = buildHeaderMap(headerRes.data.values?.[0] ?? []);
-
-    // 書き込み対象列をヘッダー名で解決
-    const timeColIdx    = col["Time"]               ?? 6;
-    const wabokuColIdx  = col["洋邦"]               ?? 5;   // F列
-    const spotifyColIdx = col[SHEET_COL.SPOTIFY_URL] ?? -1;
-    const coverColIdx   = col[SHEET_COL.COVER_URL]   ?? -1;
-
-    if (spotifyColIdx < 0) {
-      return NextResponse.json({ error: `COLUMN_NOT_FOUND: ${SHEET_COL.SPOTIFY_URL}` }, { status: 500 });
+        range: `'Release Master'!${indexToColumnLetter(uidColIdx)}${writeRow}`,
+      });
+      if ((check.data.values?.[0]?.[0] ?? "").trim() === albumUid) writtenRow = writeRow;
+      else console.warn(`add-album: row ${writeRow} was taken by another addition, retrying`);
     }
-
-    const dataRows = dataRes.data.values ?? [];
-
-    // No.列（A列）には数式("=ROW()-1")が事前に入っている行があるため、
-    // dataRows.length だけでは「実データの最終行」を判定できない。
-    // タイトル・アーティストが両方入っている最後の行を後ろから探し、その直後に追記する
-    // （MISMATCH解消でクリアされた途中の空白行は再利用しない）
-    let lastFilledIndex = -1;
-    for (let i = 0; i < dataRows.length; i++) {
-      const rowTitle  = (dataRows[i][2] ?? "").trim();
-      const rowArtist = (dataRows[i][3] ?? "").trim();
-      if (rowTitle && rowArtist) lastFilledIndex = i;
+    if (writtenRow === null) {
+      return NextResponse.json({ error: "同時に別のアルバムが追加されたため、追加できませんでした。もう一度お試しください" }, { status: 409 });
     }
-    const writeRow = lastFilledIndex >= 0 ? lastFilledIndex + 3 : dataRows.length + 2;
     const no = "";
-
-    const trackInfo = formatTimeTracks(trackCount, totalDurationMs);
-    const dateStr = formatReleaseDate(releaseDate);
-
-    // 値のあるセルのみ個別に書き込む（既存の数式・値を上書きしない）
-    const cellsToWrite: [number, string][] = [
-      [2, title],
-      [3, artist],
-      [timeColIdx, trackInfo],
-      [spotifyColIdx, spotifyUrl],
-    ];
-    if (waboku) cellsToWrite.push([wabokuColIdx, waboku]);
-    if (coverColIdx >= 0) cellsToWrite.push([coverColIdx, coverUrl]);
-    // UID列があれば安定IDを採番（なければ sync cron の自動採番に任せる）
-    const uidColIdx = col[SHEET_COL.UID] ?? -1;
-    if (uidColIdx >= 0) cellsToWrite.push([uidColIdx, generateAlbumUid()]);
-
-    // No.列の数式は途中の行で途切れている（2026-09-28時点で2407行目まで）。
-    // No.が空の行はアプリにもジェネレーターにも出ないので、空なら数式を入れる
-    const hasNo = !!(dataRows[writeRow - 2]?.[0] ?? "").trim();
-
-    await Promise.all([
-      // 日付はUSER_ENTEREDで書く（RAWだと文字列扱いになり、シート上で先頭に'が付く）
-      sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `'Release Master'!${hasNo ? indexToColumnLetter(1) : "A"}${writeRow}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: [hasNo ? [dateStr] : ["=ROW()-1", dateStr]] },
-      }),
-      sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId,
-        requestBody: {
-          valueInputOption: "RAW",
-          data: cellsToWrite.map(([colIdx, value]) => ({
-            range: `'Release Master'!${indexToColumnLetter(colIdx)}${writeRow}`,
-            values: [[value]],
-          })),
-        },
-      }),
-    ]);
 
     invalidateCache(CACHE_KEY.RELEASE_MASTER);
     return NextResponse.json({ ok: true, no });

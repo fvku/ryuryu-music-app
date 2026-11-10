@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/supabase-keepalive",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/sync-release-master",
+      "schedule": "0 19 * * *"
     }
   ]
 }

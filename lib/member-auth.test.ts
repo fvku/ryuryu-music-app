@@ -9,13 +9,14 @@ vi.mock("@/lib/sheets", () => ({
   getAllRecommendations: mocks.recs, getRecommendationsForUser: mocks.recs,
   getBookmarks: mocks.bookmarks, addBookmark: mocks.addBookmark, removeBookmark: mocks.io,
   getAllNotificationSeen: vi.fn(async () => ({})), setForYouSeenAt: mocks.io,
-  addScore: mocks.io, updateScore: mocks.io, hasScore: mocks.io, initScoresSheet: mocks.io,
+  addScore: mocks.io, updateScore: mocks.io, hasScore: mocks.io, initScoresSheet: mocks.io, findScoreByRequestId: vi.fn(async () => null),
   addRecommendation: mocks.io, initRecommendationsSheet: mocks.io,
 }));
 vi.mock("@/lib/release-master", () => ({ getWriteAuth: () => ({}), getReleaseMasterScoreRows: vi.fn(async () => []), writeScoreToReleaseMaster: mocks.io, writeSpotifyDataToSheet: mocks.io }));
 vi.mock("@/lib/spotify", () => ({ searchAlbums: mocks.io }));
 vi.mock("@/lib/ops/assign-uids", () => ({ assignUids: vi.fn(async () => ({ assigned: 0 })) }));
 vi.mock("@/lib/ops/backfill-album-uids", () => ({ backfillAlbumUids: vi.fn(async () => ({ sheets: [] })) }));
+vi.mock("@/lib/ops/review-sync", () => ({ runReviewSync: vi.fn(async () => ({ applied: [], reviewCount: 0, reviewByReason: {}, journalAvailable: false })) }));
 import { guardMember } from "./member-auth";
 import { isAuthorized } from "./api-token";
 import { invalidateCache, CACHE_KEY } from "./api-cache";

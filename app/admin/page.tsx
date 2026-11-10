@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { DEFAULT_SPOTIFY_BATCH_LIMIT, SPOTIFY_BATCH_LIMIT_OPTIONS } from "@/lib/admin-spotify-batch";
 import { MismatchQueueModal, type RefetchMismatch } from "@/components/admin/MismatchQueueModal";
+import ReviewSyncQueue from "@/components/admin/ReviewSyncQueue";
 
 type TabKey = "weekly" | "monthly" | "maintenance";
 
@@ -818,6 +819,8 @@ export default function AdminPage() {
 
         {tab === "maintenance" && (
           <>
+            <ReviewSyncQueue accent={SECTION.maintenance.accent} border={SECTION.maintenance.border} />
+
             {/* repair-covers */}
             <div className="rounded-2xl p-5 border" style={{ backgroundColor: "var(--bg-card)", borderColor: SECTION.maintenance.border }}>
               <h3 className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>カバー画像補完</h3>

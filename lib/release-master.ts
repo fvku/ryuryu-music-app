@@ -3,6 +3,8 @@ import { buildHeaderMap, findMissingColumns, indexToColumnLetter, SHEET_COL } fr
 import { getGoogleAuth } from "./google-auth";
 import { invalidateCache, CACHE_KEY } from "./api-cache";
 import { SHORT_NAME_TO_EMAIL } from "@/lib/members";
+import { formatReviewCell } from "@/lib/review-sync";
+import { appendReleaseMasterJournal } from "@/lib/review-journal";
 
 export function getWriteAuth() {
   return getGoogleAuth(true);
@@ -109,13 +111,20 @@ export async function getReleaseMasterScoreRows(): Promise<ReleaseMasterScoreRow
     });
 }
 
+/**
+ * アプリのレビューを Release Master のメンバー列へ書き、`_review_edit_log` にアプリの書き込みとして残す。
+ * - スコアなしはコメントだけを書く（空ならセルを空にする）。ただし元々空のセルにスコアなしのレビューは書かない
+ *   （コメントだけの投稿は Release Master に書かない従来の仕様）
+ * - recordedAt にはアプリ側の submittedAt を渡す（同期で「同じ時刻・同じ内容」として一致させるため）
+ */
 export async function writeScoreToReleaseMaster(
   albumTitle: string,
   artistName: string,
   memberName: string,
-  score: number,
+  score: number | null,
   comment: string,
-  albumUid?: string
+  albumUid?: string,
+  journal?: { memberEmail: string; operationId: string; recordedAt: string }
 ): Promise<void> {
   if (!albumUid && (!albumTitle || !artistName)) return;
 
@@ -124,7 +133,7 @@ export async function writeScoreToReleaseMaster(
 
   const sheets = google.sheets({ version: "v4", auth: getWriteAuth() });
 
-  // ヘッダー行とタイトル・アーティスト列を同時取得
+  // ヘッダー行とNo.〜アーティスト列を同時取得
   const [headerRes, titleColRes] = await Promise.all([
     sheets.spreadsheets.values.get({
       spreadsheetId,
@@ -132,7 +141,7 @@ export async function writeScoreToReleaseMaster(
     }),
     sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Release Master'!C2:D",
+      range: "'Release Master'!A2:D",
     }),
   ]);
 
@@ -161,10 +170,10 @@ export async function writeScoreToReleaseMaster(
       }
     }
   }
+  const titleRows = titleColRes.data.values || [];
   if (rowNum === null) {
-    const rows = titleColRes.data.values || [];
-    for (let i = 0; i < rows.length; i++) {
-      if ((rows[i][0] || "").trim() === albumTitle.trim() && (rows[i][1] || "").trim() === artistName.trim()) {
+    for (let i = 0; i < titleRows.length; i++) {
+      if ((titleRows[i][2] || "").trim() === albumTitle.trim() && (titleRows[i][3] || "").trim() === artistName.trim()) {
         rowNum = i + 2;
         break;
       }
@@ -174,15 +183,36 @@ export async function writeScoreToReleaseMaster(
 
   const colIdx = col[memberName];
   if (colIdx === undefined) throw new Error(`COLUMN_NOT_FOUND: ${memberName}`);
-  const colLetter = indexToColumnLetter(colIdx);
-  const cellValue = comment ? `${score} ${comment}` : `${score}`;
+  const cellA1 = `${indexToColumnLetter(colIdx)}${rowNum}`;
+  const cellValue = formatReviewCell(score, comment);
+
+  const prevRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'Release Master'!${cellA1}` });
+  const previous = String(prevRes.data.values?.[0]?.[0] ?? "");
+  if (score === null && previous.trim() === "") return;
+  if (previous.trim() === cellValue) return;
 
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `'Release Master'!${colLetter}${rowNum}`,
+    range: `'Release Master'!${cellA1}`,
     valueInputOption: "RAW",
     requestBody: { values: [[cellValue]] },
   });
+
+  if (journal) {
+    const row = titleRows[rowNum - 2] ?? [];
+    await appendReleaseMasterJournal(sheets, [{
+      operationId: journal.operationId,
+      recordedAt: journal.recordedAt,
+      albumUid: albumUid ?? "",
+      memberEmail: journal.memberEmail,
+      value: cellValue,
+      previous,
+      cellA1,
+      albumNo: (row[0] ?? "").trim(),
+      albumTitle: (row[2] ?? albumTitle).trim(),
+      artistName: (row[3] ?? artistName).trim(),
+    }]);
+  }
 }
 
 /**
