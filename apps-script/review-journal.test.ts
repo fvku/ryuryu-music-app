@@ -101,6 +101,20 @@ describe("deployable Apps Script review journal", () => {
     expect(JSON.stringify(f.source.rows)).toBe(before);
     expect(f.lock.releaseLock).toHaveBeenCalledOnce();
   });
+  it("reads the production headers (Title / Artist) as well as the Japanese ones", () => {
+    const productionHeaders = ["No.", "Title", "Kohei", "UID", "Kaede", "Meri", "Artist", "Kwisoo", "Eddie", "Hanawa"];
+    const f = fixture(productionHeaders);
+    f.install();
+    f.source.rows[1][2] = "8 new";
+    f.edit({ value: "8 new", oldValue: "7 old" });
+    expect(f.entries()[0]).toMatchObject({ albumTitleJson: '"Album"', artistNameJson: '"Artist"', valueJson: '"8 new"', status: "recorded" });
+  });
+
+  it("names both accepted headers when the title column is missing", () => {
+    const f = fixture(["No.", "Kohei", "UID", "Kaede", "Meri", "Artist", "Kwisoo", "Eddie", "Hanawa"]);
+    expect(() => f.install()).toThrow("Title または アルバム名");
+  });
+
   it("keeps the member mapping consistent with the app, including Kaede", () => {
     const f = fixture();
     expect(JSON.parse(runInContext("JSON.stringify(RYURYU_REVIEW_JOURNAL.members)", f.context)))
