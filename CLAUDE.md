@@ -37,6 +37,11 @@
 - `lib/sheet-headers.ts` — 列名定数（`SHEET_COL`）と動的ヘッダー解決ユーティリティ
 - `lib/score-utils.ts` — スコア集計の共通ロジック（最新絞り込み・legacy優先マージ・レビュー済み判定）
 - `lib/api-cache.ts` — GET APIのin-memoryキャッシュ（書き込みルートで `invalidateCache` を呼ぶこと）
+- `lib/members.ts` — メンバー6人の唯一の定義（`EMAIL_TO_SHORT_NAME`・`MEMBER_SHORT_NAMES`＝Release Masterのスコア列順）。メンバー名を他のファイルで手書きしない
+- `lib/data-events.ts` — 画面内の「保存しました」通知。モーダルで保存したら `notifyDataChanged`、一覧側は `useDataChanged` で受けて取り直す（再読み込みせずに一覧を揃える）
+- `lib/drafts.ts` / `hooks/useUnsavedGuard.ts` — レビュー・M/J原稿の書きかけ退避（localStorage `ryuryu_draft:*`、14日）と、閉じる前の確認
+- `lib/mj-concurrency.ts` — M/J保存の差分送信と競合判定。`PATCH /api/release-master/[no]` は `base` を受け取り、他の人が先に保存した項目があれば409
+- `lib/fetch-json.ts` — 画面のデータ取得。失敗を空の一覧にせずエラーとして扱う
 - `lib/uid.ts` / UID列 — アルバムの安定ID（改名に耐える行識別子。`scripts/assign-uids.ts` で採番）
 - `lib/ops/` — メンテ処理のコアロジック（scripts/ と app/api/admin/ の両方から呼ばれる共通実装）
 - `lib/playlist-sources.ts` — プレイリスト収録タグの取得対象（`playlists` シートのCRUD）
@@ -168,7 +173,7 @@ Release Master の `memo`（旧playlist）列に「そのアルバムがどの�
 
 ## 画像ジェネレーターのUI引き継ぎ
 
-ジェネレーター一式は2026-09-07にブランチ `wip/generator-integration`（commit `7453325`）へ退避済み。`main` は `a9ae701` のまま統合していないので、`git status` が空でも作業が無い意味にはならない。現在地は `git log --oneline main..HEAD` で確認する。ローカル `main` は `origin/main` より6コミット遅れているため、統合時は差分解消が必要。
+ジェネレーター一式は `main` に統合済み（2026-11時点。PR #16〜#19 など）。2026-09-07の退避ブランチ `wip/generator-integration` の記述は経緯として残る文書があるが、現在の作業は `main` から始める。
 
 Monthly／Japan画像ジェネレーターの機能版は`app/generator/`に実装済み。ページ遷移・情報設計・UI／ビジュアルデザインを変更する前に、[Claude Code向け引き継ぎプロンプト](docs/claude-generator-ui-handoff.md)を**最初から最後まで読み**、そこからリンクされた操作仕様・共有保存契約・UI実装記録も確認すること。引き継ぎには、初回UI変更で失われかけた機能と2026-09-07の受入で復元した機能がまとまっている。
 
@@ -177,6 +182,12 @@ Monthly／Japan画像ジェネレーターの機能版は`app/generator/`に実�
 Monthly／Japanの表紙（画像01）は作品のジャケットだけで作る。**Monthly（洋楽）は採用→掲載の先頭9作品を3×3で隙間なく、左上から行ごとに投稿順**（2026-10-08〜。`Layout.GRID`）、**Japanは先頭6作品を斜めの6枠に並べたコラージュ**（2026-10-07〜。`Layout.COLLAGE`）。版面は`coverLayoutOf(series)`で企画から決める。切り抜き位置は作品ごとの`coverFocusX`／`coverFocusY`。表紙の無い旧文書は「Release Masterから取り込み直す」で表紙が追加される。作品名の`[EP]`は取り込みで外さない。採用・掲載の並びは EP末尾 → 日付 → アーティスト名（英字a-z → 日本語あいうえお順。漢字はRelease Masterの`読み`列、無ければ辞書で推定。`lib/generator/artist-reading.ts`）。
 
 特に、Timeの空欄補完、Release Masterから文字情報を読み直す再取得導線（差分選択→ローカル下書き→作品ごとの保存）、字間・行送りの直接数値入力と`Mixed`表示、作品・背景の自動ロック取得と対象別version保存、プレビューからのおすすめ曲番号／曲名の個別選択、保存再送の`requestId`維持、heartbeat競合防止、並び順を含むローカル復旧、stickyと非表示タブでの画像準備は完成済み機能として維持する。「作品を編集」「背景を編集」の開始ボタンは再追加しない。
+
+## 運用
+
+データの置き場所・定期実行・障害時の確認順は [運用ガイド](docs/operations.md)。Cronの成否は `admin_logs` に `email=cron` で残る（`logCronResult`）。
+
+環境変数（Vercel Production）: Google（`GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`・`GOOGLE_SERVICE_ACCOUNT_KEY`）、Sheets（`GOOGLE_SPREADSHEET_ID`・`RELEASE_MASTER_SPREADSHEET_ID`）、認証（`NEXTAUTH_URL`・`NEXTAUTH_SECRET`・`ALLOWED_MEMBER_EMAILS`。ローカルは `AUTH_URL`/`NEXTAUTH_URL` を `http://127.0.0.1:3000` に揃える）、Spotify（`SPOTIFY_CLIENT_ID`・`SPOTIFY_CLIENT_SECRET`）、外部ツール用（`RELEASE_MASTER_API_TOKEN`）、Cron（`CRON_SECRET`）、ジェネレーター（`GENERATOR_ENABLED`・`SUPABASE_URL`・`SUPABASE_SERVICE_ROLE_KEY`、音声は `B2_KEY_ID`・`B2_APPLICATION_KEY`・`B2_BUCKET`・`B2_ENDPOINT`）。`VAPID_*` は未マージの Web Push 用。
 
 ## 注意事項
 

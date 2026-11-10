@@ -15,7 +15,7 @@
  * 誰が何を実行したかは admin_logs シートに追記する。
  */
 
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { auth } from "@/lib/auth";
 import { getGoogleAuth } from "@/lib/google-auth";
@@ -31,10 +31,17 @@ function isSameOrigin(request: Request): boolean {
   return !site || site === "same-origin";
 }
 
+/** このインスタンスで admin_logs の存在を確認済みか（記録のたびに spreadsheets.get を呼ばないため） */
+let logSheetReady = false;
+
 /** admin_logs シートが無ければ作る */
 async function ensureLogSheet(sheets: ReturnType<typeof google.sheets>, spreadsheetId: string) {
+  if (logSheetReady) return;
   const meta = await sheets.spreadsheets.get({ spreadsheetId });
-  if (meta.data.sheets?.some((s) => s.properties?.title === LOG_SHEET)) return;
+  if (meta.data.sheets?.some((s) => s.properties?.title === LOG_SHEET)) {
+    logSheetReady = true;
+    return;
+  }
 
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
@@ -46,6 +53,20 @@ async function ensureLogSheet(sheets: ReturnType<typeof google.sheets>, spreadsh
     valueInputOption: "RAW",
     requestBody: { values: [["timestamp", "email", "action", "result", "detail"]] },
   });
+  logSheetReady = true;
+}
+
+/**
+ * 応答を返した後も記録を最後まで実行させる。
+ * void で投げっぱなしにすると、関数が応答後に止められたときに記録が落ちる（Vercelの関数）。
+ * after() はリクエストの外（スクリプト・テスト）では使えないので、その場合は従来どおり投げっぱなしにする。
+ */
+function logAfterResponse(...args: Parameters<typeof logAdminAction>) {
+  try {
+    after(() => logAdminAction(...args));
+  } catch {
+    void logAdminAction(...args);
+  }
 }
 
 /**
@@ -55,7 +76,7 @@ async function ensureLogSheet(sheets: ReturnType<typeof google.sheets>, spreadsh
 export async function logAdminAction(
   email: string,
   action: string,
-  result: "ok" | "denied",
+  result: "ok" | "denied" | "failed",
   detail: unknown = {}
 ): Promise<void> {
   try {
@@ -78,6 +99,14 @@ export async function logAdminAction(
   }
 }
 
+/**
+ * 定期実行（Vercel Cron）の結果を admin_logs に残す。email 列は "cron"。
+ * Vercel は Cron の失敗を知らせないので、失敗が result=failed の行として残るようにする。
+ */
+export function logCronResult(name: string, ok: boolean, detail: unknown = {}) {
+  logAfterResponse("cron", `cron:${name}`, ok ? "ok" : "failed", detail);
+}
+
 export type AdminGate =
   | { ok: true; email: string }
   | { ok: false; response: NextResponse };
@@ -94,7 +123,7 @@ export async function guardAdmin(
   // ログイン前や外部からの呼び出しは誰でも起こせるのでログに残さない。
   // 残すのは「ログイン済みだが権限が足りない」ケースだけにする。
   const deny = (status: number, message: string, email = "", reason = ""): AdminGate => {
-    if (email) void logAdminAction(email, action, "denied", { reason });
+    if (email) logAfterResponse(email, action, "denied", { reason });
     return { ok: false, response: NextResponse.json({ error: message }, { status }) };
   };
 
@@ -108,6 +137,6 @@ export async function guardAdmin(
     return deny(401, "Googleで再ログインしてください", email, "google-reauth-required");
   }
 
-  void logAdminAction(email, action, "ok", detail);
+  logAfterResponse(email, action, "ok", detail);
   return { ok: true, email };
 }
