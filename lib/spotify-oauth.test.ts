@@ -6,6 +6,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ({
 })) }));
 import { GET as authorize } from "@/app/api/spotify-oauth/route";
 import { GET as callback } from "@/app/api/spotify-oauth/callback/route";
+import { DELETE as disconnect } from "@/app/api/spotify-oauth/refresh/route";
 
 const stateCookie = "ryuryu_spotify_state";
 const refreshCookie = "ryuryu_spotify_refresh";
@@ -150,5 +151,15 @@ describe("Spotify connection OAuth", () => {
     expect(html).not.toContain("details");
     expect(response.cookies.get(refreshCookie)).toBeUndefined();
     expect(response.cookies.get(stateCookie)?.maxAge).toBe(0);
+  });
+
+  it("expires the httpOnly refresh cookie when the member disconnects Spotify", async () => {
+    const response = await disconnect();
+    expect(response.status).toBe(200);
+    const setCookie = response.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain(`${refreshCookie}=;`);
+    expect(setCookie).toMatch(/Max-Age=0/i);
+    expect(setCookie).toContain("Path=/api/spotify-oauth");
+    expect(setCookie).toMatch(/HttpOnly/i);
   });
 });

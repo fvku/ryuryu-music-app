@@ -31,6 +31,20 @@ export function clearSpotifyToken() {
 }
 
 /**
+ * 接続の解除。端末のアクセストークンに加えて、サーバーの refresh_token Cookie も消す。
+ * Cookie の削除に失敗した場合は false（画面では解除済みにするが、再試行を促す）。
+ */
+export async function disconnectSpotify(): Promise<boolean> {
+  clearSpotifyToken();
+  try {
+    const res = await fetch("/api/spotify-oauth/refresh", { method: "DELETE", cache: "no-store" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * httpOnly Cookie の refresh_token を使ってアクセストークンを再発行する。
  * 成功時は localStorage を更新して新トークンを返す。
  * refresh_token が無い/失効している場合は localStorage を掃除して null を返す

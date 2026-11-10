@@ -6,6 +6,7 @@ import AlbumCard from "@/components/AlbumCard";
 import ReviewModal from "@/components/ReviewModal";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import { buildScoreSummary, getCombinedScore, getMyReviewedAlbumNos, getSummaryEntry, ScoreSummary } from "@/lib/score-utils";
+import { useDataChanged } from "@/lib/data-events";
 
 const GENRE_VALUES = ["邦楽", "洋楽"] as const;
 const UP_NEXT_MJ_EXCLUDE = ["J採用", "採用", "不採用"];
@@ -131,6 +132,19 @@ export default function HomePage() {
     }
     init();
   }, []);
+
+  // モーダルで保存した結果を一覧へ反映する（再読み込みしなくても点数・採用バッジが揃うように）
+  useDataChanged(["scores", "album"], (change) => {
+    if (change.kind === "album") {
+      setAlbums((prev) => prev.map((a) => (a.no === change.albumNo ? { ...a, ...change.patch } : a)));
+      return;
+    }
+    fetch("/api/scores").then((r) => (r.ok ? r.json() : null)).then((scores: Score[] | null) => {
+      if (!scores) return;
+      setAllScores(scores);
+      setScoreSummary(buildScoreSummary(scores));
+    }).catch(() => {});
+  });
 
   // フィルター変更をlocalStorageに保存
   useEffect(() => {

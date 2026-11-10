@@ -51,3 +51,16 @@ export async function GET(req: NextRequest) {
   }
   return out;
 }
+
+/**
+ * 「Spotifyの接続を解除する」。httpOnly の refresh_token Cookie は画面のスクリプトから消せないため、
+ * サーバーで期限切れにする。これが残っていると、解除した後も GET で再発行できてしまう。
+ * Cookie を消すだけなのでログイン状態は問わない（セッション切れでも解除できるように）。
+ * DELETE は別オリジンからはプリフライトで止まるので、外部サイトから解除させられることもない。
+ */
+export async function DELETE() {
+  const out = NextResponse.json({ ok: true });
+  out.headers.set("Cache-Control", "no-store");
+  out.cookies.set(REFRESH_COOKIE, "", refreshCookieOptions(0));
+  return out;
+}

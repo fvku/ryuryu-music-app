@@ -6,6 +6,7 @@ import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import { Bookmark, Recommendation } from "@/lib/sheets";
 import { buildScoreSummary, getMyReviewedAlbumNos, isSameAlbum, namesForUser, ScoreSummary } from "@/lib/score-utils";
 import { useNotifications } from "@/contexts/NotificationsContext";
+import { useDataChanged } from "@/lib/data-events";
 import { ReviewFilter } from "@/components/mypage/utils";
 
 export type Tab = "listen" | "mj" | "reviewed";
@@ -134,6 +135,29 @@ export function useMyPageData() {
     }
     init();
   }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // モーダルで保存した結果をマイページの各タブへ反映する
+  useDataChanged(["scores", "bookmarks", "album"], (change) => {
+    if (change.kind === "album") {
+      setAlbums((prev) => prev.map((a) => (a.no === change.albumNo ? { ...a, ...change.patch } : a)));
+      return;
+    }
+    if (change.kind === "bookmarks") {
+      fetch("/api/bookmarks").then((r) => (r.ok ? r.json() : null)).then((bm: Bookmark[] | null) => {
+        if (bm) setBookmarks(bm);
+      }).catch(() => {});
+      return;
+    }
+    const userEmail = session?.user?.email?.toLowerCase();
+    if (!userEmail) return;
+    fetch("/api/scores").then((r) => (r.ok ? r.json() : null)).then((allScores: Score[] | null) => {
+      if (!allScores) return;
+      const myNames = namesForUser(userEmail);
+      setMyScores(allScores.filter((s) => myNames.has(s.memberName.trim().toLowerCase())));
+      setMyReviewedAlbumNos(getMyReviewedAlbumNos(albums, allScores, userEmail));
+      setScoreSummary(buildScoreSummary(allScores));
+    }).catch(() => {});
+  });
 
   // レコメンドの新着は LISTEN > RECOMMEND を開いた時点で既読にする
   function handleTabChange(key: Tab) {

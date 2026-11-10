@@ -1,11 +1,13 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import { useSession } from "next-auth/react";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { EMAIL_TO_SHORT_NAME } from "@/lib/members";
 import { getCombinedScore, toMemberScores, filterMismatchedScores } from "@/lib/score-utils";
 import { useAlbumScores } from "@/hooks/useAlbumScores";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
+import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
 import { useBookmark } from "@/hooks/useBookmark";
 import { useMjAdoption } from "@/hooks/useMjAdoption";
 import ModalHeader from "@/components/review-modal/ModalHeader";
@@ -31,7 +33,11 @@ interface ReviewModalProps {
 export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: ReviewModalProps) {
   const { data: session, status } = useSession();
   const { scores, loadingScores, refetchScores } = useAlbumScores(album);
-  const { dragY, isDragging, headerTouchHandlers } = useModalDismiss(onClose);
+  // レビューの書きかけがあるときは、閉じる前に確認する
+  const [reviewDirty, setReviewDirty] = useState(false);
+  const handleDirtyChange = useCallback((d: boolean) => setReviewDirty(d), []);
+  const guardedClose = useUnsavedGuard(reviewDirty, onClose);
+  const { dragY, isDragging, headerTouchHandlers } = useModalDismiss(guardedClose);
   const { bookmarked, bookmarkLoading, toggleBookmark } = useBookmark(album, status);
   const mj = useMjAdoption(album);
 
@@ -58,7 +64,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
       style={{ backgroundColor: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => { if (e.target === e.currentTarget) guardedClose(); }}
     >
       <div
         className="w-full sm:max-w-lg max-h-[92vh] sm:max-h-[88vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl"
@@ -75,7 +81,7 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
           bookmarked={bookmarked}
           bookmarkLoading={bookmarkLoading}
           onToggleBookmark={toggleBookmark}
-          onClose={onClose}
+          onClose={guardedClose}
           touchHandlers={headerTouchHandlers}
         />
 
@@ -111,6 +117,8 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
             myShortName={myShortName}
             sessionUserName={session?.user?.name}
             onScoresChanged={refetchScores}
+            myEmail={myEmail}
+            onDirtyChange={handleDirtyChange}
           />
         </div>
       </div>

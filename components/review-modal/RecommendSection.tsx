@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { EMAIL_TO_SHORT_NAME } from "@/lib/members";
+import { notifyDataChanged } from "@/lib/data-events";
 
 const ALL_MEMBERS: { email: string; name: string }[] = Object.entries(EMAIL_TO_SHORT_NAME).map(([email, name]) => ({ email, name }));
 
@@ -41,6 +42,7 @@ export default function RecommendSection({ album, coverUrl, myEmail }: Recommend
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "レコメンドに失敗しました");
       setRecommendSuccess(true);
+      notifyDataChanged({ kind: "recommendations", albumNo: album.no });
       setIsRecommending(false);
       setRecommendMessage("");
       setMentionedEmails([]);
