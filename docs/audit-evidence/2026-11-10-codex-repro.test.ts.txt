@@ -1,0 +1,59 @@
+import { beforeEach, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server.js';
+const m = vi.hoisted(() => ({ auth:vi.fn(), allScores:vi.fn(), albumScores:vi.fn(), recs:vi.fn(), hasScore:vi.fn(), init:vi.fn(), addScore:vi.fn(), updateScore:vi.fn(), rmWrite:vi.fn(), rmRows:vi.fn(), sheetGet:vi.fn(), sheetUpdate:vi.fn(), sheetBatch:vi.fn(), sheetClear:vi.fn(), assign:vi.fn(), backfill:vi.fn() }));
+vi.mock('@/lib/auth',()=>({auth:m.auth}));
+vi.mock('@/lib/api-token',()=>({isAuthorized:vi.fn(async()=>true)}));
+vi.mock('@/lib/sheets',()=>({getAllScores:m.allScores,getScoresForAlbum:m.albumScores,getAllRecommendations:m.recs,getRecommendationsForUser:m.recs,hasScore:m.hasScore,initScoresSheet:m.init,initRecommendationsSheet:m.init,addScore:m.addScore,updateScore:m.updateScore}));
+vi.mock('@/lib/release-master',()=>({writeScoreToReleaseMaster:m.rmWrite,getReleaseMasterScoreRows:m.rmRows,getWriteAuth:()=>({})}));
+vi.mock('@/lib/google-auth',()=>({getGoogleAuth:()=>({})}));
+vi.mock('@/lib/ops/assign-uids',()=>({assignUids:m.assign}));
+vi.mock('@/lib/ops/backfill-album-uids',()=>({backfillAlbumUids:m.backfill}));
+vi.mock('googleapis',()=>({google:{sheets:()=>({spreadsheets:{values:{get:m.sheetGet,update:m.sheetUpdate,batchUpdate:m.sheetBatch,batchClear:m.sheetClear}}})}}));
+import { GET as scoresGet } from '@/app/api/scores/route';
+import { GET as scoreGet, POST as scorePost, PUT as scorePut } from '@/app/api/scores/[albumNo]/route';
+import { GET as recGet } from '@/app/api/recommendations/route';
+import { GET as syncGet } from '@/app/api/cron/sync-release-master/route';
+import { GET as albumsGet } from '@/app/api/release-master/route';
+import { POST as albumPost } from '@/app/api/sheets/add-album/route';
+import { cached,invalidateCache } from '@/lib/api-cache';
+const actor='kohei.fuku0926@gmail.com';
+const post=(path:string,body:unknown,method='POST')=>new NextRequest('https://app.example'+path,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+beforeEach(()=>{
+  vi.clearAllMocks();m.auth.mockResolvedValue({user:{email:actor}});m.allScores.mockResolvedValue([]);m.albumScores.mockResolvedValue([]);m.recs.mockResolvedValue([]);m.hasScore.mockResolvedValue(false);m.addScore.mockImplementation(async s=>s);m.updateScore.mockImplementation(async(...args)=>({score:args[3],comment:args[4]}));m.rmWrite.mockResolvedValue(undefined);m.sheetUpdate.mockResolvedValue({});m.sheetBatch.mockResolvedValue({});m.sheetClear.mockResolvedValue({});m.assign.mockResolvedValue({assigned:0});m.backfill.mockResolvedValue({sheets:[]});vi.stubEnv('GOOGLE_SPREADSHEET_ID','fake-app-sheet');vi.stubEnv('RELEASE_MASTER_SPREADSHEET_ID','fake-rm-sheet');invalidateCache('scores','release-master','audit-cache');
+});
+it('unauthenticated score and recommendation GETs return fixture records',async()=>{
+ m.auth.mockResolvedValue(null);m.allScores.mockResolvedValue([{memberName:'fixture@example.com',comment:'private fixture'}]);m.albumScores.mockResolvedValue([{score:8}]);m.recs.mockResolvedValue([{recommenderId:'fixture@example.com',mentionedEmails:['other@example.com']}]);
+ const all=await scoresGet();const one=await scoreGet(new NextRequest('https://app.example/api/scores/1?title=A&artist=B'));const rec=await recGet(new NextRequest('https://app.example/api/recommendations'));
+ expect([all.status,one.status,rec.status]).toEqual([200,200,200]);expect(m.auth).not.toHaveBeenCalled();expect((await all.json())[0].comment).toBe('private fixture');
+});
+it('removing the score skips the Release Master write',async()=>{
+ const r=await scorePut(post('/api/scores/1',{score:null,comment:'new comment',albumTitle:'A',artistName:'B',albumUid:'uid-a'},'PUT'));
+ expect(r.status).toBe(200);expect(m.updateScore).toHaveBeenCalled();expect(m.rmWrite).not.toHaveBeenCalled();
+});
+it('sync accepts unauthenticated calls and overwrites the null score with the old RM value',async()=>{
+ m.auth.mockResolvedValue(null);m.rmRows.mockResolvedValue([{albumNo:'1',albumTitle:'A',artistName:'B',memberScores:{[actor]:'8 old'}}]);m.allScores.mockResolvedValue([{albumTitle:'A',artistName:'B',memberName:actor,score:null,comment:'new comment',submittedAt:'2026-11-10T00:00:00Z'}]);
+ m.sheetGet.mockResolvedValue({data:{values:[['albumNo','memberEmail','cellValue','detectedAt'],['1',actor,'8 old','2020-01-01T00:00:00Z']]}});
+ const r=await syncGet();expect(r.status).toBe(200);expect(m.auth).not.toHaveBeenCalled();expect(m.updateScore).toHaveBeenCalledWith('A','B',actor,8,'old',expect.any(Array),'2020-01-01T00:00:00Z');
+});
+it('concurrent review requests both pass double checking and append',async()=>{
+ const body={score:7,comment:'fixture',albumTitle:'A',artistName:'B',albumUid:'uid-a'};
+ const r=await Promise.all([scorePost(post('/api/scores/1',body),{params:Promise.resolve({albumNo:'1'})}),scorePost(post('/api/scores/1',body),{params:Promise.resolve({albumNo:'1'})})]);expect(r.map(x=>x.status)).toEqual([201,201]);expect(m.addScore).toHaveBeenCalledTimes(2);
+});
+it('Kaede RM column is omitted from the album response',async()=>{
+ m.sheetGet.mockResolvedValue({data:{values:[['No.','日付','アルバム名','アーティスト','Kohei','Kaede','UID'],['1','2026/11/01','A','B','7','9','uid-a']]}});
+ const r=await albumsGet(new NextRequest('https://app.example/api/release-master'));const body=await r.json();expect(body[0].legacyScores).toEqual([{name:'Kohei',value:'7'}]);
+});
+it('invalidation during a pending read repopulates stale cache',async()=>{
+ let resolve!:(v:string)=>void;const p=cached('audit-cache',60000,()=>new Promise<string>(r=>resolve=r));invalidateCache('audit-cache');resolve('old snapshot');await p;const refetch=vi.fn(async()=>'new snapshot');expect(await cached('audit-cache',60000,refetch)).toBe('old snapshot');expect(refetch).not.toHaveBeenCalled();
+});
+it('two concurrent album additions choose and overwrite the same row',async()=>{
+ m.sheetGet.mockImplementation(async({range})=>({data:{values:range.includes('1:1')?[['No.','日付','アルバム名','アーティスト','unused','洋邦','Time','Spotify','spotifyカバー','UID']]:[['1','2026/11/01','Existing','Artist']]}}));
+ const body=(title:string)=>({title,artist:'Artist',releaseDate:'2026-11-02',trackCount:10,totalDurationMs:10000,coverUrl:'https://example.com/a.jpg',spotifyUrl:'https://open.spotify.com/album/fixture'});
+ const result=await Promise.all([albumPost(post('/api/sheets/add-album',body('New A'))),albumPost(post('/api/sheets/add-album',body('New B')))]);expect(result.map(x=>x.status)).toEqual([200,200]);
+ const batches=m.sheetBatch.mock.calls.map(c=>c[0].requestBody.data);expect(batches.map(b=>b.find(x=>x.range.includes('C3')).values[0][0])).toEqual(['New A','New B']);
+});
+
+it('an entirely empty review is accepted and stored', async()=>{
+ const r=await scorePost(post('/api/scores/1',{score:null,comment:'',albumTitle:'A',artistName:'B',albumUid:'uid-a'}),{params:Promise.resolve({albumNo:'1'})});
+ expect(r.status).toBe(201);expect(m.addScore).toHaveBeenCalledWith(expect.objectContaining({score:null,comment:''}));
+});
