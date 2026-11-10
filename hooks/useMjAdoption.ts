@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ReleaseMasterAlbum } from "@/lib/types";
+import { notifyDataChanged } from "@/lib/data-events";
 
 /**
  * M/J採用値の表示・選択ピッカー・確認ダイアログの状態管理。
@@ -24,6 +25,7 @@ export function useMjAdoption(album: ReleaseMasterAlbum) {
       });
       if (!res.ok) throw new Error((await res.json()).error || "更新失敗");
       setMjAdoption(mjPending);
+      notifyDataChanged({ kind: "album", albumNo: album.no, patch: { mjAdoption: mjPending } });
     } catch (e) {
       alert(e instanceof Error ? e.message : "更新に失敗しました");
     } finally {

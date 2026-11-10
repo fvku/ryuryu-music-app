@@ -4,7 +4,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { getSpotifyToken, saveSpotifyToken, clearSpotifyToken, openSpotifyAuthPopup, spotifyAuthErrorMessage } from "@/lib/spotify-token";
+import { getSpotifyToken, saveSpotifyToken, disconnectSpotify, openSpotifyAuthPopup, spotifyAuthErrorMessage } from "@/lib/spotify-token";
 
 export default function SettingsPage() {
   const { data: session, status } = useSession();
@@ -38,9 +38,11 @@ export default function SettingsPage() {
     );
   }
 
-  function handleDisconnectSpotify() {
-    clearSpotifyToken();
+  async function handleDisconnectSpotify() {
+    setSpotifyError("");
     setSpotifyToken(null);
+    const ok = await disconnectSpotify();
+    if (!ok) setSpotifyError("この端末の接続は解除しましたが、サーバー側の解除に失敗しました。通信状態を確認して、もう一度「接続」→「解除」をお試しください");
   }
 
   return (

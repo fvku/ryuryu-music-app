@@ -7,6 +7,7 @@ import { ReleaseMasterAlbum } from "@/lib/types";
 import { buildHeaderMap, findMissingColumns, getCol, getWriteCol, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
+import { findMjConflicts, MjValues } from "@/lib/mj-concurrency";
 
 export const dynamic = "force-dynamic";
 
@@ -103,7 +104,7 @@ export async function PATCH(request: NextRequest) {
     if (!gate.ok) return gate.response;
 
     const body = await request.json();
-    const { mjAdoption, mjData, mjAssign, albumMeta, uid, title, artist } = body;
+    const { mjAdoption, mjData, mjAssign, albumMeta, uid, title, artist, base } = body;
     if (mjAdoption === undefined && mjData === undefined && mjAssign === undefined && albumMeta === undefined) {
       return NextResponse.json({ error: "mjAdoption, mjData, mjAssign, または albumMeta が必要です" }, { status: 400 });
     }
@@ -147,8 +148,13 @@ export async function PATCH(request: NextRequest) {
     const sheetRow = rowIndex + 2;
 
     // ★ 書き込み前に必要列の存在チェック
+    // mjData は送られた項目だけを書く（変えていない項目を古い値で戻さないため）
+    const mjFieldCols: Record<string, string> = {
+      trackNo: SHEET_COL.MJ_TRACK_NO, trackName: SHEET_COL.MJ_TRACK, startTime: SHEET_COL.START_TIME, mjText: SHEET_COL.MJ_TEXT,
+    };
+    const mjDataObj = (mjData ?? {}) as Record<string, string | undefined>;
     const requiredForMjAdoption = mjAdoption !== undefined ? [SHEET_COL.MJ_ADOPTION] : [];
-    const requiredForMjData     = mjData     !== undefined ? [SHEET_COL.MJ_TRACK_NO, SHEET_COL.MJ_TRACK, SHEET_COL.START_TIME, SHEET_COL.MJ_TEXT] : [];
+    const requiredForMjData     = Object.keys(mjFieldCols).filter((k) => mjDataObj[k] !== undefined).map((k) => mjFieldCols[k]);
     const requiredForMjAssign   = mjAssign   !== undefined ? [SHEET_COL.MJ_ASSIGN] : [];
     const missing = findMissingColumns(col, [...requiredForMjAdoption, ...requiredForMjData, ...requiredForMjAssign]);
     // albumMeta列はオプション（見つからなければスキップ）
@@ -158,6 +164,32 @@ export async function PATCH(request: NextRequest) {
         { error: "列が見つかりません", errorCode: "COLUMN_NOT_FOUND", missing },
         { status: 422 }
       );
+    }
+
+    // 開いた時点の値（base）が送られていれば、他の人がその後に同じ項目を書き換えていないか確かめる
+    const row = dataRows[rowIndex];
+    const cellOf = (name: string) => {
+      const idx = getWriteCol(col, name);
+      return idx >= 0 ? String(row[idx] ?? "") : "";
+    };
+    const metaObj = (albumMeta ?? {}) as { genreMemo?: string; country?: string };
+    const requested: MjValues = {
+      mjTrackNo: mjDataObj.trackNo, mjTrack: mjDataObj.trackName, mjStartTime: mjDataObj.startTime, mjText: mjDataObj.mjText,
+      genreMemo: metaObj.genreMemo, country: metaObj.country,
+    };
+    if (base && typeof base === "object") {
+      const current: MjValues = {
+        mjTrackNo: cellOf(SHEET_COL.MJ_TRACK_NO), mjTrack: cellOf(SHEET_COL.MJ_TRACK),
+        mjStartTime: cellOf(SHEET_COL.START_TIME), mjText: cellOf(SHEET_COL.MJ_TEXT),
+        genreMemo: cellOf(SHEET_COL.GENRE_MEMO), country: cellOf(SHEET_COL.COUNTRY),
+      };
+      const conflicts = findMjConflicts(requested, base as MjValues, current);
+      if (conflicts.length > 0) {
+        return NextResponse.json(
+          { error: "他の人が先に保存した内容があります", errorCode: "CONFLICT", conflicts, current },
+          { status: 409 }
+        );
+      }
     }
 
     if (mjAdoption !== undefined) {
@@ -171,28 +203,18 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (mjData !== undefined) {
-      const { trackNo, trackName, startTime, mjText } = mjData as {
-        trackNo: string;
-        trackName: string;
-        startTime: string;
-        mjText: string;
-      };
-      const cTrackNo    = indexToColumnLetter(col[SHEET_COL.MJ_TRACK_NO]);
-      const cTrack      = indexToColumnLetter(col[SHEET_COL.MJ_TRACK]);
-      const cStartTime  = indexToColumnLetter(col[SHEET_COL.START_TIME]);
-      const cMjText     = indexToColumnLetter(col[SHEET_COL.MJ_TEXT]);
-      await sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId,
-        requestBody: {
-          valueInputOption: "RAW",
-          data: [
-            { range: `'Release Master'!${cTrackNo}${sheetRow}`,   values: [[trackNo    ?? ""]] },
-            { range: `'Release Master'!${cTrack}${sheetRow}`,     values: [[trackName  ?? ""]] },
-            { range: `'Release Master'!${cStartTime}${sheetRow}`, values: [[startTime  ?? ""]] },
-            { range: `'Release Master'!${cMjText}${sheetRow}`,    values: [[mjText     ?? ""]] },
-          ],
-        },
-      });
+      const data = Object.keys(mjFieldCols)
+        .filter((k) => mjDataObj[k] !== undefined)
+        .map((k) => ({
+          range: `'Release Master'!${indexToColumnLetter(col[mjFieldCols[k]])}${sheetRow}`,
+          values: [[mjDataObj[k] ?? ""]],
+        }));
+      if (data.length > 0) {
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          requestBody: { valueInputOption: "RAW", data },
+        });
+      }
     }
 
     if (mjAssign !== undefined) {

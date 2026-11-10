@@ -14,6 +14,21 @@
       "port": 3456
     },
     {
+      "name": "ryuryu-dev-oauth",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--hostname",
+        "127.0.0.1",
+        "--port",
+        "3000"
+      ],
+      "port": 3000,
+      "url": "http://127.0.0.1:3000"
+    },
+    {
       "name": "generator-ui-check-3457",
       "runtimeExecutable": "npx",
       "runtimeArgs": [

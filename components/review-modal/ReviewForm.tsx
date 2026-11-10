@@ -1,9 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { signIn } from "next-auth/react";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import { AuthStatus, NOSCORE_MIN, getScoreColor } from "./utils";
+import { clearDraft, draftKey, loadDraft, saveDraft } from "@/lib/drafts";
+import { notifyDataChanged } from "@/lib/data-events";
+
+interface ReviewDraft {
+  rawSlider: number;
+  comment: string;
+  editing: boolean;
+}
 
 interface ReviewFormProps {
   album: ReleaseMasterAlbum;
@@ -14,10 +22,14 @@ interface ReviewFormProps {
   sessionUserName: string | null | undefined;
   /** 投稿・更新成功後にスコア一覧を再取得する（親の refetchScores） */
   onScoresChanged: () => Promise<void>;
+  /** 本人のメール。下書きの保存先を本人ごとに分ける */
+  myEmail: string | null;
+  /** 未保存の入力があるかを親（閉じる操作の確認）へ伝える */
+  onDirtyChange: (dirty: boolean) => void;
 }
 
 /** レビュー投稿カード（ログイン誘導・投稿済み表示・スライダーフォーム） */
-export default function ReviewForm({ album, status, myScore, alreadyReviewed, myShortName, sessionUserName, onScoresChanged }: ReviewFormProps) {
+export default function ReviewForm({ album, status, myScore, alreadyReviewed, myShortName, sessionUserName, onScoresChanged, myEmail, onDirtyChange }: ReviewFormProps) {
   const [rawSlider, setRawSlider] = useState<number>(NOSCORE_MIN);
   const isNoScore = rawSlider < 0;
   const score: number | null = isNoScore ? null : Math.round(Math.max(0, rawSlider) * 2) / 2;
@@ -36,9 +48,53 @@ export default function ReviewForm({ album, status, myScore, alreadyReviewed, my
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
+  const draftStorageKey = myEmail ? draftKey("review", album, myEmail) : null;
+  const [draftOffer, setDraftOffer] = useState<ReviewDraft | null>(() =>
+    draftStorageKey ? loadDraft<ReviewDraft>(draftStorageKey)?.value ?? null : null
+  );
+  const trimmedComment = comment.trim();
+  const isEmptyReview = score === null && trimmedComment === "";
+  const dirty = isEditing
+    ? !!myScore && (score !== myScore.score || trimmedComment !== (myScore.comment || "").trim())
+    : !alreadyReviewed && !isEmptyReview;
+
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+
+  // 書きかけをこの端末に退避する（投稿・更新に成功したら消す）
+  useEffect(() => {
+    if (!draftStorageKey || !dirty) return;
+    const timer = setTimeout(() => saveDraft<ReviewDraft>(draftStorageKey, { rawSlider, comment, editing: isEditing }), 400);
+    return () => clearTimeout(timer);
+  }, [draftStorageKey, dirty, rawSlider, comment, isEditing]);
+
+  function restoreDraft(d: ReviewDraft) {
+    setRawSlider(d.rawSlider);
+    setComment(d.comment);
+    if (alreadyReviewed) setIsEditing(true);
+    setSubmitSuccess(false);
+    setDraftOffer(null);
+  }
+
+  function discardDraft() {
+    if (draftStorageKey) clearDraft(draftStorageKey);
+    setDraftOffer(null);
+  }
+
+  function afterSaved() {
+    if (draftStorageKey) clearDraft(draftStorageKey);
+    setDraftOffer(null);
+    notifyDataChanged({ kind: "scores", albumNo: album.no });
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submittingRef.current) return;
+    if (isEmptyReview) {
+      setSubmitError("スコアかコメントのどちらかを入れてください");
+      return;
+    }
     submittingRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
@@ -54,6 +110,7 @@ export default function ReviewForm({ album, status, myScore, alreadyReviewed, my
       setRawSlider(NOSCORE_MIN);
       setComment("");
       setIsEditing(false);
+      afterSaved();
       await onScoresChanged();
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "エラーが発生しました");
@@ -79,6 +136,7 @@ export default function ReviewForm({ album, status, myScore, alreadyReviewed, my
       if (!res.ok) throw new Error(data.error || "更新に失敗しました");
       setSubmitSuccess(true);
       setIsEditing(false);
+      afterSaved();
       await onScoresChanged();
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "エラーが発生しました");
@@ -123,6 +181,16 @@ export default function ReviewForm({ album, status, myScore, alreadyReviewed, my
             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>ログイン中：</span>
             <span className="text-xs font-medium" style={{ color: "var(--accent)" }}>{myShortName ?? sessionUserName}</span>
           </div>
+
+          {draftOffer && (
+            <div role="status" className="rounded-xl p-3 mb-3 border flex flex-col gap-2" style={{ backgroundColor: "rgba(139,92,246,0.1)", borderColor: "rgba(139,92,246,0.35)" }}>
+              <p className="text-xs" style={{ color: "var(--text-primary)" }}>この端末に投稿していない書きかけがあります。</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => restoreDraft(draftOffer)} className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ backgroundColor: "var(--accent)", color: "white" }}>書きかけを戻す</button>
+                <button type="button" onClick={discardDraft} className="px-3 py-1.5 rounded-lg text-xs border" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>破棄する</button>
+              </div>
+            </div>
+          )}
 
           {alreadyReviewed && !isEditing ? (
             <div>
@@ -187,7 +255,7 @@ export default function ReviewForm({ album, status, myScore, alreadyReviewed, my
                       キャンセル
                     </button>
                   )}
-                  <button type="submit" disabled={submitting} className="flex-1 py-3 rounded-xl font-medium text-sm disabled:opacity-50" style={{ backgroundColor: "var(--accent)", color: "white" }}>
+                  <button type="submit" disabled={submitting || (!isEditing && isEmptyReview)} className="flex-1 py-3 rounded-xl font-medium text-sm disabled:opacity-50" style={{ backgroundColor: "var(--accent)", color: "white" }}>
                     {submitting ? (isEditing ? "更新中..." : "投稿中...") : (isEditing ? "更新する" : "投稿する")}
                   </button>
                 </div>

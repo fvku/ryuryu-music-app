@@ -9,6 +9,8 @@ interface TrackSelectorProps {
   loadingTracks: boolean;
   trackError: string | null;
   selectedTrack: SpotifyTrack | null;
+  /** 曲一覧を読めず、保存済みの曲を画面で選択状態にできないときの表示（保存しても消えない） */
+  savedTrackLabel?: string | null;
   onSelectTrack: (track: SpotifyTrack | null) => void;
 }
 
@@ -19,6 +21,7 @@ export default function TrackSelector({
   loadingTracks,
   trackError,
   selectedTrack,
+  savedTrackLabel,
   onSelectTrack,
 }: TrackSelectorProps) {
   return (
@@ -31,6 +34,14 @@ export default function TrackSelector({
           <span className="text-xs font-bold" style={{ color: "var(--accent)" }}>#{selectedTrack.trackNumber}</span>
           <span className="text-sm font-medium flex-1 truncate" style={{ color: "white" }}>{selectedTrack.name}</span>
           <button type="button" onClick={() => onSelectTrack(null)} className="text-xs px-1.5 py-0.5 rounded" style={{ color: "var(--text-secondary)" }}>外す</button>
+        </div>
+      )}
+      {!selectedTrack && savedTrackLabel && (
+        <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-xl" style={{ backgroundColor: "rgba(255,255,255,0.05)", border: "1px solid var(--border-subtle)" }}>
+          <span className="text-xs flex-1 truncate" style={{ color: "var(--text-primary)" }}>保存済み：{savedTrackLabel}</span>
+          {!loadingTracks && (
+            <button type="button" onClick={() => onSelectTrack(null)} className="text-xs px-1.5 py-0.5 rounded" style={{ color: "var(--text-secondary)" }}>外す</button>
+          )}
         </div>
       )}
       {!effectiveSpotifyUrl ? (

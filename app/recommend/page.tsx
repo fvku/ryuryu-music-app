@@ -7,6 +7,7 @@ import { Recommendation } from "@/lib/sheets";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import ReviewModal from "@/components/ReviewModal";
 import { getDisplayName } from "@/lib/members";
+import { useDataChanged } from "@/lib/data-events";
 
 type TimelineItem =
   | { type: "recommendation"; data: Recommendation; createdAt: string }
@@ -132,6 +133,22 @@ export default function RecommendPage() {
     }
     init();
   }, []);
+
+  // モーダルからレビュー・レコメンドを送ったら、タイムラインを取り直して先頭に出す
+  useDataChanged(["scores", "recommendations"], () => {
+    Promise.all([fetch("/api/recommendations"), fetch("/api/scores")])
+      .then(async ([recRes, scoresRes]) => {
+        if (!recRes.ok || !scoresRes.ok) return;
+        const [recData, scoresData]: [Recommendation[], Score[]] = await Promise.all([recRes.json(), scoresRes.json()]);
+        const items: TimelineItem[] = [
+          ...recData.map((r) => ({ type: "recommendation" as const, data: r, createdAt: r.createdAt })),
+          ...scoresData.filter((s) => s.submittedAt).map((s) => ({ type: "review" as const, data: s, createdAt: s.submittedAt })),
+        ];
+        items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setTimeline(items);
+      })
+      .catch(() => {});
+  });
 
   if (loading) {
     return (

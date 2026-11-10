@@ -4,10 +4,17 @@ import { useEffect, useState } from "react";
 import { ReleaseMasterAlbum } from "@/lib/types";
 import { Recommendation } from "@/lib/sheets";
 import { getDisplayName } from "@/lib/members";
+import { useDataChanged } from "@/lib/data-events";
 
 /** このアルバムへの既存レコメンド一覧（fetchごと自己完結。0件なら何も表示しない） */
 export default function RecommendationList({ album }: { album: ReleaseMasterAlbum }) {
   const [albumRecs, setAlbumRecs] = useState<Recommendation[]>([]);
+  const [version, setVersion] = useState(0);
+
+  // このアルバムへレコメンドを送ったら一覧を取り直す
+  useDataChanged(["recommendations"], (c) => {
+    if (c.albumNo === album.no) setVersion((v) => v + 1);
+  });
 
   useEffect(() => {
     fetch(`/api/recommendations?albumTitle=${encodeURIComponent(album.title)}&artistName=${encodeURIComponent(album.artist)}&albumUid=${encodeURIComponent(album.uid)}`)
@@ -15,7 +22,7 @@ export default function RecommendationList({ album }: { album: ReleaseMasterAlbu
       .then((recs: Recommendation[]) =>
         setAlbumRecs(recs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
       );
-  }, [album.title, album.artist, album.uid]);
+  }, [album.title, album.artist, album.uid, version]);
 
   if (albumRecs.length === 0) return null;
 

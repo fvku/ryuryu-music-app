@@ -59,6 +59,10 @@ export async function POST(
       }
     }
 
+    if ((score === null || score === undefined) && !(typeof comment === "string" && comment.trim())) {
+      return NextResponse.json({ error: "スコアかコメントのどちらかを入れてください" }, { status: 400 });
+    }
+
     await initScoresSheet();
 
     const alreadyScored = await hasScore(albumTitle, artistName, memberName, altNames, albumUid);
