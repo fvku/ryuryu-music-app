@@ -39,6 +39,10 @@ Supabase は無料プランで、アクセスが無い日が続くと休止す�
 - Vercel の Production 環境変数に `VAPID_*` がある。これは未マージの `feat/web-push-notifications`（2026-10-26）用で、現在の main では使っていない。
 - 重複プロジェクト `ryuryu-music-app-rkvn` は、現在のCLIのスコープの一覧には出なかった（別チーム側にあるかは未確認）。
 
+## Release Master の並べ替え
+
+一部の列だけを選んで並べ替えると、右端のUID列が行とずれる。アプリはUIDでレビュー・ブックマーク・レコメンドを作品に結び付けているので、別の作品にレビューが出る（2026-11-10に本番で発生）。並べ替えるときは全列を選ぶ。起きてしまったら `npx tsx scripts/repair-album-uids.ts` で確認し、`--apply` で直す。
+
 ## 障害時の確認順
 
 1. `https://ryuryu-music-app.vercel.app/api/version` が返るか（デプロイが生きているか）。
