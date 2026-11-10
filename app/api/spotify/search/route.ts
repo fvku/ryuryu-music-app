@@ -1,9 +1,12 @@
+import { guardMember } from "@/lib/member-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { searchAlbums } from "@/lib/spotify";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const gate = await guardMember();
+  if (!gate.ok) return gate.response;
   const searchParams = request.nextUrl.searchParams;
   const query = searchParams.get("q");
 

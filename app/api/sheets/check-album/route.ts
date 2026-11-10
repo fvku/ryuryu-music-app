@@ -1,3 +1,4 @@
+import { guardMember } from "@/lib/member-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getWriteAuth } from "@/lib/release-master";
@@ -6,6 +7,8 @@ import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-head
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const gate = await guardMember();
+  if (!gate.ok) return gate.response;
   const { searchParams } = new URL(request.url);
   const spotifyId = searchParams.get("spotifyId");
   if (!spotifyId) {
@@ -58,6 +61,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ exists: false });
   } catch (error) {
     console.error("check-album failed:", error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: "登録状況の取得に失敗しました" }, { status: 500 });
   }
 }

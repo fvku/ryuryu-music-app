@@ -3,6 +3,15 @@
 
 export const REFRESH_COOKIE = "ryuryu_spotify_refresh";
 export const REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * 90; // 90日
+export const STATE_COOKIE = "ryuryu_spotify_state";
+export const STATE_COOKIE_MAX_AGE = 10 * 60; // 認可の往復に限り10分
+
+export function stateCookieOptions(maxAge: number) {
+  return {
+    ...refreshCookieOptions(maxAge),
+    path: "/api/spotify-oauth/callback",
+  };
+}
 
 export function refreshCookieOptions(maxAge: number) {
   return {

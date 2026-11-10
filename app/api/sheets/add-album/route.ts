@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
-import { auth } from "@/lib/auth";
+import { guardMember } from "@/lib/member-auth";
 import { getWriteAuth } from "@/lib/release-master";
 import { buildHeaderMap, indexToColumnLetter, SHEET_COL } from "@/lib/sheet-headers";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
@@ -33,8 +33,8 @@ function formatReleaseDate(releaseDate: string): string {
 
 export async function POST(request: NextRequest) {
   // Release Master へ行を追加するため、ログイン済みメンバーに限る（サインイン時に許可メンバーだけ通している）
-  const session = await auth();
-  if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+  const gate = await guardMember(request);
+  if (!gate.ok) return gate.response;
 
   try {
     const body = (await request.json()) as AddAlbumBody;
@@ -136,6 +136,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, no });
   } catch (error) {
     console.error("add-album failed:", error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: "アルバムの追加に失敗しました" }, { status: 500 });
   }
 }

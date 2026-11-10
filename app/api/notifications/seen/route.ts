@@ -1,25 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { guardMember } from "@/lib/member-auth";
 import { getAllNotificationSeen, setForYouSeenAt } from "@/lib/sheets";
 import { cached, invalidateCache, CACHE_KEY, CACHE_TTL } from "@/lib/api-cache";
 
 export const dynamic = "force-dynamic";
 
 // GET — ログイン中ユーザーのFor You既読時刻を返す
-export async function GET() {
-  const session = await auth();
-  if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+export async function GET(request: NextRequest) {
+  const gate = await guardMember(request);
+  if (!gate.ok) return gate.response;
 
   const all = await cached(CACHE_KEY.NOTIFICATION_SEEN, CACHE_TTL.NOTIFICATION_SEEN, getAllNotificationSeen);
-  const seenAt = all[session.user.email.toLowerCase()] || null;
+  const seenAt = all[gate.email] || null;
   return NextResponse.json({ seenAt });
 }
 
 // POST — For You既読時刻を更新。body.seenAt があればlocalStorageからの移行値として採用、
 // なければサーバー時刻で「今見た」として記録する
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
+  const gate = await guardMember(request);
+  if (!gate.ok) return gate.response;
 
   let seenAt = new Date().toISOString();
   try {
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     // body無し（通常の既読マーク）はサーバー時刻を使う
   }
 
-  await setForYouSeenAt(session.user.email, seenAt);
+  await setForYouSeenAt(gate.email, seenAt);
   invalidateCache(CACHE_KEY.NOTIFICATION_SEEN);
 
   return NextResponse.json({ seenAt });

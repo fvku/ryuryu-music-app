@@ -1,3 +1,4 @@
+import { guardMember } from "@/lib/member-auth";
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,8 @@ async function fetchFreshToken(): Promise<string> {
 }
 
 export async function GET(req: NextRequest) {
+  const gate = await guardMember();
+  if (!gate.ok) return gate.response;
   const { searchParams } = new URL(req.url);
   const spotifyUrl = searchParams.get("spotifyUrl");
   if (!spotifyUrl) {
@@ -57,6 +60,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(tracks);
   } catch (e) {
     console.error("Failed to fetch Spotify tracks:", e);
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: "トラックの取得に失敗しました" }, { status: 500 });
   }
 }

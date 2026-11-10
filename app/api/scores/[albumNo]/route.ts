@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { guardMember } from "@/lib/member-auth";
 import { getScoresForAlbum, addScore, hasScore, initScoresSheet, updateScore } from "@/lib/sheets";
 import { getMemberShortName } from "@/lib/members";
 import { writeScoreToReleaseMaster } from "@/lib/release-master";
@@ -10,6 +10,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
+    const gate = await guardMember();
+    if (!gate.ok) return gate.response;
     const { searchParams } = new URL(request.url);
     const albumTitle = searchParams.get("title") ?? "";
     const artistName = searchParams.get("artist") ?? "";
@@ -33,13 +35,11 @@ export async function POST(
   { params }: { params: Promise<{ albumNo: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
-    }
+    const gate = await guardMember(request);
+    if (!gate.ok) return gate.response;
 
     // email を正規識別子として保存。旧名前エントリとの照合に altNames を使用
-    const memberName = session.user.email.toLowerCase();
+    const memberName = gate.email;
     const shortName = getMemberShortName(memberName);
     const altNames = Object.entries(LEGACY_NAME_TO_EMAIL)
       .filter(([, email]) => email === memberName)
@@ -105,12 +105,10 @@ export async function POST(
 
 export async function PUT(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
-    }
+    const gate = await guardMember(request);
+    if (!gate.ok) return gate.response;
 
-    const memberName = session.user.email.toLowerCase();
+    const memberName = gate.email;
     const shortName = getMemberShortName(memberName);
     const altNames = Object.entries(LEGACY_NAME_TO_EMAIL)
       .filter(([, email]) => email === memberName)

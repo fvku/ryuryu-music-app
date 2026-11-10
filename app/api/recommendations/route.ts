@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { guardMember } from "@/lib/member-auth";
 import { getAllRecommendations, getRecommendationsForUser, addRecommendation, initRecommendationsSheet } from "@/lib/sheets";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
+    const gate = await guardMember();
+    if (!gate.ok) return gate.response;
     const { searchParams } = new URL(request.url);
     const forUser = searchParams.get("forUser");
 
     if (forUser === "me") {
-      const session = await auth();
-      if (!session?.user?.email) return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
-      const recs = await getRecommendationsForUser(session.user.email.toLowerCase());
+      const recs = await getRecommendationsForUser(gate.email);
       return NextResponse.json(recs);
     }
 
@@ -37,10 +37,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "ログインが必要です" }, { status: 401 });
-    }
+    const gate = await guardMember(request);
+    if (!gate.ok) return gate.response;
 
     const body = await request.json();
     const { albumNo, albumTitle, artistName, coverUrl, message, mentionedEmails, albumUid } = body as {
@@ -60,7 +58,7 @@ export async function POST(request: NextRequest) {
     await initRecommendationsSheet();
 
     const rec = await addRecommendation({
-      recommenderId: session.user.email.toLowerCase(),
+      recommenderId: gate.email,
       albumNo: albumNo || "",
       albumTitle,
       artistName,

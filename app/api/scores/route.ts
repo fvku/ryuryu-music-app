@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { guardMember } from "@/lib/member-auth";
 import { getAllScores } from "@/lib/sheets";
 import { cached, CACHE_KEY, CACHE_TTL } from "@/lib/api-cache";
 
@@ -6,6 +7,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    const gate = await guardMember();
+    if (!gate.ok) return gate.response;
     const scores = await cached(CACHE_KEY.SCORES, CACHE_TTL.SCORES, getAllScores);
     return NextResponse.json(scores);
   } catch (error) {

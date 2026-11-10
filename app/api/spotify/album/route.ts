@@ -1,3 +1,4 @@
+import { guardMember } from "@/lib/member-auth";
 import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,8 @@ async function fetchFreshToken(): Promise<string> {
 }
 
 export async function GET(request: NextRequest) {
+  const gate = await guardMember();
+  if (!gate.ok) return gate.response;
   const { searchParams } = new URL(request.url);
   const albumId = searchParams.get("id");
   if (!albumId) {
@@ -47,8 +50,7 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
-      const body = await response.text();
-      return NextResponse.json({ error: "Album not found", status: response.status, body }, { status: 404 });
+      return NextResponse.json({ error: "アルバム情報を取得できませんでした" }, { status: response.status === 404 ? 404 : 502 });
     }
 
     const data = await response.json();
@@ -97,6 +99,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Spotify album fetch failed:", error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: "アルバム情報の取得に失敗しました" }, { status: 500 });
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
+import { memberAccess } from "@/lib/member-access";
 
 /**
  * 外部ツール向けの共有トークン認証。
@@ -33,6 +34,5 @@ export function checkApiToken(request: NextRequest): boolean {
  */
 export async function isAuthorized(request: NextRequest): Promise<boolean> {
   if (checkApiToken(request)) return true;
-  const session = await auth();
-  return !!session?.user?.email;
+  return memberAccess(await auth()).ok;
 }
