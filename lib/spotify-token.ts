@@ -57,30 +57,81 @@ export function openSpotifyAuthPopup(
   onSuccess: (token: string, expiresIn: number) => void,
   onError?: (error: string) => void
 ) {
-  const popup = window.open(
-    "/api/spotify-oauth",
-    "spotify-auth",
-    "width=500,height=700,left=200,top=100"
-  );
+  let popup: Window | null = null;
+  let finished = false;
+  const timers: {
+    poll?: ReturnType<typeof setInterval>;
+    deadline?: ReturnType<typeof setTimeout>;
+    close?: ReturnType<typeof setTimeout>;
+  } = {};
+
+  function cleanup() {
+    window.removeEventListener("message", handleMessage);
+    clearInterval(timers.poll);
+    clearTimeout(timers.deadline);
+    clearTimeout(timers.close);
+  }
+
+  function fail(error: string) {
+    if (finished) return;
+    finished = true;
+    cleanup();
+    onError?.(error);
+  }
 
   function handleMessage(e: MessageEvent) {
-    // トークンを含むメッセージなので、必ず自オリジンからのものだけ受け取る
-    if (e.origin !== window.location.origin) return;
+    // オリジンに加えて、今回開いたポップアップからの結果だけを受け取る。
+    if (finished || !popup || e.origin !== window.location.origin || e.source !== popup) return;
     if (e.data?.type === "SPOTIFY_AUTH_SUCCESS") {
-      window.removeEventListener("message", handleMessage);
-      onSuccess(e.data.token as string, e.data.expiresIn as number);
+      if (typeof e.data.token !== "string" || !e.data.token
+        || typeof e.data.expiresIn !== "number" || !Number.isFinite(e.data.expiresIn) || e.data.expiresIn <= 0) {
+        fail("invalid_response");
+        return;
+      }
+      finished = true;
+      cleanup();
+      try {
+        onSuccess(e.data.token, e.data.expiresIn);
+      } catch {
+        // localStorageが使えない場合なども「接続中」のまま残さない。
+        onError?.("storage_unavailable");
+      }
     } else if (e.data?.type === "SPOTIFY_AUTH_ERROR") {
-      window.removeEventListener("message", handleMessage);
-      onError?.(e.data.error as string);
+      fail(typeof e.data.error === "string" ? e.data.error : "invalid_response");
     }
   }
 
+  // 先に購読して、素早いコールバックでも結果を取りこぼさない。
   window.addEventListener("message", handleMessage);
+  try {
+    popup = window.open("/api/spotify-oauth", "spotify-auth", "width=500,height=700,left=200,top=100");
+  } catch {
+    fail("popup_blocked");
+    return;
+  }
+  if (!popup) {
+    fail("popup_blocked");
+    return;
+  }
 
-  const timer = setInterval(() => {
-    if (popup?.closed) {
-      clearInterval(timer);
-      window.removeEventListener("message", handleMessage);
+  timers.poll = setInterval(() => {
+    try {
+      if (popup?.closed && !timers.close) {
+        // close直前に送られたpostMessageが先に届く余地を残す。
+        timers.close = setTimeout(() => fail("cancelled"), 250);
+      }
+    } catch {
+      // ブラウザのウィンドウ分離で参照できない場合も期限までは結果を待つ。
     }
   }, 500);
+  timers.deadline = setTimeout(() => fail("timeout"), 5 * 60 * 1000);
+}
+
+export function spotifyAuthErrorMessage(error: string): string {
+  if (error === "popup_blocked") return "ポップアップを許可して、もう一度接続してください";
+  if (error === "cancelled") return "接続が完了する前に画面が閉じられました。もう一度接続してください";
+  if (error === "timeout") return "接続がタイムアウトしました。画面を再読み込みして、もう一度接続してください";
+  if (error === "state_mismatch") return "接続の確認に失敗しました。同じURLのアプリを開き直して、もう一度接続してください";
+  if (error === "storage_unavailable") return "ブラウザに接続情報を保存できませんでした。ブラウザの設定を確認してください";
+  return "Spotifyへの接続に失敗しました。もう一度お試しください";
 }

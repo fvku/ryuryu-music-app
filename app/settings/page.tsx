@@ -4,7 +4,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { getSpotifyToken, saveSpotifyToken, clearSpotifyToken, openSpotifyAuthPopup } from "@/lib/spotify-token";
+import { getSpotifyToken, saveSpotifyToken, clearSpotifyToken, openSpotifyAuthPopup, spotifyAuthErrorMessage } from "@/lib/spotify-token";
 
 export default function SettingsPage() {
   const { data: session, status } = useSession();
@@ -32,7 +32,7 @@ export default function SettingsPage() {
         setConnectingSpotify(false);
       },
       (err) => {
-        setSpotifyError(err === "cancelled" ? "キャンセルされました" : "接続に失敗しました");
+        setSpotifyError(spotifyAuthErrorMessage(err));
         setConnectingSpotify(false);
       }
     );
@@ -136,7 +136,7 @@ export default function SettingsPage() {
                   M/J作業で曲を聴きながら再生開始位置を設定できます。Spotify Premium が必要です。
                 </p>
                 {spotifyError && (
-                  <p className="text-xs mb-3" style={{ color: "#ef4444" }}>{spotifyError}</p>
+                  <p role="alert" className="text-xs mb-3" style={{ color: "#ef4444" }}>{spotifyError}</p>
                 )}
                 <button
                   onClick={handleConnectSpotify}
