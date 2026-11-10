@@ -38,8 +38,9 @@ Supabase は無料プランで、アクセスが無い日が続くと休止す�
 ### Claude・Codexへの共有と定期確認
 
 - 管理画面の「AIへの報告文をコピー」で、処理名・成否・日時と調査依頼文をコピーし、ClaudeまたはCodexに貼り付ける。コピーだけではAIへ送信されない。
-- 両方のAIから使える読み取り専用コマンド: `npx tsx scripts/check-cron-status.ts`（機械向けは `--json`）。`.env.local` のアプリ用Sheetsの設定を使う。読み取り専用スコープで `admin_logs` のA〜D列だけを読み、シートの作成・変更・ログ追記は行わない。終了コードは0＝直近の記録はすべて成功、1＝要確認、2＝取得失敗。エラーの詳細や資格情報は出力しない。
-- AIの自動確認スケジュールは、このPRではまだ設定していない。画面の実装と、各AI側のタスク設定は別に行う。[Codexの定期タスク](https://learn.chatgpt.com/docs/automations?surface=app)や[Claude Codeのスケジュール実行](https://code.claude.com/docs/en/scheduled-tasks)でこのコマンドを実行する構成にできる。ローカルファイルを使うCodexの定期タスクは、Macとアプリが稼働している必要がある。
+- 両方のAIから使える読み取り専用コマンド: `node --import tsx scripts/check-cron-status.ts`（機械向けは `--json`、`npx tsx` でも実行可）。`.env.local` のアプリ用Sheetsの設定を使う。読み取り専用スコープで `admin_logs` のA〜D列だけを読み、シートの作成・変更・ログ追記は行わない。終了コードは0＝直近の記録はすべて成功、1＝要確認、2＝取得失敗。エラーの詳細や資格情報は出力しない。
+- 2026-11-11、**CodexとClaudeがそれぞれ毎日12:30 JSTに確認する**方針を決定。Codex側は「ryuryu-music 定期実行の確認」を有効にした。Claude側は画面操作ツールがウインドウを操作できず未登録のため、[登録用の依頼文と確認手順](cron-monitoring-setup.md)を用意した。登録が完了したら、この記録を更新する。
+- [Codexの定期タスク](https://learn.chatgpt.com/docs/automations?surface=app)と[Claude Code Desktopの定期タスク](https://code.claude.com/docs/en/desktop-scheduled-tasks)は、今回のローカルファイルを使う構成ではMacが起動・起床し、それぞれのアプリが稼働している必要がある。タスクの設定時刻は12:30だが、実行の開始には遅れが生じることがある。コマンドがcheckoutに無い場合は、ブランチを切り替えず監視不能として報告する。
 - 自動確認を設定するときは、変更のない異常を毎回通知せず、新しい異常・状態の変化・復旧・確認処理自体の失敗を知らせる。通知するかは前回の結果との比較で決める。AIは原因の確認と提案までとし、同じ作業フォルダの同時編集、本番Sheetsへの書き込み、Apps Scriptの変更、無承認のマージは行わない。
 
 ## 本番の状態（2026-11-10確認）
