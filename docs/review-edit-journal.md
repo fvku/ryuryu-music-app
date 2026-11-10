@@ -12,7 +12,7 @@ Release Masterの手入力を同じスプレッドシートの `_review_edit_log
 2. 下のタブ区切りデータをコピーしてA1へ貼り付ける。1行目がA〜J列に分かれることを確認する。
 
    ```text
-   No.	アルバム名	アーティスト	UID	Kohei	Meri	Hanawa	Eddie	Kwisoo	Kaede
+   No.	Title	Artist	UID	Kohei	Meri	Hanawa	Eddie	Kwisoo	Kaede
    test-1	Review journal test	Test artist	test0001	7 before
    ```
 

@@ -121,8 +121,8 @@ function recordRyuryuReviewEdit(event) {
           JSON.stringify(observed), singleCell ? "single_event" : "range_snapshot",
           issues.length ? "needs_review:" + issues.join(",") : "recorded", cell,
           JSON.stringify(String(row[columns["No."]] || "")),
-          JSON.stringify(String(row[columns["アルバム名"]] || "")),
-          JSON.stringify(String(row[columns["アーティスト"]] || "")),
+          JSON.stringify(String(row[columns.title] || "")),
+          JSON.stringify(String(row[columns.artist] || "")),
         ]);
       });
     });
@@ -136,17 +136,31 @@ function recordRyuryuReviewEdit(event) {
   }
 }
 
+/** 作品名・アーティスト名の列は、本番の見出し（Title / Artist）と旧来の日本語の見出しのどちらでも読む */
+const RYURYU_REVIEW_ALIASES = {
+  title: ["Title", "アルバム名"],
+  artist: ["Artist", "アーティスト"],
+};
+
 function ryuryuReviewColumns_(headers) {
   const columns = {};
-  const required = ["UID", "No.", "アルバム名", "アーティスト"].concat(Object.keys(RYURYU_REVIEW_JOURNAL.members));
+  const required = ["UID", "No."].concat(Object.keys(RYURYU_REVIEW_JOURNAL.members));
+  const aliasOf = {};
+  Object.keys(RYURYU_REVIEW_ALIASES).forEach(function (key) {
+    RYURYU_REVIEW_ALIASES[key].forEach(function (name) { aliasOf[name] = key; });
+  });
   headers.forEach(function (header, index) {
     const name = String(header).trim();
-    if (!required.includes(name)) return;
-    if (columns[name] !== undefined) throw new Error("必要な列名が重複しています: " + name);
-    columns[name] = index;
+    const key = aliasOf[name] || (required.includes(name) ? name : null);
+    if (!key) return;
+    if (columns[key] !== undefined) throw new Error("必要な列名が重複しています: " + name);
+    columns[key] = index;
   });
-  required.forEach(function (name) {
-    if (columns[name] === undefined) throw new Error("必要な列がありません: " + name);
+  required.concat(Object.keys(RYURYU_REVIEW_ALIASES)).forEach(function (key) {
+    if (columns[key] === undefined) {
+      const label = RYURYU_REVIEW_ALIASES[key] ? RYURYU_REVIEW_ALIASES[key].join(" または ") : key;
+      throw new Error("必要な列がありません: " + label);
+    }
   });
   return columns;
 }

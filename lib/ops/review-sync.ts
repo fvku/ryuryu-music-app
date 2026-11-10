@@ -287,7 +287,7 @@ export type ResolveAction = "adopt_rm" | "keep_app";
 /**
  * 管理画面からの確認待ちの解消。
  * 画面に出ていた値（expected）と今のシートの値が違えば、別の変更が入ったので何もせずに知らせる。
- * - adopt_rm: Release Master の内容をアプリへ（空セルならアプリのレビューを消す）。時刻は履歴があればその時刻、無ければ今
+ * - adopt_rm: Release Master の内容をアプリへ（空セルならアプリのレビューを消す）。時刻は履歴があればその時刻、無ければアプリの元の投稿日時
  * - keep_app: アプリの内容を Release Master へ書き戻し、アプリの書き込みとして履歴に残す
  */
 export async function resolveReviewQueueItem(input: {
@@ -309,7 +309,9 @@ export async function resolveReviewQueueItem(input: {
   if (input.action === "adopt_rm") {
     const journal = state.journalByKey.get(input.key) ?? [];
     const latest = journal.filter((e) => e.value.trim() === cell.value).sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0];
-    const submittedAt = latest?.recordedAt ?? now;
+    // 投稿日時は、シートの編集履歴があればその時刻。無ければアプリの元の投稿日時を残す
+    // （「今」にするとタイムラインで昔のレビューが新着として先頭に出てしまう）。どちらも無いときだけ今
+    const submittedAt = latest?.recordedAt ?? (app?.submittedAt || now);
     if (!cell.value) {
       if (app) await clearScoreRow(cell.albumUid, cell.albumTitle, cell.artistName, cell.memberEmail);
     } else {
