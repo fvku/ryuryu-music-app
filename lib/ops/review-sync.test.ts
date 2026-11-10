@@ -140,6 +140,16 @@ describe("runReviewSync", () => {
     expect(again.reviewByReason.time_unknown).toBe(1);
   });
 
+  it("履歴の無い差分を「シートの内容を採用」しても、投稿日時はアプリの元の日時のまま", async () => {
+    await runReviewSync({ apply: true });
+    const item = (await getReviewQueue()).find((q) => q.albumTitle === "Album One")!;
+    const r = await resolveReviewQueueItem({
+      key: item.key, action: "adopt_rm", expected: { rmValue: item.rmValue, appSubmittedAt: item.app!.submittedAt }, actorEmail: KOHEI,
+    });
+    expect(r).toEqual({ ok: true });
+    expect(db.sheets.get("app/scores")![1].slice(2, 5).map(String)).toEqual(["9", "シートで直した", "2026-11-05T00:00:00.000Z"]);
+  });
+
   it("表示した後にシートが変わっていたら解消しない", async () => {
     await runReviewSync({ apply: true });
     const item = (await getReviewQueue())[0];
