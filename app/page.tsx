@@ -7,6 +7,7 @@ import ReviewModal from "@/components/ReviewModal";
 import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import { buildScoreSummary, getCombinedScore, getMyReviewedAlbumNos, getSummaryEntry, ScoreSummary } from "@/lib/score-utils";
 import { useDataChanged } from "@/lib/data-events";
+import { errorMessageOf, fetchJsonOrThrow } from "@/lib/fetch-json";
 
 const GENRE_VALUES = ["邦楽", "洋楽"] as const;
 const UP_NEXT_MJ_EXCLUDE = ["J採用", "採用", "不採用"];
@@ -37,6 +38,8 @@ export default function HomePage() {
   const [scoreSummary, setScoreSummary] = useState<ScoreSummary>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // スコアだけ取れなかった場合は一覧は出しつつ、点数が空なのは失敗のせいだと伝える
+  const [scoresError, setScoresError] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [genreFilters, setGenreFilters] = useState<string[]>([...GENRE_VALUES]);
@@ -120,10 +123,11 @@ export default function HomePage() {
               })
             : Promise.resolve(),
 
-          fetch("/api/scores").then((r) => r.ok ? r.json() : []).then((scores: Score[]) => {
+          fetchJsonOrThrow<Score[]>("/api/scores").then((scores) => {
             setAllScores(scores);
             setScoreSummary(buildScoreSummary(scores));
-          }),
+            setScoresError(null);
+          }).catch((e) => setScoresError(errorMessageOf(e))),
         ]);
       } catch (err) {
         setError(err instanceof Error ? err.message : "エラーが発生しました");
@@ -260,12 +264,19 @@ export default function HomePage() {
       <div className="rounded-2xl p-8 text-center border" style={{ backgroundColor: "var(--bg-card)", borderColor: "rgba(239,68,68,0.3)" }}>
         <p className="text-red-400 text-lg font-medium">エラーが発生しました</p>
         <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>{error}</p>
+        <button type="button" onClick={() => window.location.reload()} className="mt-4 px-4 py-2 rounded-xl text-sm font-medium" style={{ backgroundColor: "var(--accent)", color: "white" }}>再読み込み</button>
       </div>
     );
   }
 
   return (
     <div>
+      {scoresError && (
+        <div role="alert" className="mb-4 rounded-xl p-3 border flex items-center gap-3" style={{ backgroundColor: "rgba(239,68,68,0.08)", borderColor: "rgba(239,68,68,0.35)" }}>
+          <p className="text-xs flex-1" style={{ color: "#fca5a5" }}>点数を読み込めなかったため、平均点とレビュー済みの絞り込みが空になっています。{scoresError}</p>
+          <button type="button" onClick={() => window.location.reload()} className="px-3 py-1.5 rounded-lg text-xs font-bold border flex-shrink-0" style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>再読み込み</button>
+        </div>
+      )}
       {/* Search */}
       <div className="mb-4 relative">
         <input

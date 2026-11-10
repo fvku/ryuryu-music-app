@@ -30,7 +30,17 @@ export default function AlbumCard({ album, coverUrl, averageScore, scoreCount = 
   return (
     <div
       onClick={onClick}
-      className="flex flex-col gap-1.5 p-4 rounded-2xl border transition-all hover:-translate-y-0.5 hover:border-violet-500/40 cursor-pointer active:scale-[0.99]"
+      // キーボード・読み上げからも開けるようにボタンとして振る舞う（中に別の操作要素は無い）
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={onClick ? `${album.artist}『${album.title}』を開く` : undefined}
+      onKeyDown={onClick ? (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      } : undefined}
+      className="flex flex-col gap-1.5 p-4 rounded-2xl border transition-all hover:-translate-y-0.5 hover:border-violet-500/40 cursor-pointer active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500"
       style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}
     >
       <div className="flex items-center gap-4">

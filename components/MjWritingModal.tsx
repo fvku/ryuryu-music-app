@@ -7,6 +7,7 @@ import { reportColumnError } from "@/components/ColumnErrorIndicator";
 import { useSpotifyPlayer } from "@/hooks/useSpotifyPlayer";
 import { SpotifyTrack, useMjTracks } from "@/hooks/useMjTracks";
 import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { changedMjFields, MJ_FIELD_LABEL, MjConflict, MjValues } from "@/lib/mj-concurrency";
 import { clearDraft, draftKey, loadDraft, saveDraft } from "@/lib/drafts";
 import { notifyDataChanged } from "@/lib/data-events";
@@ -102,6 +103,7 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
   const changes = changedMjFields(base, next);
   const dirty = Object.keys(changes).length > 0;
   const guardedClose = useUnsavedGuard(dirty, onClose);
+  const dialogRef = useDialogFocus<HTMLDivElement>();
 
   // 書きかけをこの端末に退避する（保存に成功したら消す）
   useEffect(() => {
@@ -260,7 +262,12 @@ export default function MjWritingModal({ album, coverUrl, spotifyUrl, onClose, o
       onClick={(e) => { if (e.target === e.currentTarget) guardedClose(); }}
     >
       <div
-        className="w-full sm:max-w-lg max-h-[92vh] sm:max-h-[88vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`M/J文章：${album.artist}『${album.title}』`}
+        tabIndex={-1}
+        className="w-full sm:max-w-lg max-h-[92vh] sm:max-h-[88vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl outline-none"
         style={{ backgroundColor: "var(--bg-primary)", border: "1px solid var(--border-subtle)" }}
       >
         <ModalHeader hasText={text.length > 0} onClose={guardedClose} />

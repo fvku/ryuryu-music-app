@@ -10,12 +10,15 @@ interface ScoresSectionProps {
   /** legacy矛盾ガード（filterMismatchedScores）適用済みのスコアのみ渡すこと */
   validScores: Score[];
   loadingScores: boolean;
+  /** 取得失敗。null なら成功（0件は「まだレビューがない」） */
+  scoresError?: string | null;
+  onRetryScores?: () => void;
   combinedAverage: number | null;
   combinedCount: number;
 }
 
 /** 平均スコアカード・メンバーレビュー一覧・Release Master速報（純表示） */
-export default function ScoresSection({ album, validScores, loadingScores, combinedAverage, combinedCount }: ScoresSectionProps) {
+export default function ScoresSection({ album, validScores, loadingScores, scoresError, onRetryScores, combinedAverage, combinedCount }: ScoresSectionProps) {
   const scoreColor = combinedAverage !== null ? getScoreColor(combinedAverage) : "#6b7280";
 
   // Release Master 速報：scoresに取り込まれていない分のみ表示
@@ -29,6 +32,14 @@ export default function ScoresSection({ album, validScores, loadingScores, combi
 
   return (
     <>
+      {scoresError && (
+        <div role="alert" className="rounded-xl p-3 border flex items-center gap-3" style={{ backgroundColor: "rgba(239,68,68,0.08)", borderColor: "rgba(239,68,68,0.35)" }}>
+          <p className="text-xs flex-1" style={{ color: "#fca5a5" }}>アプリのレビューを読み込めませんでした。{scoresError}</p>
+          {onRetryScores && (
+            <button type="button" onClick={onRetryScores} className="px-3 py-1.5 rounded-lg text-xs font-bold border flex-shrink-0" style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>再試行</button>
+          )}
+        </div>
+      )}
       {/* Average score */}
       {combinedAverage !== null && (
         <div className="rounded-2xl p-4 border" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border-subtle)" }}>

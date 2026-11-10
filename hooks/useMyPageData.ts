@@ -7,6 +7,7 @@ import { Bookmark, Recommendation } from "@/lib/sheets";
 import { buildScoreSummary, getMyReviewedAlbumNos, isSameAlbum, namesForUser, ScoreSummary } from "@/lib/score-utils";
 import { useNotifications } from "@/contexts/NotificationsContext";
 import { useDataChanged } from "@/lib/data-events";
+import { errorMessageOf, fetchJsonOrThrow } from "@/lib/fetch-json";
 import { ReviewFilter } from "@/components/mypage/utils";
 
 export type Tab = "listen" | "mj" | "reviewed";
@@ -41,6 +42,7 @@ export function useMyPageData() {
   const [selectedAlbum, setSelectedAlbum] = useState<ReleaseMasterAlbum | null>(null);
   const [reviewedSearch, setReviewedSearch] = useState("");
   const [filtersInitialized, setFiltersInitialized] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // 初期化完了後のみ保存
   useEffect(() => {
@@ -57,17 +59,12 @@ export function useMyPageData() {
       try {
         const userEmail = session!.user!.email!.toLowerCase();
 
-        const [bmRes, albumRes, forYouRes, scoresRes] = await Promise.all([
-          fetch("/api/bookmarks"),
-          fetch("/api/release-master"),
-          fetch("/api/recommendations?forUser=me"),
-          fetch("/api/scores"),
-        ]);
-        const [bmData, albumData, forYouData, allScores]: [Bookmark[], ReleaseMasterAlbum[], Recommendation[], Score[]] = await Promise.all([
-          bmRes.ok ? bmRes.json() : [],
-          albumRes.ok ? albumRes.json() : [],
-          forYouRes.ok ? forYouRes.json() : [],
-          scoresRes.ok ? scoresRes.json() : [],
+        // 失敗を「保存したアルバムがない」などと見せないため、取れなければエラーとして再読み込みを促す
+        const [bmData, albumData, forYouData, allScores] = await Promise.all([
+          fetchJsonOrThrow<Bookmark[]>("/api/bookmarks"),
+          fetchJsonOrThrow<ReleaseMasterAlbum[]>("/api/release-master"),
+          fetchJsonOrThrow<Recommendation[]>("/api/recommendations?forUser=me"),
+          fetchJsonOrThrow<Score[]>("/api/scores"),
         ]);
 
         setBookmarks(bmData);
@@ -129,6 +126,8 @@ export function useMyPageData() {
 
         ]);
         setScoreSummary(buildScoreSummary(allScores));
+      } catch (e) {
+        setLoadError(errorMessageOf(e));
       } finally {
         setLoading(false);
       }
@@ -177,7 +176,7 @@ export function useMyPageData() {
 
   return {
     // 未認証時はデータ取得が走らないため、ローディング表示は不要
-    session, status, loading: status === "unauthenticated" ? false : loading, hasNewForYou,
+    session, status, loading: status === "unauthenticated" ? false : loading, hasNewForYou, loadError,
     tab, handleTabChange,
     listenMode, handleListenModeChange,
     listenFilter, setListenFilter, listenMonthFilter, setListenMonthFilter,

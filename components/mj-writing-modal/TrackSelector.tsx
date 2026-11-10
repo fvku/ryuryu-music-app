@@ -24,6 +24,11 @@ export default function TrackSelector({
   savedTrackLabel,
   onSelectTrack,
 }: TrackSelectorProps) {
+  // 複数枚組は各ディスクに同じ曲番号があるので、表示はディスク番号付き・識別はURIで行う
+  const multiDisc = tracks.some((t) => (t.discNumber ?? 1) > 1);
+  const label = (t: SpotifyTrack) => (multiDisc ? `${t.discNumber ?? 1}-${t.trackNumber}` : String(t.trackNumber));
+  const isSameTrack = (a: SpotifyTrack | null, b: SpotifyTrack) =>
+    !!a && (a.uri && b.uri ? a.uri === b.uri : a.trackNumber === b.trackNumber && a.name === b.name);
   return (
     <div>
       <h3 className="text-xs font-bold mb-2.5" style={{ color: "var(--text-primary)" }}>
@@ -31,7 +36,7 @@ export default function TrackSelector({
       </h3>
       {selectedTrack && (
         <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-xl" style={{ backgroundColor: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.3)" }}>
-          <span className="text-xs font-bold" style={{ color: "var(--accent)" }}>#{selectedTrack.trackNumber}</span>
+          <span className="text-xs font-bold" style={{ color: "var(--accent)" }}>#{label(selectedTrack)}</span>
           <span className="text-sm font-medium flex-1 truncate" style={{ color: "white" }}>{selectedTrack.name}</span>
           <button type="button" onClick={() => onSelectTrack(null)} className="text-xs px-1.5 py-0.5 rounded" style={{ color: "var(--text-secondary)" }}>外す</button>
         </div>
@@ -58,10 +63,11 @@ export default function TrackSelector({
       ) : (
         <div className="rounded-xl border overflow-hidden max-h-44 overflow-y-auto" style={{ borderColor: "var(--border-subtle)" }}>
           {tracks.map((track) => {
-            const isSelected = selectedTrack?.trackNumber === track.trackNumber;
+            const isSelected = isSameTrack(selectedTrack, track);
             return (
               <button
-                key={track.trackNumber}
+                key={track.uri || `${track.discNumber ?? 1}-${track.trackNumber}`}
+                aria-pressed={isSelected}
                 type="button"
                 onClick={() => {
                   // 選択のみ。再生は下の «再生開始位置» パネルの再生ボタンから行う
@@ -71,8 +77,8 @@ export default function TrackSelector({
                 className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-white/5"
                 style={{ backgroundColor: isSelected ? "rgba(139,92,246,0.15)" : "transparent" }}
               >
-                <span className="w-5 text-xs text-right flex-shrink-0" style={{ color: isSelected ? "var(--accent)" : "var(--text-secondary)" }}>
-                  {track.trackNumber}
+                <span className={`${multiDisc ? "w-8" : "w-5"} text-xs text-right flex-shrink-0`} style={{ color: isSelected ? "var(--accent)" : "var(--text-secondary)" }}>
+                  {label(track)}
                 </span>
                 <span className="flex-1 text-xs truncate" style={{ color: isSelected ? "white" : "var(--text-primary)" }}>
                   {track.name}

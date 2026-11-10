@@ -8,6 +8,7 @@ import { getCombinedScore, toMemberScores, filterMismatchedScores } from "@/lib/
 import { useAlbumScores } from "@/hooks/useAlbumScores";
 import { useModalDismiss } from "@/hooks/useModalDismiss";
 import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { useBookmark } from "@/hooks/useBookmark";
 import { useMjAdoption } from "@/hooks/useMjAdoption";
 import ModalHeader from "@/components/review-modal/ModalHeader";
@@ -32,12 +33,13 @@ interface ReviewModalProps {
  */
 export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: ReviewModalProps) {
   const { data: session, status } = useSession();
-  const { scores, loadingScores, refetchScores } = useAlbumScores(album);
+  const { scores, loadingScores, scoresError, refetchScores } = useAlbumScores(album);
   // レビューの書きかけがあるときは、閉じる前に確認する
   const [reviewDirty, setReviewDirty] = useState(false);
   const handleDirtyChange = useCallback((d: boolean) => setReviewDirty(d), []);
   const guardedClose = useUnsavedGuard(reviewDirty, onClose);
   const { dragY, isDragging, headerTouchHandlers } = useModalDismiss(guardedClose);
+  const dialogRef = useDialogFocus<HTMLDivElement>();
   const { bookmarked, bookmarkLoading, toggleBookmark } = useBookmark(album, status);
   const mj = useMjAdoption(album);
 
@@ -67,7 +69,12 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
       onClick={(e) => { if (e.target === e.currentTarget) guardedClose(); }}
     >
       <div
-        className="w-full sm:max-w-lg max-h-[92vh] sm:max-h-[88vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${album.artist}『${album.title}』`}
+        tabIndex={-1}
+        className="w-full sm:max-w-lg max-h-[92vh] sm:max-h-[88vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl outline-none"
         style={{
           backgroundColor: "var(--bg-primary)",
           border: "1px solid var(--border-subtle)",
@@ -99,6 +106,8 @@ export default function ReviewModal({ album, coverUrl, spotifyUrl, onClose }: Re
             album={album}
             validScores={validScores}
             loadingScores={loadingScores}
+            scoresError={scoresError}
+            onRetryScores={refetchScores}
             combinedAverage={combinedAverage}
             combinedCount={combinedCount}
           />

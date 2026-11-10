@@ -1,3 +1,4 @@
+import { MEMBER_SHORT_NAMES } from "@/lib/members";
 export function formatDuration(ms: number) {
   const s = Math.round(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -13,4 +14,4 @@ export function getMjStyle(value: string) {
 
 // "寄稿者" = 外部寄稿（メンバー以外が執筆）。誰にも紐付けない特別値。
 export const CONTRIBUTOR_ASSIGN = "寄稿者";
-export const ASSIGN_VALUES = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa", "Kaede", CONTRIBUTOR_ASSIGN, ""];
+export const ASSIGN_VALUES = [...MEMBER_SHORT_NAMES, CONTRIBUTOR_ASSIGN, ""];

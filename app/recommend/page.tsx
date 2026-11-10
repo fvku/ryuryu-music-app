@@ -8,6 +8,7 @@ import { ReleaseMasterAlbum, Score } from "@/lib/types";
 import ReviewModal from "@/components/ReviewModal";
 import { getDisplayName } from "@/lib/members";
 import { useDataChanged } from "@/lib/data-events";
+import { fetchJsonOrThrow } from "@/lib/fetch-json";
 
 type TimelineItem =
   | { type: "recommendation"; data: Recommendation; createdAt: string }
@@ -47,9 +48,24 @@ export default function RecommendPage() {
   const [monthFilter, setMonthFilter] = useState("すべて");
   const [memberFilter, setMemberFilter] = useState("すべて");
   const [filtersInitialized, setFiltersInitialized] = useState(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-
   const loadMore = useCallback(() => setDisplayCount((prev) => prev + 20), []);
+
+  // 続きを読む位置の監視。監視対象はフィルター次第で出たり消えたりするので、
+  // 要素が付いた・外れたタイミング（callback ref）で監視を付け替える
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const sentinelElRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useCallback((el: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    sentinelElRef.current = el;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) loadMore(); },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    observerRef.current = observer;
+  }, [loadMore]);
 
   // フィルター変更時はリストを先頭に戻す
   const changeMonthFilter = (value: string) => {
@@ -68,30 +84,24 @@ export default function RecommendPage() {
     try { localStorage.setItem("ryuryu_timeline_filters", JSON.stringify({ month: monthFilter, member: memberFilter })); } catch {}
   }, [monthFilter, memberFilter, filtersInitialized]);
 
+  // 追加分を出しても監視位置が画面内に残っている場合（1件が短い・画面が縦長）は、
+  // 交差状態が変わらず通知が来ないので、件数が増えるたびに監視し直して判定させる
   useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) loadMore(); },
-      { rootMargin: "200px" }
-    );
+    const observer = observerRef.current;
+    const el = sentinelElRef.current;
+    if (!observer || !el) return;
+    observer.unobserve(el);
     observer.observe(el);
-    return () => observer.disconnect();
-  }, [loadMore, timeline.length]);
+  }, [displayCount]);
 
   useEffect(() => {
     async function init() {
       try {
-        const [recRes, albumRes, scoresRes] = await Promise.all([
-          fetch("/api/recommendations"),
-          fetch("/api/release-master"),
-          fetch("/api/scores"),
-        ]);
-
-        const [recData, albumData, scoresData]: [Recommendation[], ReleaseMasterAlbum[], Score[]] = await Promise.all([
-          recRes.ok ? recRes.json() : [],
-          albumRes.ok ? albumRes.json() : [],
-          scoresRes.ok ? scoresRes.json() : [],
+        // 失敗を「まだ投稿がない」と見せないため、どれか1つでも取れなければエラーとして再読み込みを促す
+        const [recData, albumData, scoresData] = await Promise.all([
+          fetchJsonOrThrow<Recommendation[]>("/api/recommendations"),
+          fetchJsonOrThrow<ReleaseMasterAlbum[]>("/api/release-master"),
+          fetchJsonOrThrow<Score[]>("/api/scores"),
         ]);
 
         setAlbums(albumData);
@@ -162,7 +172,8 @@ export default function RecommendPage() {
   if (error) {
     return (
       <div className="rounded-2xl p-8 text-center border" style={{ backgroundColor: "var(--bg-card)", borderColor: "rgba(239,68,68,0.3)" }}>
-        <p className="text-red-400">{error}</p>
+        <p role="alert" className="text-red-400">{error}</p>
+        <button type="button" onClick={() => window.location.reload()} className="mt-4 px-4 py-2 rounded-xl text-sm font-medium" style={{ backgroundColor: "var(--accent)", color: "white" }}>再読み込み</button>
       </div>
     );
   }
