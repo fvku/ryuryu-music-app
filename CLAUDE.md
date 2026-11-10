@@ -23,7 +23,8 @@
   - `bookmarks` シート: A=memberName(email), B=albumTitle, C=artistName, D=savedAt, E=albumUid
   - `playlists` シート: A=playlistId, B=label, C=enabled, D=addedAt（プレイリスト収録タグの取得対象。管理画面から追加・削除）
   - `playlist_archive` シート: A=playlistId, B=label, C=kind, D=key, E=name, F=months, G=firstSeenAt, H=lastSeenAt（プレイリスト収録の観測履歴。`lib/ops/playlist-archive.ts` が自動更新するので手で触らない）
-  - アルバム紐付けは **albumUid（Release MasterのUID）優先、title+artistフォールバック**（2026-07-18〜）。albumUidが空の行は移行前の孤児データか手動追加行 → `scripts/backfill-album-uids.ts` の再実行で埋められる（冪等）
+  - **Release Master を一部の列だけ選んで並べ替えない。** 右端のUID列が行とずれ、アプリのレビューが別の作品に付く（2026-11-10に本番で発生。`scripts/repair-album-uids.ts` で修復）。並べ替えるときは全列を選ぶ
+- アルバム紐付けは **albumUid（Release MasterのUID）優先、title+artistフォールバック**（2026-07-18〜）。albumUidが空の行は移行前の孤児データか手動追加行 → `scripts/backfill-album-uids.ts` の再実行で埋められる（冪等）
 - **Release Master**: `RELEASE_MASTER_SPREADSHEET_ID`
   - A=No., B=Date, C=Title, D=Artist, E=Body, F=洋邦, G=Time, H=#, I=リスナー, K=memo（旧playlist）, L=genre（旧genre/memo）, M=国, P=WEEK, R=M/J採用, S=ASSIGN, T=M Number, U=Track, V=Start Time, W=M/J採用（220-300）, Y=Kwisoo, Z=Meri, AA=Kohei, AB=Eddie, AC=Hanawa, AD=Kaede, AF=Spotify, AG=spotifyカバー（640×640）, AJ=UID
   - 列位置は 2026-09-11 に playlist を K 列へ移動した時点のもの。コードはヘッダー名で解決するため、移動しても壊れない
@@ -72,6 +73,7 @@
 | `refetch-spotify.ts` | Spotify URL空行の再取得（名前不一致はMISMATCHアラート） |
 | `assign-uids.ts` | Release Master のUID列採番（dry-run / --apply、冪等） |
 | `backfill-album-uids.ts` | scores/bookmarks/recommendations にRMのUIDを紐付け（dry-run / --apply、冪等） |
+| `repair-album-uids.ts` | albumUid が作品名と食い違う行を、RMの作品名＋アーティスト名（決まらなければ作品名だけ）で付け直す（dry-run / --apply、冪等）。2026-11-10に本番で34件見つかった |
 | `sync-playlist-tags.ts` | 登録プレイリストの収録曲からRMの`memo`（旧playlist）列を更新（dry-run / --apply / --init-column） |
 
 ### fill-time-tracks.ts のオプション
