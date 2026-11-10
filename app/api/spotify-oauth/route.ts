@@ -9,7 +9,7 @@ export async function GET() {
   const gate = await guardMember();
   if (!gate.ok) return gate.response;
   const clientId = process.env.SPOTIFY_CLIENT_ID;
-  const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  const baseUrl = process.env.AUTH_URL || process.env.NEXTAUTH_URL || "http://127.0.0.1:3000";
   const redirectUri = `${baseUrl}/api/spotify-oauth/callback`;
   const state = randomBytes(32).toString("base64url");
 

@@ -15,6 +15,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.stubEnv("SPOTIFY_CLIENT_ID", "test-client");
   vi.stubEnv("SPOTIFY_CLIENT_SECRET", "test-secret");
+  vi.stubEnv("AUTH_URL", "");
   vi.stubEnv("NEXTAUTH_URL", "https://app.example");
   fetchMock = vi.fn().mockResolvedValue(Response.json({
     access_token: "test-access", expires_in: 3600, refresh_token: "test-refresh",
@@ -45,6 +46,19 @@ async function messageFrom(response: Response) {
 }
 
 describe("Spotify connection OAuth", () => {
+  it("uses the canonical Auth.js URL for both authorization and token exchange", async () => {
+    vi.stubEnv("AUTH_URL", "http://127.0.0.1:3000");
+    const redirectUri = "http://127.0.0.1:3000/api/spotify-oauth/callback";
+    const response = await authorize();
+    expect(new URL(response.headers.get("location")!).searchParams.get("redirect_uri")).toBe(redirectUri);
+    await callback(request({ state, code: "test-code" }));
+    expect(new URLSearchParams(fetchMock.mock.calls[0][1].body).get("redirect_uri")).toBe(redirectUri);
+  });
+  it("uses an explicit loopback IP for the local fallback permitted by Spotify", async () => {
+    vi.stubEnv("NEXTAUTH_URL", "");
+    const response = await authorize();
+    expect(new URL(response.headers.get("location")!).searchParams.get("redirect_uri")).toBe("http://127.0.0.1:3000/api/spotify-oauth/callback");
+  });
   it("binds each authorization redirect to a fresh, short-lived browser cookie", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const first = await authorize(), second = await authorize();
