@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncPlaylistTags } from "@/lib/ops/sync-playlist-tags";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
+import { logCronResult } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest) {
     // Vercel のログに残しておくと、取りこぼしの調査で追える
     console.log(`[cron/sync-playlist-tags]\n${lines.join("\n")}`);
 
+    logCronResult("sync-playlist-tags", true, { month: result.month, written: result.written, failed: result.index.failed });
     return NextResponse.json({
       month: result.month,
       scannedRows: result.scannedRows,
@@ -50,6 +52,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (e) {
     console.error("[cron/sync-playlist-tags] failed:", e);
+    logCronResult("sync-playlist-tags", false, { error: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }

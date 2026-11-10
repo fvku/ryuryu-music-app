@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { generatorRpc } from "@/lib/generator/repository";
 import { purgeExpiredAudio } from "@/lib/generator/audio";
 import { GeneratorError } from "@/lib/generator/errors";
+import { logCronResult } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -45,10 +46,13 @@ export async function GET(req: NextRequest) {
       console.error("[cron/supabase-keepalive] audio purge failed", error);
     }
     console.log(`[cron/supabase-keepalive] ok documents=${count} audio=${JSON.stringify(audio)}`);
+    // 休止防止は成功しても音声削除だけ失敗した場合は failed として残す（翌日の再試行で直らなければ気づけるように）
+    logCronResult("supabase-keepalive", !("error" in audio), { documents: count, audio });
     return NextResponse.json({ ok: true, documents: count, audio });
   } catch (e) {
     const code = e instanceof GeneratorError ? e.code : "UNKNOWN";
     console.error(`[cron/supabase-keepalive] failed: ${code}`, e);
+    logCronResult("supabase-keepalive", false, { error: code });
     return NextResponse.json({ ok: false, error: code }, { status: 500 });
   }
 }
