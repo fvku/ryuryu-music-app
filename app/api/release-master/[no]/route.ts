@@ -8,10 +8,10 @@ import { buildHeaderMap, findMissingColumns, getCol, getWriteCol, indexToColumnL
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
 import { findMjConflicts, MjValues } from "@/lib/mj-concurrency";
+import { MEMBER_SHORT_NAMES } from "@/lib/members";
 
 export const dynamic = "force-dynamic";
 
-const LEGACY_MEMBERS = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa"];
 
 /** GET のプリフライト。Allow-Methods に PATCH は載せないので書き込みは従来どおり弾かれる */
 export async function OPTIONS() {
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
       mjTrack:     row[col[SHEET_COL.MJ_TRACK]]     || "",
       mjStartTime: row[col[SHEET_COL.START_TIME]]   || "",
       mjText:      row[col[SHEET_COL.MJ_TEXT]]      || "",
-      legacyScores: LEGACY_MEMBERS
+      legacyScores: MEMBER_SHORT_NAMES
         .map((name) => ({ name, value: row[col[name] ?? -1] || "" }))
         .filter((s) => s.value !== ""),
       spotifyUrl: row[col[SHEET_COL.SPOTIFY_URL]] || "",

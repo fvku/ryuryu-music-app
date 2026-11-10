@@ -36,6 +36,8 @@ export default function ModalHeader({ album, status, bookmarked, bookmarkLoading
           className="w-10 h-10 rounded-full flex items-center justify-center transition-colors hover:bg-white/10 disabled:opacity-50"
           style={{ color: bookmarked ? "#eab308" : "var(--text-secondary)" }}
           title={bookmarked ? "保存済み" : "気になるリストに保存"}
+          aria-label={bookmarked ? "気になるリストから外す" : "気になるリストに保存"}
+          aria-pressed={bookmarked}
         >
           <svg width="22" height="22" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
@@ -48,6 +50,8 @@ export default function ModalHeader({ album, status, bookmarked, bookmarkLoading
       <div className="flex items-center gap-1">
         <ShareMenu album={album} />
         <button
+          type="button"
+          aria-label="閉じる"
           onClick={onClose}
           className="w-10 h-10 rounded-full flex items-center justify-center transition-colors hover:bg-white/10 text-lg font-medium"
           style={{ color: "var(--text-secondary)" }}
@@ -94,6 +98,8 @@ function ShareMenu({ album }: { album: Pick<ReleaseMasterAlbum, "title" | "artis
         className="w-10 h-10 rounded-full flex items-center justify-center transition-colors hover:bg-white/10"
         style={{ color: "var(--text-secondary)" }}
         title="シェア"
+        aria-label="シェア"
+        aria-expanded={shareOpen}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />

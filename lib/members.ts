@@ -7,6 +7,17 @@ export const EMAIL_TO_SHORT_NAME: Record<string, string> = {
   "qururiquiqui@gmail.com": "Kaede",
 };
 
+/**
+ * メンバーの短縮名。Release Master のスコア列の見出しと同じで、並びも列順（Y〜AD）に合わせる。
+ * 6人の一覧はここと EMAIL_TO_SHORT_NAME だけを正とし、他で手書きしない（Kaedeの読み落としの原因になった）
+ */
+export const MEMBER_SHORT_NAMES: string[] = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa", "Kaede"];
+
+/** 短縮名 → メール */
+export const SHORT_NAME_TO_EMAIL: Record<string, string> = Object.fromEntries(
+  Object.entries(EMAIL_TO_SHORT_NAME).map(([email, name]) => [name, email])
+);
+
 // Known legacy name variants (lower-cased) → canonical email
 // Used for backward-compat lookup of old entries stored with short or full names
 export const LEGACY_NAME_TO_EMAIL: Record<string, string> = {

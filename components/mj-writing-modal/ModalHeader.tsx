@@ -17,6 +17,8 @@ export default function ModalHeader({ hasText, onClose }: ModalHeaderProps) {
         {hasText ? "M/J 文章を編集" : "M/J 文章を書く"}
       </h2>
       <button
+        type="button"
+        aria-label="閉じる"
         onClick={onClose}
         className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 text-lg font-medium"
         style={{ color: "var(--text-secondary)" }}

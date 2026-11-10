@@ -35,8 +35,10 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // ピンチでの拡大は禁止しない（読みづらい人が拡大できるように）。
+  // maximumScale は iOS が入力欄にフォーカスしたとき勝手に拡大するのを防ぐために残す。
+  // iOS Safari はこの指定があっても利用者のピンチ拡大を許可する
   maximumScale: 1,
-  userScalable: false,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

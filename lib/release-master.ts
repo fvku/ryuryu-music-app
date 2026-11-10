@@ -2,6 +2,7 @@ import { google } from "googleapis";
 import { buildHeaderMap, findMissingColumns, indexToColumnLetter, SHEET_COL } from "./sheet-headers";
 import { getGoogleAuth } from "./google-auth";
 import { invalidateCache, CACHE_KEY } from "./api-cache";
+import { SHORT_NAME_TO_EMAIL } from "@/lib/members";
 
 export function getWriteAuth() {
   return getGoogleAuth(true);
@@ -85,15 +86,7 @@ export async function getReleaseMasterScoreRows(): Promise<ReleaseMasterScoreRow
   const [headerRow, ...dataRows] = allRows;
   const col = buildHeaderMap(headerRow);
 
-  // メンバー名 → email のマッピング（EMAIL_TO_SHORT_NAMEの逆引き）
-  const MEMBER_EMAIL: Record<string, string> = {
-    "Kwisoo": "kwisoo1102@gmail.com",
-    "Meri":   "akyme68@gmail.com",
-    "Kohei":  "kohei.fuku0926@gmail.com",
-    "Eddie":  "edwardcannell93@gmail.com",
-    "Hanawa": "yoshinorihnw@gmail.com",
-    "Kaede": "qururiquiqui@gmail.com",
-  };
+  const MEMBER_EMAIL = SHORT_NAME_TO_EMAIL;
 
   return dataRows
     .filter((row) => row[col["No."] ?? 0] && row[col["アルバム名"] ?? 2] && row[col["アーティスト"] ?? 3])

@@ -1,13 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSession, signIn } from "next-auth/react";
 import { useNotifications } from "@/contexts/NotificationsContext";
 import { isImmersiveRoute } from "@/lib/app-chrome";
 
 export default function BottomNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const { data: session } = useSession();
   const { hasNewForYou } = useNotifications();
 
@@ -71,9 +72,13 @@ export default function BottomNav() {
                 if (isMyPage && !session) {
                   signIn("google");
                 } else {
-                  window.location.href = tab.href;
+                  // ページ全体の読み込み直しはしない。各ページは表示のたびにデータを取り直すので
+                  // 戻ったときに最新が出るのは従来どおり
+                  router.push(tab.href);
                 }
               }}
+              type="button"
+              aria-current={active ? "page" : undefined}
               className="flex-1 flex flex-col items-center gap-1 py-4 transition-colors"
               style={{ color: active ? "var(--accent)" : "var(--text-secondary)" }}
             >

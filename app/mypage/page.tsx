@@ -15,7 +15,7 @@ import { getAssignInfo, getMjAlbums, hasMjText } from "@/components/mypage/utils
 
 export default function MyPage() {
   const {
-    session, status, loading, hasNewForYou,
+    session, status, loading, hasNewForYou, loadError,
     tab, handleTabChange,
     listenMode, handleListenModeChange,
     listenFilter, setListenFilter, listenMonthFilter, setListenMonthFilter,
@@ -61,6 +61,15 @@ export default function MyPage() {
           </svg>
           Googleでログイン
         </button>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="rounded-2xl p-8 mt-6 text-center border" style={{ backgroundColor: "var(--bg-card)", borderColor: "rgba(239,68,68,0.3)" }}>
+        <p role="alert" className="text-red-400 text-sm">{loadError}</p>
+        <button type="button" onClick={() => window.location.reload()} className="mt-4 px-4 py-2 rounded-xl text-sm font-medium" style={{ backgroundColor: "var(--accent)", color: "white" }}>再読み込み</button>
       </div>
     );
   }

@@ -1,5 +1,6 @@
 import { guardMember } from "@/lib/member-auth";
 import { NextRequest, NextResponse } from "next/server";
+import { bearerPageFetcher, collectAllTrackItems } from "@/lib/spotify-album-tracks";
 export const dynamic = "force-dynamic";
 
 function hasJapaneseChars(text: string): boolean {
@@ -72,17 +73,10 @@ export async function GET(request: NextRequest) {
     const artistName = (data.artists ?? []).map((a: { name: string }) => a.name).join(", ");
     const waboku = detectWaboku(artistName, data.name ?? "", artistGenres);
 
-    const totalDurationMs: number = (data.tracks?.items ?? []).reduce(
-      (sum: number, track: { duration_ms: number }) => sum + (track.duration_ms ?? 0),
-      0
-    );
-
-    const tracks: { name: string; durationMs: number }[] = (data.tracks?.items ?? []).map(
-      (t: { name: string; duration_ms: number }) => ({
-        name: t.name,
-        durationMs: t.duration_ms,
-      })
-    );
+    // 50曲を超える作品は tracks.next を辿らないと曲数・総尺が足りない
+    const trackItems = await collectAllTrackItems(data.tracks ?? {}, bearerPageFetcher(accessToken));
+    const totalDurationMs: number = trackItems.reduce((sum, track) => sum + (track.duration_ms ?? 0), 0);
+    const tracks: { name: string; durationMs: number }[] = trackItems.map((t) => ({ name: t.name, durationMs: t.duration_ms }));
 
     return NextResponse.json({
       id: data.id,

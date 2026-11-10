@@ -6,10 +6,10 @@ import { cached, CACHE_KEY, CACHE_TTL } from "@/lib/api-cache";
 import { getGoogleAuth } from "@/lib/google-auth";
 import { isAuthorized } from "@/lib/api-token";
 import { corsJson, corsPreflight } from "@/lib/api-cors";
+import { MEMBER_SHORT_NAMES } from "@/lib/members";
 
 export const dynamic = "force-dynamic";
 
-const LEGACY_MEMBERS = ["Kwisoo", "Meri", "Kohei", "Eddie", "Hanawa"];
 
 async function fetchAlbums(): Promise<ReleaseMasterAlbum[]> {
   const spreadsheetId = process.env.RELEASE_MASTER_SPREADSHEET_ID;
@@ -52,7 +52,7 @@ async function fetchAlbums(): Promise<ReleaseMasterAlbum[]> {
       mjTrack:     row[col[SHEET_COL.MJ_TRACK]]    || "",
       mjStartTime: row[col[SHEET_COL.START_TIME]]  || "",
       mjText:      row[col[SHEET_COL.MJ_TEXT]]     || "",
-      legacyScores: LEGACY_MEMBERS
+      legacyScores: MEMBER_SHORT_NAMES
         .map((name) => ({
           name,
           value: row[col[name] ?? -1] || "",

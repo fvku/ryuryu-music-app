@@ -1,5 +1,6 @@
 import { guardMember } from "@/lib/member-auth";
 import { NextRequest, NextResponse } from "next/server";
+import { bearerPageFetcher, collectAllTrackItems, toAppTrack } from "@/lib/spotify-album-tracks";
 
 export const dynamic = "force-dynamic";
 
@@ -39,24 +40,10 @@ export async function GET(req: NextRequest) {
 
   try {
     const accessToken = await fetchFreshToken();
-    const res = await fetch(
-      `https://api.spotify.com/v1/albums/${albumId}/tracks?market=JP&limit=50`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        cache: "no-store",
-      }
-    );
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(`Spotify API error: ${res.status} ${JSON.stringify(body)}`);
-    }
-    const data = await res.json();
-    const tracks = (data.items ?? []).map((t: { track_number: number; name: string; duration_ms: number; uri: string }) => ({
-      trackNumber: t.track_number,
-      name: t.name,
-      durationMs: t.duration_ms,
-      uri: t.uri,
-    }));
+    const fetchPage = bearerPageFetcher(accessToken);
+    const first = await fetchPage(`https://api.spotify.com/v1/albums/${albumId}/tracks?market=JP&limit=50`);
+    const items = await collectAllTrackItems(first, fetchPage);
+    const tracks = items.map(toAppTrack);
     return NextResponse.json(tracks);
   } catch (e) {
     console.error("Failed to fetch Spotify tracks:", e);
