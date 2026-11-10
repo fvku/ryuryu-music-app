@@ -20,10 +20,11 @@ Supabase は無料プランで、アクセスが無い日が続くと休止す�
 |---|---|---|---|
 | `/api/cron/sync-playlist-tags` | 毎日 15:30 UTC（JST 0:30） | プレイリスト収録タグの更新とアーカイブ | `admin_logs` に `email=cron, action=cron:sync-playlist-tags` |
 | `/api/cron/supabase-keepalive` | 毎日 3:00 UTC（JST 12:00） | Supabase休止防止と期限切れ音声の削除 | `admin_logs` に `action=cron:supabase-keepalive`。音声削除だけ失敗した場合も `failed` |
+| `/api/cron/sync-release-master` | 毎日 19:00 UTC（JST 4:00） | レビュー同期とUID採番。ホームを開いたときにも動く | `admin_logs` に `action=cron:sync-release-master`（ホームからの実行は、反映があったときと失敗時だけ） |
 
 - 認証は `CRON_SECRET`（Vercel の環境変数）。未設定だと500。
 - Hobby プランは1日1回まで・本数に上限があるため、keepalive に音声削除を相乗りさせている。
-- `/api/cron/sync-release-master` は Cron に登録されていない。ホームを開いたときに画面から起動する（第2段階で作り直す予定）。
+- レビュー同期で自動で決められない差分は、管理画面の保守タブ「レビュー同期の確認待ち」に出る。
 
 ### 失敗に気づく方法
 

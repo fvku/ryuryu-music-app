@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guardMember } from "@/lib/member-auth";
-import { getScoresForAlbum, addScore, hasScore, initScoresSheet, updateScore } from "@/lib/sheets";
+import { getScoresForAlbum, addScore, findScoreByRequestId, hasScore, initScoresSheet, updateScore } from "@/lib/sheets";
 import { getMemberShortName } from "@/lib/members";
 import { writeScoreToReleaseMaster } from "@/lib/release-master";
 import { LEGACY_NAME_TO_EMAIL } from "@/lib/members";
 import { invalidateCache, CACHE_KEY } from "@/lib/api-cache";
+
+const RM_WARNING = "アプリには保存しましたが、Release Masterへの反映に失敗しました";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +48,9 @@ export async function POST(
       .map(([name]) => name);
 
     const body = await request.json();
-    const { score, comment, albumTitle: _albumTitle, artistName: _artistName, albumUid } = body as { score: number | null; comment: string; albumTitle?: string; artistName?: string; albumUid?: string };
+    const { score, comment, albumTitle: _albumTitle, artistName: _artistName, albumUid, requestId: _requestId } = body as { score: number | null; comment: string; albumTitle?: string; artistName?: string; albumUid?: string; requestId?: string };
+    // 同じ投稿の再送（通信が切れて結果が分からなかった場合など）を二重登録しないための操作ID
+    const requestId = typeof _requestId === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(_requestId) ? _requestId : "";
     const albumTitle = _albumTitle ?? "";
     const artistName = _artistName ?? "";
 
@@ -64,6 +68,11 @@ export async function POST(
     }
 
     await initScoresSheet();
+
+    if (requestId) {
+      const sent = await findScoreByRequestId(requestId);
+      if (sent) return NextResponse.json({ ...sent, duplicate: true }, { status: 200 });
+    }
 
     const alreadyScored = await hasScore(albumTitle, artistName, memberName, altNames, albumUid);
     if (alreadyScored) {
@@ -86,19 +95,25 @@ export async function POST(
       albumTitle: albumTitle || "",
       artistName: artistName || "",
       albumUid: albumUid || "",
+      requestId,
     });
-    // scoresシートとRelease Master（メンバースコア列）の両方が変わる
-    invalidateCache(CACHE_KEY.SCORES, CACHE_KEY.RELEASE_MASTER);
+    invalidateCache(CACHE_KEY.SCORES);
 
+    // コメントだけの投稿は Release Master に書かない（従来の仕様）
     if (shortName && score !== null && score !== undefined) {
       try {
-        await writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment, albumUid);
+        await writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment, albumUid, {
+          memberEmail: memberName, operationId: requestId || `post-${newScore.submittedAt}`, recordedAt: newScore.submittedAt,
+        });
       } catch (e) {
         console.error("Failed to write score to Release Master:", e);
-        // scoresシートへの保存は成功しているため処理は続行するが警告を付与
-        return NextResponse.json({ ...newScore, warning: "Release Masterへの反映に失敗しました" }, { status: 201 });
+        // アプリへの保存は成功している。画面で部分成功を伝え、更新（PUT）で安全に再送できるようにする
+        invalidateCache(CACHE_KEY.SCORES, CACHE_KEY.RELEASE_MASTER);
+        return NextResponse.json({ ...newScore, warning: RM_WARNING, rmPending: true }, { status: 201 });
       }
     }
+    // 書き込みが終わってから無効化する（途中の読み取りが古い内容を保存し直さないように）
+    invalidateCache(CACHE_KEY.SCORES, CACHE_KEY.RELEASE_MASTER);
 
     return NextResponse.json(newScore, { status: 201 });
   } catch (error) {
@@ -135,16 +150,22 @@ export async function PUT(request: NextRequest) {
     if (!updated) {
       return NextResponse.json({ error: "レビューが見つかりません" }, { status: 404 });
     }
-    invalidateCache(CACHE_KEY.SCORES, CACHE_KEY.RELEASE_MASTER);
+    invalidateCache(CACHE_KEY.SCORES);
 
-    if (shortName && score !== null && score !== undefined) {
+    // スコアを「なし」にした場合も Release Master を揃える（古い点数が平均に残らないように）。
+    // 元々空のセルにスコアなしは書かない（writeScoreToReleaseMaster 側で判定）
+    if (shortName) {
       try {
-        await writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score, trimmedComment, albumUid);
+        await writeScoreToReleaseMaster(albumTitle || "", artistName || "", shortName, score ?? null, trimmedComment, albumUid, {
+          memberEmail: memberName, operationId: `put-${updated.submittedAt}`, recordedAt: updated.submittedAt,
+        });
       } catch (e) {
         console.error("Failed to write score to Release Master:", e);
-        return NextResponse.json({ ...updated, warning: "Release Masterへの反映に失敗しました" });
+        invalidateCache(CACHE_KEY.SCORES, CACHE_KEY.RELEASE_MASTER);
+        return NextResponse.json({ ...updated, warning: RM_WARNING, rmPending: true });
       }
     }
+    invalidateCache(CACHE_KEY.SCORES, CACHE_KEY.RELEASE_MASTER);
 
     return NextResponse.json(updated);
   } catch (error) {

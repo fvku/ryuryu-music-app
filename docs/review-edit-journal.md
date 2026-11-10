@@ -1,6 +1,6 @@
 # レビュー編集履歴の導入と確認
 
-この段階では、Release Masterの手入力を同じスプレッドシートの `_review_edit_log` へ追記する。履歴は「記録時刻が新しいレビューを優先する」同期の準備に使う。**アプリの同期判定は未変更で、履歴の自動取り込みもまだ行わない。**
+Release Masterの手入力を同じスプレッドシートの `_review_edit_log` へ追記する。アプリの同期（`lib/ops/review-sync.ts`、2026-11-10〜）はこの履歴の記録時刻でアプリより新しいと確かめられた手入力だけを反映し、それ以外は管理画面の確認待ちに回す。**設置するまでは、シートの手入力はすべて確認待ちになる**（自動では反映しない）。アプリからの書き込みは `lib/review-journal.ts` が同じ形式で記録する（履歴シートが無ければ記録しない）。
 
 コード: [ReviewJournal.gs](../apps-script/ReviewJournal.gs)。ローカル検証は、この実ファイルをVMで実行する [review-journal.test.ts](../apps-script/review-journal.test.ts)。
 
