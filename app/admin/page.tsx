@@ -5,6 +5,7 @@ import Link from "next/link";
 import { DEFAULT_SPOTIFY_BATCH_LIMIT, SPOTIFY_BATCH_LIMIT_OPTIONS } from "@/lib/admin-spotify-batch";
 import { MismatchQueueModal, type RefetchMismatch } from "@/components/admin/MismatchQueueModal";
 import ReviewSyncQueue from "@/components/admin/ReviewSyncQueue";
+import CronStatusPanel from "@/components/admin/CronStatusPanel";
 
 type TabKey = "weekly" | "monthly" | "maintenance";
 
@@ -532,6 +533,8 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      <div className="mb-5"><CronStatusPanel summary /></div>
 
       {/* タブ */}
       <div className="flex gap-1 border-b mb-1 overflow-x-auto" style={{ borderColor: "var(--border-subtle)" }}>
