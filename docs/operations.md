@@ -42,7 +42,7 @@ Supabase は無料プランで、アクセスが無い日が続くと休止す�
 - 2026-11-11、**毎日の確認は Claude の `ryuryu-cron-watch`（13:30 JST）だけで行うと決定。Codex の定期タスクは停止**。「ryuryu-music 定期実行の確認」は停止済み。Claudeは既存のryuryu-musicフォルダを読み取り、ソースやブランチは変更しない。[登録内容・再設定用の依頼文と確認手順](cron-monitoring-setup.md)を参照。
 - Codexは、Koheiに頼まれたときに管理画面の報告文や上記の確認コマンドを使い、原因と修正案を調べる。
 - 確認時刻は12:30 JSTから13:30 JSTへ変更した。[Vercel HobbyのCronは指定時刻から1時間以内に開始する](https://vercel.com/docs/schedules/cron-jobs/usage-and-pricing#hobby-scheduling-limits)ため、12:00の `supabase-keepalive` が12:59に開始する場合があり、12:30の確認では初日に「記録なし」の誤報になり得る。
-- [Claude Code Desktopの定期タスク](https://code.claude.com/docs/en/desktop-scheduled-tasks)は、今回のローカルファイルを使う構成ではMacが起動・起床し、Claudeアプリが稼働している必要がある。Koheiからの報告では、Claude側は13:30 JSTに変更済みで、負荷分散により実際は毎日13:34ごろに開始する。コマンドがcheckoutに無い場合は、ブランチを切り替えず監視不能として報告する。
+- [Claude Code Desktopの定期タスク](https://code.claude.com/docs/en/desktop-scheduled-tasks)は、今回のローカルファイルを使う構成ではMacが起動・起床し、Claudeアプリが稼働している必要がある。Claude側は13:30 JSTに設定済みで（2026-11-11確認）、負荷分散により実際は毎日13:34ごろに開始する。コマンドがcheckoutに無い場合は、ブランチを切り替えず監視不能として報告する。
 - 自動確認を設定するときは、変更のない異常を毎回通知せず、新しい異常・状態の変化・復旧・確認処理自体の失敗を知らせる。通知するかは前回の結果との比較で決める。AIは原因の確認と提案までとし、同じ作業フォルダの同時編集、本番Sheetsへの書き込み、Apps Scriptの変更、無承認のマージは行わない。
 
 ## 本番の状態（2026-11-10確認）

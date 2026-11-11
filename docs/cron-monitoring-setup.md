@@ -3,7 +3,7 @@
 2026-11-11、Koheiが毎日の確認はClaudeだけで行い、確認時刻を12:30 JSTから13:30 JSTへ変更すると決定した。
 
 - **Codex: 停止済み（参考）。** 「ryuryu-music 定期実行の確認」はCodexの登録機能で停止し、保存された状態が `PAUSED` であることを確認した。再登録しない。CodexはKoheiに頼まれたときに、管理画面の報告文や確認コマンドで調査する。
-- **Claude: 登録済み・時刻変更済み。** `ryuryu-cron-watch`（有効）。毎日13:30 JST、既存のryuryu-musicフォルダを使用する。Koheiからの報告によると、Claudeが13:30への変更を完了し、負荷分散により実際は毎日13:34ごろに開始する。今回のCodex作業ではClaude側の保存設定を再確認していない。
+- **Claude: 登録済み・時刻変更済み。** `ryuryu-cron-watch`（有効）。毎日13:30 JST、既存のryuryu-musicフォルダを使用する。2026-11-11にClaudeが13:30へ変更し、保存された設定（`30 13 * * *`・有効）を確認した。負荷分散により実際は毎日13:34ごろに開始する。
 
 [Vercel HobbyのCronは指定時刻から1時間以内に開始する](https://vercel.com/docs/schedules/cron-jobs/usage-and-pricing#hobby-scheduling-limits)。12:00の `supabase-keepalive` が12:59に開始することもあり、12:30の確認では初日に「記録なし」の誤報になり得るため、確認を13:30 JSTへ遅らせた。
 
@@ -49,7 +49,7 @@ docs/operations.md とこの文書の登録状態の記録は、実際の設定�
 
 [Claude Code Desktopのローカル定期タスク](https://code.claude.com/docs/en/desktop-scheduled-tasks)は、Macが起動・起床し、Claudeアプリが稼働している必要がある。設定時刻は13:30 JSTで、実行開始には数分の遅れが入ることがある。端末のスリープ設定はこの作業では変更しない。
 
-確認コマンドは、作業フォルダ（`~/ryuryu-music`）で今開いているブランチのコードで動く。作業が終わったら `main` に戻し、作業ブランチは `main` から切る。確認コマンドが無いブランチのままだと「監視不能」と通知される。PR #29の今回の追加作業は `codex/cron-status` のままにし、マージ後にClaudeが `main` へ戻す。
+確認コマンドは、作業フォルダ（`~/ryuryu-music`）で今開いているブランチのコードで動く。作業が終わったら `main` に戻し、作業ブランチは `main` から切る。確認コマンドが無いブランチのままだと「監視不能」と通知される。
 
 コマンドが読むのは保存された成否の記録であり、Cronの実行開始やタイムアウトを直接監視するものではない。レビュー同期にはホームからの実行の記録も含む。詳しい扱いは[運用ガイド](operations.md#claudecodexへの共有と定期確認)を参照。
 
