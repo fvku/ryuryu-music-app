@@ -1,9 +1,11 @@
 # 定期実行のAI確認の設定
 
-2026-11-11、Koheiが「CodexとClaudeがそれぞれ毎日12:30（日本時間）に確認する」を選択した。
+2026-11-11、Koheiが毎日の確認はClaudeだけで行い、確認時刻を12:30 JSTから13:30 JSTへ変更すると決定した。
 
-- **Codex: 登録済み。** 「ryuryu-music 定期実行の確認」（有効）。このプロジェクトのチャットで毎日12:30に確認する。
-- **Claude: 登録済み。** `ryuryu-cron-watch`（有効）。毎日12:30 JST、既存のryuryu-musicフォルダを使用する。アプリの登録機能を通じて作成し、保存された設定のタスク名・有効状態・スケジュール・作業フォルダと、実行指示を読み取って確認した。登録セッションでリポジトリの変更は行っていない。
+- **Codex: 停止済み（参考）。** 「ryuryu-music 定期実行の確認」はCodexの登録機能で停止し、保存された状態が `PAUSED` であることを確認した。再登録しない。CodexはKoheiに頼まれたときに、管理画面の報告文や確認コマンドで調査する。
+- **Claude: 登録済み・時刻変更済み。** `ryuryu-cron-watch`（有効）。毎日13:30 JST、既存のryuryu-musicフォルダを使用する。Koheiからの報告によると、Claudeが13:30への変更を完了し、負荷分散により実際は毎日13:34ごろに開始する。今回のCodex作業ではClaude側の保存設定を再確認していない。
+
+[Vercel HobbyのCronは指定時刻から1時間以内に開始する](https://vercel.com/docs/schedules/cron-jobs/usage-and-pricing#hobby-scheduling-limits)。12:00の `supabase-keepalive` が12:59に開始することもあり、12:30の確認では初日に「記録なし」の誤報になり得るため、確認を13:30 JSTへ遅らせた。
 
 ## Claudeへ渡す登録依頼
 
@@ -15,7 +17,7 @@
 
 名前: ryuryu-cron-watch
 説明: 定期実行3件の記録を読み取り専用で確認し、異常の変化や復旧をKoheiへ知らせる
-時刻: 毎日12:30、Asia/Tokyo（日本時間）
+時刻: 毎日13:30、Asia/Tokyo（日本時間）
 作業フォルダ: このプロジェクトの既存のryuryu-musicフォルダ
 既存の .env.local と node_modules を使うため、別worktreeへの切り替えは不要です。
 
@@ -37,7 +39,7 @@
    Apps Script（popularity）の操作、PRのマージ、他のAIへの自動連絡は行わない。
    Kairos／MENU／All Tomorrowsの確認待ちはKwisooの判断待ちなので解消しない。
 
-登録後は、タスクが有効、毎日12:30 JST、正しい作業フォルダであることを確認してください。
+登録後は、タスクが有効、毎日13:30 JST、正しい作業フォルダであることを確認してください。
 本番のシートに書き込まず、読み取り専用の確認コマンドが実行できることも確認してください。
 docs/operations.md とこの文書の登録状態の記録は、実際の設定を確認した後で必要に応じて更新してください。
 文書の更新前には git status を確認し、他の未コミット変更があればKoheiに確認してください。
@@ -45,8 +47,10 @@ docs/operations.md とこの文書の登録状態の記録は、実際の設定�
 
 ## 実行条件と確認先
 
-[Codexの定期タスク](https://learn.chatgpt.com/docs/automations?surface=app)と[Claude Code Desktopのローカル定期タスク](https://code.claude.com/docs/en/desktop-scheduled-tasks)は、Macが起動・起床し、対象アプリが稼働している必要がある。Claudeでは実行開始に数分の遅れが入ることがある。端末のスリープ設定はこの作業では変更しない。
+[Claude Code Desktopのローカル定期タスク](https://code.claude.com/docs/en/desktop-scheduled-tasks)は、Macが起動・起床し、Claudeアプリが稼働している必要がある。設定時刻は13:30 JSTで、実行開始には数分の遅れが入ることがある。端末のスリープ設定はこの作業では変更しない。
+
+確認コマンドは、作業フォルダ（`~/ryuryu-music`）で今開いているブランチのコードで動く。作業が終わったら `main` に戻し、作業ブランチは `main` から切る。確認コマンドが無いブランチのままだと「監視不能」と通知される。PR #29の今回の追加作業は `codex/cron-status` のままにし、マージ後にClaudeが `main` へ戻す。
 
 コマンドが読むのは保存された成否の記録であり、Cronの実行開始やタイムアウトを直接監視するものではない。レビュー同期にはホームからの実行の記録も含む。詳しい扱いは[運用ガイド](operations.md#claudecodexへの共有と定期確認)を参照。
 
-Codexは同じチャットの前回結果を比較に使う。Claudeは毎回新しいセッションになるため、Claude専用の状態メモを使う。どちらも異常への自動修復は行わず、復旧判断と本番変更の承認はKoheiが行う。
+Claudeは毎回新しいセッションになるため、Claude専用の状態メモを使って前回結果と比較する。Codexの定期確認は行わない。異常への自動修復は行わず、復旧判断と本番変更の承認はKoheiが行う。

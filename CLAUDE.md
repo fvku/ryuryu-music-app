@@ -40,6 +40,10 @@
 - `lib/sheet-headers.ts` — 列名定数（`SHEET_COL`）と動的ヘッダー解決ユーティリティ
 - `lib/score-utils.ts` — スコア集計の共通ロジック（最新絞り込み・legacy優先マージ・レビュー済み判定）
 - `lib/api-cache.ts` — GET APIのin-memoryキャッシュ（書き込みルートで `invalidateCache` を呼ぶこと）
+- `lib/cron-status.ts` — 定期実行ログの成否・未記録・36時間経過の判定と、AI向け報告文の生成
+- `lib/cron-status-store.ts` — `admin_logs` のA〜D列を読み取り専用で取得し、定期実行の状況を集計
+- `app/admin/operations` — 定期実行3件の状況・履歴の表示と、AIへの報告文コピー画面
+- `scripts/check-cron-status.ts` — Claude・Codex共用の読み取り専用確認コマンド（`--json` 対応）
 - `lib/members.ts` — メンバー6人の唯一の定義（`EMAIL_TO_SHORT_NAME`・`MEMBER_SHORT_NAMES`＝Release Masterのスコア列順）。メンバー名を他のファイルで手書きしない
 - `lib/data-events.ts` — 画面内の「保存しました」通知。モーダルで保存したら `notifyDataChanged`、一覧側は `useDataChanged` で受けて取り直す（再読み込みせずに一覧を揃える）
 - `lib/drafts.ts` / `hooks/useUnsavedGuard.ts` — レビュー・M/J原稿の書きかけ退避（localStorage `ryuryu_draft:*`、14日）と、閉じる前の確認
@@ -201,6 +205,8 @@ Monthly／Japanの表紙（画像01）は作品のジャケットだけで作る
 ## 運用
 
 データの置き場所・定期実行・障害時の確認順は [運用ガイド](docs/operations.md)。Cronの成否は `admin_logs` に `email=cron` で残る（`logCronResult`）。
+
+定期確認はClaudeの `ryuryu-cron-watch` が毎日13:30 JSTに行う（Codexの定期タスクは停止済み。頼まれたときだけ調査する）。
 
 環境変数（Vercel Production）: Google（`GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`・`GOOGLE_SERVICE_ACCOUNT_KEY`）、Sheets（`GOOGLE_SPREADSHEET_ID`・`RELEASE_MASTER_SPREADSHEET_ID`）、認証（`NEXTAUTH_URL`・`NEXTAUTH_SECRET`・`ALLOWED_MEMBER_EMAILS`。ローカルは `AUTH_URL`/`NEXTAUTH_URL` を `http://127.0.0.1:3000` に揃える）、Spotify（`SPOTIFY_CLIENT_ID`・`SPOTIFY_CLIENT_SECRET`）、外部ツール用（`RELEASE_MASTER_API_TOKEN`）、Cron（`CRON_SECRET`）、ジェネレーター（`GENERATOR_ENABLED`・`SUPABASE_URL`・`SUPABASE_SERVICE_ROLE_KEY`、音声は `B2_KEY_ID`・`B2_APPLICATION_KEY`・`B2_BUCKET`・`B2_ENDPOINT`）。`VAPID_*` は未マージの Web Push 用。
 
